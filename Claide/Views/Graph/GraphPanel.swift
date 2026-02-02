@@ -656,16 +656,7 @@ struct GraphPanel: View {
     }
 
     private var emptyView: some View {
-        VStack(spacing: 8) {
-            Text("NO ISSUES")
-                .font(Theme.labelFont)
-                .foregroundStyle(Theme.textMuted)
-                .tracking(1.5)
-            Text("No .beads/ directory found")
-                .font(Theme.monoFontSmall)
-                .foregroundStyle(Theme.textMuted)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        EmptyStateView(dataSource: viewModel.dataSource)
     }
 }
 

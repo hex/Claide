@@ -120,6 +120,116 @@ struct BadgeColors: Equatable, Sendable {
     }
 }
 
+/// Fast-appearing tooltip for SwiftUI views where `.help()` doesn't work
+/// (e.g. buttons with `.buttonStyle(.plain)`).
+/// Shows after 0.1s instead of the default ~1.5s macOS delay.
+struct Tooltip: NSViewRepresentable {
+    let text: String
+
+    init(_ text: String) { self.text = text }
+
+    func makeNSView(context: Context) -> TooltipView {
+        TooltipView(text: text)
+    }
+
+    func updateNSView(_ nsView: TooltipView, context: Context) {
+        nsView.tooltipText = text
+    }
+
+    final class TooltipView: NSView {
+        var tooltipText: String
+        private var hoverTimer: Timer?
+        private var tooltipWindow: NSWindow?
+
+        init(text: String) {
+            self.tooltipText = text
+            super.init(frame: .zero)
+            let area = NSTrackingArea(
+                rect: .zero,
+                options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect],
+                owner: self
+            )
+            addTrackingArea(area)
+        }
+
+        required init?(coder: NSCoder) { fatalError() }
+
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+        override func mouseEntered(with event: NSEvent) {
+            hoverTimer?.invalidate()
+            hoverTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: false) { [weak self] _ in
+                self?.showTooltip()
+            }
+        }
+
+        override func mouseExited(with event: NSEvent) {
+            hoverTimer?.invalidate()
+            hoverTimer = nil
+            hideTooltip()
+        }
+
+        override func removeFromSuperview() {
+            hoverTimer?.invalidate()
+            hideTooltip()
+            super.removeFromSuperview()
+        }
+
+        private func showTooltip() {
+            guard let window, let screen = window.screen else { return }
+            let mouseScreen = NSEvent.mouseLocation
+            let padding: CGFloat = 4
+            let font = NSFont.systemFont(ofSize: NSFont.smallSystemFontSize)
+            let attrs: [NSAttributedString.Key: Any] = [.font: font]
+            let size = (tooltipText as NSString).size(withAttributes: attrs)
+            let tipWidth = size.width + padding * 2 + 4
+            let tipHeight = size.height + padding * 2
+
+            var origin = CGPoint(x: mouseScreen.x + 12, y: mouseScreen.y - tipHeight - 8)
+            // Keep on screen
+            if origin.x + tipWidth > screen.visibleFrame.maxX {
+                origin.x = screen.visibleFrame.maxX - tipWidth
+            }
+            if origin.y < screen.visibleFrame.minY {
+                origin.y = mouseScreen.y + 16
+            }
+
+            let tipWindow = NSWindow(
+                contentRect: NSRect(origin: origin, size: CGSize(width: tipWidth, height: tipHeight)),
+                styleMask: .borderless,
+                backing: .buffered,
+                defer: false
+            )
+            tipWindow.isOpaque = false
+            tipWindow.backgroundColor = .clear
+            tipWindow.level = .floating
+            tipWindow.ignoresMouseEvents = true
+
+            let label = NSTextField(labelWithString: tooltipText)
+            label.font = font
+            label.textColor = .white
+            label.frame = NSRect(x: padding, y: padding, width: size.width + 4, height: size.height)
+
+            let container = NSView(frame: NSRect(origin: .zero, size: CGSize(width: tipWidth, height: tipHeight)))
+            container.wantsLayer = true
+            container.layer?.backgroundColor = NSColor(white: 0.15, alpha: 0.95).cgColor
+            container.layer?.cornerRadius = 4
+            container.layer?.borderWidth = 0.5
+            container.layer?.borderColor = NSColor(white: 0.3, alpha: 1).cgColor
+            container.addSubview(label)
+
+            tipWindow.contentView = container
+            tipWindow.orderFront(nil)
+            self.tooltipWindow = tipWindow
+        }
+
+        private func hideTooltip() {
+            tooltipWindow?.orderOut(nil)
+            tooltipWindow = nil
+        }
+    }
+}
+
 /// Section header styled like the Mahoraga dashboard: uppercase, letter-spaced, muted
 struct SectionHeader: View {
     let title: String

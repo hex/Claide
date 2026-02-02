@@ -28,15 +28,21 @@ struct ForceLayoutTests {
         let vm = GraphViewModel()
         vm.setIssues(try makeTestIssues())
 
-        let positions = Array(vm.positions.values)
-        let minDistance: CGFloat = 50
+        let ids = vm.issues.map(\.id)
+        // Minimum center-to-center distance must exceed node diagonal
+        // so rendered rectangles (200x80) never overlap
+        let nodeWidth = NodeMetrics.graphWidth
+        let nodeHeight = NodeMetrics.graphHeight
+        let minDistance = sqrt(nodeWidth * nodeWidth + nodeHeight * nodeHeight)
 
-        for i in 0..<positions.count {
-            for j in (i + 1)..<positions.count {
-                let dx = positions[i].x - positions[j].x
-                let dy = positions[i].y - positions[j].y
+        for i in 0..<ids.count {
+            for j in (i + 1)..<ids.count {
+                let pa = vm.positions[ids[i]]!
+                let pb = vm.positions[ids[j]]!
+                let dx = pa.x - pb.x
+                let dy = pa.y - pb.y
                 let dist = sqrt(dx * dx + dy * dy)
-                #expect(dist > minDistance, "Nodes \(i) and \(j) are too close: \(dist)")
+                #expect(dist > minDistance, "Nodes \(ids[i]) and \(ids[j]) are too close: \(dist)")
             }
         }
     }
