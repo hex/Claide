@@ -1,0 +1,14 @@
+# Xcode
+Claide.xcodeproj/
+.build/
+build/
+xcuserdata/
+DerivedData/
+*.xcworkspace/
+
+# OS files
+.DS_Store
+
+# API keys
+*.p8
+*.p12
