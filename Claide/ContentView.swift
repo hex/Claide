@@ -135,6 +135,7 @@ struct ContentView: View {
                     .frame(width: 22, height: 22)
             }
             .buttonStyle(.plain)
+            .overlay(Tooltip("Refresh").allowsHitTesting(false))
 
             if showDataSourceToggle {
                 Divider()
@@ -155,9 +156,7 @@ struct ContentView: View {
         .padding(8)
     }
 
-    private var showDataSourceToggle: Bool {
-        ClaudeTaskService.isAvailable && BeadsService.findBinary() != nil
-    }
+    private var showDataSourceToggle: Bool { true }
 
     private func dataSourceIcon(_ source: DataSource, systemName: String) -> some View {
         Button {
@@ -174,6 +173,7 @@ struct ContentView: View {
                 .clipShape(RoundedRectangle(cornerRadius: 4))
         }
         .buttonStyle(.plain)
+        .overlay(Tooltip(source.rawValue).allowsHitTesting(false))
     }
 
     private func tabIcon(_ tab: SidebarTab, systemName: String) -> some View {
@@ -188,6 +188,7 @@ struct ContentView: View {
                 .clipShape(RoundedRectangle(cornerRadius: 4))
         }
         .buttonStyle(.plain)
+        .overlay(Tooltip(tab.rawValue).allowsHitTesting(false))
     }
 
     // MARK: - Discovery

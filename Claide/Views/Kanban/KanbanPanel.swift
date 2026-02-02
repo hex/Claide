@@ -18,6 +18,8 @@ struct KanbanPanel: View {
                     .foregroundStyle(Theme.negative)
                     .padding(Theme.panelPadding)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if viewModel.issues.isEmpty {
+                EmptyStateView(dataSource: viewModel.dataSource)
             } else {
                 boardContent
             }

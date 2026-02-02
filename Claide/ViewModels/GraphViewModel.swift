@@ -5,7 +5,7 @@ import SwiftUI
 
 enum DataSource: String, CaseIterable {
     case beads = "Beads"
-    case claudeCode = "Tasks"
+    case claudeCode = "Claude Code Tasks"
 }
 
 @MainActor @Observable
@@ -18,11 +18,11 @@ final class GraphViewModel {
     var dataSource: DataSource = .beads
 
     // Force layout constants
-    private let repulsion: CGFloat = 2000
-    private let attraction: CGFloat = 0.025
+    private let repulsion: CGFloat = 8000
+    private let attraction: CGFloat = 0.02
     private let damping: CGFloat = 0.85
-    private let idealLength: CGFloat = NodeMetrics.graphHeight
-    private let iterations: Int = 150
+    private let idealLength: CGFloat = NodeMetrics.graphWidth * 1.5
+    private let iterations: Int = 200
 
     /// Edges derived from all issue dependencies
     var edges: [(from: String, to: String, type: String)] {
@@ -43,7 +43,6 @@ final class GraphViewModel {
     }
 
     func loadIssues(workingDirectory: String? = nil) async {
-        isLoading = true
         error = nil
         do {
             switch dataSource {
@@ -54,9 +53,9 @@ final class GraphViewModel {
             }
             computeLayout()
         } catch {
+            issues = []
             self.error = error.localizedDescription
         }
-        isLoading = false
     }
 
     /// Set issues directly (for testing or preview)
@@ -74,7 +73,7 @@ final class GraphViewModel {
 
         // Initialize positions in a circle
         let center = CGPoint(x: 400, y: 300)
-        let radius: CGFloat = CGFloat(issues.count) * 20
+        let radius: CGFloat = CGFloat(issues.count) * 40
         for (i, id) in issueIDs.enumerated() {
             let angle = (CGFloat(i) / CGFloat(issues.count)) * 2 * .pi
             positions[id] = CGPoint(
