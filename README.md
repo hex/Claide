@@ -1,6 +1,14 @@
+<p align="center">
+  <img src="docs/icon.png" width="128" height="128" alt="Claide icon">
+</p>
+
 # Claide
 
 A macOS companion app for [Claude Code](https://docs.anthropic.com/en/docs/claude-code) sessions. Provides a terminal, issue tracker visualization, and live file change monitoring in a single window.
+
+<p align="center">
+  <img src="docs/screenshot.png" width="720" alt="Claide screenshot">
+</p>
 
 ## Requirements
 
