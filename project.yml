@@ -12,8 +12,8 @@ options:
 
 packages:
   SwiftTerm:
-    url: https://github.com/migueldeicaza/SwiftTerm
-    revision: 8840e3596739adfe9599c0e7fff89f4fa88bedcf
+    url: https://github.com/hex/SwiftTerm
+    revision: da9d4feffc06cd153c859f825f691767ba51d276
 
 targets:
   Claide:
