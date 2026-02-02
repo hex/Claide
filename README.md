@@ -53,7 +53,7 @@ Embedded terminal via [SwiftTerm](https://github.com/migueldeicaza/SwiftTerm). L
 
 ### Board
 
-Kanban-style view with four columns: Open, Active, Blocked, Done. Cards show title, priority, type, owner, and dependency count. Data comes from `bd list --json` (beads issue tracker).
+Kanban-style view with four columns: Open, Active, Blocked, Done. Cards show title, priority, type, owner, and dependency count. Supports two data sources: beads issues (`bd list --json`) and Claude Code tasks (`~/.claude/tasks/`).
 
 ### Graph
 
@@ -70,36 +70,43 @@ MVVM with three view models:
 | ViewModel | Drives | Data Source |
 |---|---|---|
 | `TerminalViewModel` | Terminal status bar, directory tracking | SwiftTerm delegate callbacks |
-| `GraphViewModel` | Board + Graph views, force layout | `bd list --json` via BeadsService |
+| `GraphViewModel` | Board + Graph views, force layout | BeadsService or ClaudeTaskService |
 | `FileLogViewModel` | File change list | `changes.md` via FileWatcher |
 
 ### Project Structure
 
 ```
 Claide/
-  ClaideApp.swift          # Entry point, window configuration
-  ContentView.swift        # Root HSplitView + sidebar VSplitView
-  Theme.swift              # Colors, fonts, spacing tokens
+  ClaideApp.swift            # Entry point, window configuration
+  ContentView.swift          # Root HSplitView + sidebar VSplitView
+  Theme.swift                # Colors, fonts, spacing tokens, tooltips
   Models/
-    Issue.swift            # Beads issue model
-    IssueDependency.swift  # Edge between issues
-    FileChange.swift       # Parsed change log entry
+    Issue.swift              # Shared issue model (beads + claude tasks)
+    IssueDependency.swift    # Edge between issues
+    FileChange.swift         # Parsed change log entry
   ViewModels/
-    GraphViewModel.swift   # Issues, positions, force layout
-    FileLogViewModel.swift # File watcher + parser
+    GraphViewModel.swift     # Issues, positions, force layout
+    FileLogViewModel.swift   # File watcher + parser
     TerminalViewModel.swift
   Views/
-    Graph/GraphPanel.swift # Canvas-based dependency graph
+    Graph/GraphPanel.swift   # Canvas-based dependency graph
     Kanban/KanbanPanel.swift
     FileLog/FileLogPanel.swift
-    Terminal/TerminalPanel.swift
-    SettingsView.swift     # Font picker
+    Terminal/
+      TerminalPanel.swift
+      TerminalTabBar.swift   # Tab strip with add/close
+      TerminalTabManager.swift
+      ResizableTerminalView.swift
+    EmptyStateView.swift     # Data-source-aware placeholder
+    IssueDetailPopover.swift
+    SettingsView.swift       # Font picker
   Services/
-    BeadsService.swift     # Runs bd CLI, decodes JSON
-    FileWatcher.swift      # GCD DispatchSource file monitor
-  Assets.xcassets/         # App icon
-ClaideTests/               # 93 tests across 10 suites
-project.yml                # XcodeGen spec
+    BeadsService.swift       # Runs bd CLI, decodes JSON
+    ClaudeTaskService.swift  # Reads ~/.claude/tasks/ files
+    FileWatcher.swift        # GCD DispatchSource file monitor
+  Assets.xcassets/           # App icon
+ClaideTests/                 # 153 tests across 16 suites
+project.yml                  # XcodeGen spec
 ```
 
 ## Vision
@@ -115,7 +122,6 @@ Near-term:
 Longer-term:
 - Watch `bd` output for real-time issue updates (same pattern as FileWatcher)
 - Searchable file change log with path filtering
-- Multiple terminal tabs
 
 ## Tests
 
@@ -123,8 +129,8 @@ Longer-term:
 xcodebuild -scheme Claide -destination 'platform=macOS' test
 ```
 
-93 tests covering issue parsing, force layout convergence, node/edge visuals, kanban column assignment, font selection, file change parsing, and zoom-adaptive metrics.
+153 tests across 16 suites covering issue parsing, force layout convergence, node/edge visuals, kanban column assignment, font selection, file change parsing, Claude Code task parsing, and zoom-adaptive metrics.
 
 ## License
 
-Private.
+MIT
