@@ -7,6 +7,7 @@ struct ContentView: View {
     @State private var tabManager = TerminalTabManager()
     @State private var graphVM = GraphViewModel()
     @State private var fileLogVM = FileLogViewModel()
+    @State private var sessionStatusVM = SessionStatusViewModel()
     @State private var sidebarTab: SidebarTab = .board
     @AppStorage("fontFamily") private var fontFamily: String = ""
     @AppStorage("cursorStyle") private var cursorStyle: String = "bar"
@@ -50,6 +51,8 @@ struct ContentView: View {
                 await vm.loadIssues(workingDirectory: sessionDirectory)
             }
             discoverChangesFile(from: sessionDirectory)
+            let shellPid = tabManager.activeTab?.terminalView.process?.shellPid ?? 0
+            sessionStatusVM.startWatching(sessionDirectory: sessionDirectory, shellPid: shellPid)
         }
         .focusedValue(\.tabManager, tabManager)
         .onChange(of: tabManager.activeViewModel?.currentDirectory) { _, newDir in
@@ -59,6 +62,8 @@ struct ContentView: View {
                     await vm.loadIssues(workingDirectory: dir)
                 }
                 discoverChangesFile(from: dir)
+                let shellPid = tabManager.activeTab?.terminalView.process?.shellPid ?? 0
+                sessionStatusVM.startWatching(sessionDirectory: dir, shellPid: shellPid)
             }
         }
         .onChange(of: cursorStyle) {
@@ -80,6 +85,8 @@ struct ContentView: View {
             TerminalPanel(tabManager: tabManager, fontFamily: fontFamily)
                 .padding(12)
                 .background(Color(nsColor: TerminalTheme.background))
+
+            SessionStatusBar(status: sessionStatusVM.status)
         }
     }
 
@@ -195,7 +202,6 @@ struct ContentView: View {
 
     /// Try to find changes.md in the session directory hierarchy
     private func discoverChangesFile(from directory: String) {
-        // Look for changes.md in the directory and its parents
         var dir = directory
         for _ in 0..<5 {
             let candidate = (dir as NSString).appendingPathComponent("changes.md")
