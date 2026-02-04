@@ -21,6 +21,10 @@ targets:
     platform: macOS
     sources:
       - Claide
+    preBuildScripts:
+      - name: Build Rust Library
+        script: '"${PROJECT_DIR}/rust/build-universal.sh"'
+        basedOnDependencyAnalysis: false
     settings:
       base:
         CODE_SIGN_ENTITLEMENTS: Claide/Claide.entitlements
@@ -33,6 +37,8 @@ targets:
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_KEY_LSUIElement: false
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        LIBRARY_SEARCH_PATHS: "$(PROJECT_DIR)/rust/target/lib"
+        SWIFT_OBJC_BRIDGING_HEADER: Claide/BridgingHeader.h
       configs:
         Release:
           CODE_SIGN_STYLE: Manual

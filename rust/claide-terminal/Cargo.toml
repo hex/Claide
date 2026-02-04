@@ -1,0 +1,15 @@
+# ABOUTME: Cargo manifest for the terminal emulation crate.
+# ABOUTME: Produces a C-compatible static library for Swift FFI.
+
+[package]
+name = "claide-terminal"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["staticlib"]
+
+[dependencies]
+alacritty_terminal = "0.25"
+vte = "0.15"
+libc = "0.2"

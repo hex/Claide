@@ -1,0 +1,3 @@
+[workspace]
+members = ["claide-terminal"]
+resolver = "2"

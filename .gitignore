@@ -12,3 +12,6 @@ DerivedData/
 # API keys
 *.p8
 *.p12
+
+# Rust
+rust/target/
