@@ -13,3 +13,4 @@ crate-type = ["staticlib"]
 alacritty_terminal = "0.25"
 vte = "0.15"
 libc = "0.2"
+rustix-openpty = "0.2"
