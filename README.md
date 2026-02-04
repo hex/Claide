@@ -14,6 +14,7 @@ A macOS companion app for [Claude Code](https://docs.anthropic.com/en/docs/claud
 
 - macOS 14.0+
 - [XcodeGen](https://github.com/yonaskolb/XcodeGen)
+- [Rust toolchain](https://rustup.rs/) (for the terminal emulation library)
 - [beads](https://github.com/hex/beads) (`bd` CLI) for issue tracking
 
 ## Build
@@ -24,7 +25,7 @@ xcodegen generate
 xcodebuild -scheme Claide -destination 'platform=macOS' build
 ```
 
-Or open `Claide.xcodeproj` in Xcode after generating.
+The Rust library (`claide-terminal`) is built automatically by a Run Script build phase. Or open `Claide.xcodeproj` in Xcode after generating.
 
 ## Layout
 
@@ -49,7 +50,7 @@ The window is split horizontally: terminal on the left (~65%), sidebar on the ri
 
 ### Terminal
 
-Embedded terminal via [SwiftTerm](https://github.com/migueldeicaza/SwiftTerm). Launches `/bin/zsh -l` with full environment (homebrew paths, OSC 7 directory tracking). Custom font selection available in Settings.
+GPU-accelerated terminal powered by [alacritty_terminal](https://crates.io/crates/alacritty_terminal) (Rust) for VT emulation and Metal for rendering. Launches `/bin/zsh -l` with full environment (homebrew paths, OSC 7 directory tracking). Supports multiple tabs, custom font selection, and cursor style configuration.
 
 ### Board
 
@@ -65,13 +66,29 @@ Live file change monitor. Watches `changes.md` (written by `cs` session hooks on
 
 ## Architecture
 
-MVVM with three view models:
+### Terminal Stack
+
+The terminal is a custom Rust + Metal pipeline:
+
+```
+SwiftUI (TerminalPanel) → NSView (MetalTerminalView + CAMetalLayer)
+  → Metal shaders (instanced quads for backgrounds + glyphs)
+  → GlyphAtlas (Core Text rasterization at Retina resolution)
+  → GridRenderer (builds per-cell instance buffers from grid snapshots)
+  → TerminalBridge (Swift ↔ Rust C FFI)
+  → alacritty_terminal (VTE parser, grid buffer, PTY management)
+```
+
+The Rust library (`rust/claide-terminal/`) handles terminal emulation: PTY fork/exec, byte-level VTE parsing, grid state, and event dispatch. A C ABI exposes ~8 functions to Swift. The Metal renderer takes grid snapshots each frame and draws instanced quads — one pass for cell backgrounds, one for alpha-blended glyph textures.
+
+### View Models
 
 | ViewModel | Drives | Data Source |
 |---|---|---|
-| `TerminalViewModel` | Terminal status bar, directory tracking | SwiftTerm delegate callbacks |
+| `TerminalViewModel` | Terminal status bar, directory tracking | TerminalBridge event callbacks |
 | `GraphViewModel` | Board + Graph views, force layout | BeadsService or ClaudeTaskService |
 | `FileLogViewModel` | File change list | `changes.md` via FileWatcher |
+| `SessionStatusViewModel` | Context usage bar | Claude Code JSONL transcripts |
 
 ### Project Structure
 
@@ -80,33 +97,52 @@ Claide/
   ClaideApp.swift            # Entry point, window configuration
   ContentView.swift          # Root HSplitView + sidebar VSplitView
   Theme.swift                # Colors, fonts, spacing tokens, tooltips
+  FontSelection.swift        # Monospaced font enumeration and creation
+  BridgingHeader.h           # Imports Rust C FFI headers
   Models/
     Issue.swift              # Shared issue model (beads + claude tasks)
     IssueDependency.swift    # Edge between issues
     FileChange.swift         # Parsed change log entry
+    SessionStatus.swift      # Claude Code session context usage
   ViewModels/
     GraphViewModel.swift     # Issues, positions, force layout
     FileLogViewModel.swift   # File watcher + parser
-    TerminalViewModel.swift
+    TerminalViewModel.swift  # Terminal title, directory, process state
+    SessionStatusViewModel.swift
   Views/
     Graph/GraphPanel.swift   # Canvas-based dependency graph
     Kanban/KanbanPanel.swift
     FileLog/FileLogPanel.swift
     Terminal/
-      TerminalPanel.swift
-      TerminalTabBar.swift   # Tab strip with add/close
-      TerminalTabManager.swift
-      ResizableTerminalView.swift
+      MetalTerminalView.swift  # NSView + CAMetalLayer, keyboard input
+      TerminalBridge.swift     # Swift wrapper over Rust C FFI
+      GlyphAtlas.swift         # Core Text → MTLTexture shelf-packed atlas
+      GridRenderer.swift       # Snapshot → Metal instance buffers
+      TerminalShaders.metal    # Vertex + fragment shaders
+      TerminalPanel.swift      # NSViewRepresentable host
+      TerminalTabBar.swift     # Tab strip with add/close
+      TerminalTabManager.swift # Tab lifecycle, shell spawning
+      TerminalTheme.swift      # Terminal color palette
+      SessionStatusBar.swift   # Context usage indicator
     EmptyStateView.swift     # Data-source-aware placeholder
     IssueDetailPopover.swift
-    SettingsView.swift       # Font picker
+    SettingsView.swift       # Font picker, cursor style
   Services/
     BeadsService.swift       # Runs bd CLI, decodes JSON
     ClaudeTaskService.swift  # Reads ~/.claude/tasks/ files
     FileWatcher.swift        # GCD DispatchSource file monitor
   Assets.xcassets/           # App icon
-ClaideTests/                 # 153 tests across 16 suites
-project.yml                  # XcodeGen spec
+rust/
+  claide-terminal/
+    src/
+      lib.rs               # Crate root
+      ffi.rs               # C ABI entry points
+      handle.rs            # PTY fork/exec, Term creation
+      pty_reader.rs        # Background thread: PTY → VTE parser
+      listener.rs          # Event dispatch to Swift callbacks
+      grid_snapshot.rs     # Visible grid → C-compatible struct
+ClaideTests/               # Tests across 16 suites
+project.yml                # XcodeGen spec
 ```
 
 ## Vision

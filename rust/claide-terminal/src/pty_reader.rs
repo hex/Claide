@@ -5,6 +5,7 @@ use std::io::Read;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
+use alacritty_terminal::event::{Event, EventListener};
 use alacritty_terminal::sync::FairMutex;
 use alacritty_terminal::term::Term;
 use alacritty_terminal::vte;
@@ -158,8 +159,13 @@ pub fn run_reader(
                 }
 
                 // Feed bytes to the terminal
-                let mut term = term.lock();
-                parser.advance(&mut *term, bytes);
+                {
+                    let mut term = term.lock();
+                    parser.advance(&mut *term, bytes);
+                }
+
+                // Notify Swift that the terminal state changed
+                listener.send_event(Event::Wakeup);
             }
             Err(e) => {
                 if e.kind() == std::io::ErrorKind::Interrupted {

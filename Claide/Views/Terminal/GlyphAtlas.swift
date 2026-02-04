@@ -18,9 +18,10 @@ struct GlyphEntry {
     let v0: Float
     let u1: Float
     let v1: Float
+    /// Glyph dimensions in points (for quad sizing in the viewport).
     let width: Int
     let height: Int
-    /// Offset from cell top-left to glyph origin, in pixels.
+    /// Offset from cell top-left to glyph origin, in points.
     let bearingX: Float
     let bearingY: Float
 }
@@ -47,13 +48,17 @@ final class GlyphAtlas {
     private var italicFont: CTFont
     private var boldItalicFont: CTFont
 
-    /// Cell dimensions determined by the font metrics.
+    /// Backing scale factor for Retina rasterization.
+    private(set) var scale: CGFloat
+
+    /// Cell dimensions determined by the font metrics (in points).
     private(set) var cellWidth: CGFloat = 0
     private(set) var cellHeight: CGFloat = 0
     private(set) var descent: CGFloat = 0
 
-    init(device: MTLDevice, font: NSFont, width: Int = 2048, height: Int = 2048) {
+    init(device: MTLDevice, font: NSFont, scale: CGFloat = 2.0, width: Int = 2048, height: Int = 2048) {
         self.device = device
+        self.scale = scale
         self.atlasWidth = width
         self.atlasHeight = height
 
@@ -139,26 +144,28 @@ final class GlyphAtlas {
         let line = CTLineCreateWithAttributedString(attrStr)
         let bounds = CTLineGetBoundsWithOptions(line, [.useGlyphPathBounds])
 
+        // Glyph dimensions in points (for quad sizing)
         let glyphWidth = max(Int(ceil(bounds.width)) + 2, 1)
         let glyphHeight = max(Int(ceil(bounds.height)) + 2, 1)
 
-        // Check if we need to start a new shelf
-        if cursorX + glyphWidth + padding > atlasWidth {
+        // Bitmap at native pixel resolution for Retina clarity
+        let bitmapWidth = Int(ceil(CGFloat(glyphWidth) * scale))
+        let bitmapHeight = Int(ceil(CGFloat(glyphHeight) * scale))
+
+        // Shelf packing in pixel dimensions
+        if cursorX + bitmapWidth + padding > atlasWidth {
             shelfY += shelfHeight + padding
             shelfHeight = 0
             cursorX = 0
         }
 
-        // Check if atlas is full
-        if shelfY + glyphHeight > atlasHeight {
+        if shelfY + bitmapHeight > atlasHeight {
             return nil
         }
 
-        shelfHeight = max(shelfHeight, glyphHeight)
+        shelfHeight = max(shelfHeight, bitmapHeight)
 
-        // Rasterize into a bitmap
-        let bitmapWidth = glyphWidth
-        let bitmapHeight = glyphHeight
+        // Rasterize at native resolution
         var pixels = [UInt8](repeating: 0, count: bitmapWidth * bitmapHeight)
 
         pixels.withUnsafeMutableBufferPointer { buffer in
@@ -172,26 +179,30 @@ final class GlyphAtlas {
                 bitmapInfo: CGImageAlphaInfo.none.rawValue
             ) else { return }
 
+            // Scale so Core Text renders at native pixel density
+            context.scaleBy(x: scale, y: scale)
+
             context.setAllowsFontSmoothing(true)
             context.setShouldSmoothFonts(true)
             context.setAllowsAntialiasing(true)
             context.setShouldAntialias(true)
 
-            // Draw at the glyph's natural position
+            // Draw at the glyph's natural position (in points, scaled by context)
             let drawX = -bounds.origin.x + 1
             let drawY = -bounds.origin.y + 1
             context.textPosition = CGPoint(x: drawX, y: drawY)
             CTLineDraw(line, context)
         }
 
-        // Upload to atlas
+        // Upload to atlas (pixel dimensions)
         let region = MTLRegion(
             origin: MTLOrigin(x: cursorX, y: shelfY, z: 0),
             size: MTLSize(width: bitmapWidth, height: bitmapHeight, depth: 1)
         )
         texture.replace(region: region, mipmapLevel: 0, withBytes: &pixels, bytesPerRow: bitmapWidth)
 
-        // Create entry with normalized texture coordinates
+        // UV coordinates reference the pixel-sized region in the atlas.
+        // Width/height stay in points for quad sizing in the viewport.
         let fw = Float(atlasWidth)
         let fh = Float(atlasHeight)
         let entry = GlyphEntry(
@@ -199,8 +210,8 @@ final class GlyphAtlas {
             v0: Float(shelfY) / fh,
             u1: Float(cursorX + bitmapWidth) / fw,
             v1: Float(shelfY + bitmapHeight) / fh,
-            width: bitmapWidth,
-            height: bitmapHeight,
+            width: glyphWidth,
+            height: glyphHeight,
             bearingX: Float(bounds.origin.x) - 1,
             bearingY: Float(bounds.origin.y) - 1
         )
@@ -209,6 +220,13 @@ final class GlyphAtlas {
         cursorX += bitmapWidth + padding
 
         return entry
+    }
+
+    /// Update the backing scale factor, clearing the atlas cache.
+    func setScale(_ newScale: CGFloat) {
+        guard newScale != scale else { return }
+        scale = newScale
+        clearAtlas()
     }
 
     /// Update the font, clearing the atlas cache.
@@ -246,13 +264,15 @@ final class GlyphAtlas {
         CTFontGetAdvancesForGlyphs(baseFont, .horizontal, &glyph, &advance, 1)
         cellWidth = ceil(advance.width)
 
-        // Reset atlas
+        clearAtlas()
+    }
+
+    private func clearAtlas() {
         cache.removeAll()
         shelfY = 0
         shelfHeight = 0
         cursorX = 0
 
-        // Clear texture
         let zeros = [UInt8](repeating: 0, count: atlasWidth * atlasHeight)
         let region = MTLRegion(origin: MTLOrigin(), size: MTLSize(width: atlasWidth, height: atlasHeight, depth: 1))
         texture.replace(region: region, mipmapLevel: 0, withBytes: zeros, bytesPerRow: atlasWidth)

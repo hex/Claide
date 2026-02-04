@@ -5,6 +5,22 @@ import AppKit
 import Metal
 import QuartzCore
 
+// CVDisplayLink callback — must be file-level to avoid @MainActor isolation inheritance.
+private func displayLinkFired(
+    _ link: CVDisplayLink,
+    _ now: UnsafePointer<CVTimeStamp>,
+    _ output: UnsafePointer<CVTimeStamp>,
+    _ flagsIn: CVOptionFlags,
+    _ flagsOut: UnsafeMutablePointer<CVOptionFlags>,
+    _ userInfo: UnsafeMutableRawPointer?
+) -> CVReturn {
+    let view = Unmanaged<MetalTerminalView>.fromOpaque(userInfo!).takeUnretainedValue()
+    DispatchQueue.main.async {
+        view.displayLinkTick()
+    }
+    return kCVReturnSuccess
+}
+
 /// GPU-accelerated terminal view using Metal for rendering and alacritty_terminal for emulation.
 final class MetalTerminalView: NSView, CALayerDelegate {
 
@@ -83,7 +99,8 @@ final class MetalTerminalView: NSView, CALayerDelegate {
         layer = metalLayer
 
         // Initialize atlas and renderer
-        atlas = GlyphAtlas(device: device, font: terminalFont)
+        let scale = NSScreen.main?.backingScaleFactor ?? 2.0
+        atlas = GlyphAtlas(device: device, font: terminalFont, scale: scale)
 
         let library = device.makeDefaultLibrary()!
         gridRenderer = try! GridRenderer(device: device, atlas: atlas, library: library)
@@ -136,16 +153,18 @@ final class MetalTerminalView: NSView, CALayerDelegate {
         guard let link else { return }
         displayLink = link
 
-        CVDisplayLinkSetOutputCallback(link, { (_, _, _, _, _, userInfo) -> CVReturn in
-            let view = Unmanaged<MetalTerminalView>.fromOpaque(userInfo!).takeUnretainedValue()
-            if view.needsRedraw {
-                view.needsRedraw = false
-                view.render()
-            }
-            return kCVReturnSuccess
-        }, Unmanaged.passUnretained(self).toOpaque())
+        CVDisplayLinkSetOutputCallback(
+            link, displayLinkFired,
+            Unmanaged.passUnretained(self).toOpaque()
+        )
 
         CVDisplayLinkStart(link)
+    }
+
+    fileprivate func displayLinkTick() {
+        guard needsRedraw else { return }
+        needsRedraw = false
+        render()
     }
 
     private func stopDisplayLink() {
@@ -182,10 +201,11 @@ final class MetalTerminalView: NSView, CALayerDelegate {
             return
         }
 
-        let scale = metalLayer.contentsScale
+        // Cell positions are in points (from CTFont metrics); viewport must match.
+        // The Metal layer's contentsScale handles physical pixel resolution independently.
         let viewportSize = SIMD2<Float>(
-            Float(bounds.width * scale),
-            Float(bounds.height * scale)
+            Float(bounds.width),
+            Float(bounds.height)
         )
 
         gridRenderer.draw(encoder: encoder, viewportSize: viewportSize)
@@ -226,6 +246,7 @@ final class MetalTerminalView: NSView, CALayerDelegate {
             width: bounds.width * scale,
             height: bounds.height * scale
         )
+        atlas?.setScale(scale)
         needsRedraw = true
     }
 
@@ -241,11 +262,10 @@ final class MetalTerminalView: NSView, CALayerDelegate {
         interpretKeyEvents([event])
     }
 
-    func insertText(_ string: Any, replacementRange: NSRange) {
-        guard let str = string as? String else { return }
+    override func insertText(_ insertString: Any) {
+        guard let str = insertString as? String else { return }
 
         if optionAsMeta && NSApp.currentEvent?.modifierFlags.contains(.option) == true {
-            // Option-as-Meta: send ESC prefix + character
             bridge?.write("\u{1b}" + str)
         } else {
             bridge?.write(str)
@@ -323,6 +343,16 @@ final class MetalTerminalView: NSView, CALayerDelegate {
     }
 
     // MARK: - Focus
+
+    override func mouseDown(with event: NSEvent) {
+        window?.makeFirstResponder(self)
+        super.mouseDown(with: event)
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        window?.makeFirstResponder(self)
+    }
 
     override func flagsChanged(with event: NSEvent) {
         // Could track modifier state if needed
