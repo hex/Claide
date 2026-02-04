@@ -120,9 +120,49 @@ final class TerminalBridge: @unchecked Sendable {
         claide_terminal_snapshot_free(snapshot)
     }
 
+    // MARK: - Selection
+
+    /// Start a selection at the given grid position.
+    func startSelection(row: Int32, col: UInt32, side: SelectionSide, type: SelectionKind) {
+        claide_terminal_selection_start(handle, row, col, side.rawValue, `type`.rawValue)
+    }
+
+    /// Update the selection endpoint as the mouse moves.
+    func updateSelection(row: Int32, col: UInt32, side: SelectionSide) {
+        claide_terminal_selection_update(handle, row, col, side.rawValue)
+    }
+
+    /// Clear the current selection.
+    func clearSelection() {
+        claide_terminal_selection_clear(handle)
+    }
+
+    /// Extract the selected text, or nil if nothing is selected.
+    func selectedText() -> String? {
+        guard let ptr = claide_terminal_selection_text(handle) else { return nil }
+        defer { claide_terminal_selection_text_free(ptr) }
+        return String(cString: ptr)
+    }
+
     deinit {
         claide_terminal_destroy(handle)
     }
+}
+
+// MARK: - Selection Types
+
+/// Which half of a cell the cursor is on (determines selection boundary).
+enum SelectionSide: UInt8 {
+    case left = 0
+    case right = 1
+}
+
+/// Selection mode matching alacritty_terminal's SelectionType.
+enum SelectionKind: UInt8 {
+    case simple = 0   // Character-by-character
+    case block = 1    // Rectangular block
+    case semantic = 2 // Word boundaries (double-click)
+    case lines = 3    // Full lines (triple-click)
 }
 
 // MARK: - Event Callback Infrastructure
