@@ -56,61 +56,29 @@ final class TerminalBridge: @unchecked Sendable {
         let cDir = directory.withCString { strdup($0) }!
         defer { free(cDir) }
 
-        // Create temporary handle to get `self` pointer for callback context.
-        // We need a two-phase init: allocate handle first, then set context.
-        // Since claide_terminal_create needs the context at creation time,
-        // we'll use a static trampoline that receives context = self.
-        var tempHandle: ClaideTerminalRef?
-
-        // We need self to exist before calling create, so use a class-level
-        // temporary storage pattern. Actually, we can use withExtendedLifetime
-        // since the callback won't fire until after init completes (reader thread
-        // needs PTY bytes first).
-
-        // Use UnsafeMutableRawPointer to self — safe because we're in init
-        // and the bridge outlives the handle.
-        let selfPtr = UnsafeMutableRawPointer(Unmanaged.passUnretained(self as AnyObject).toOpaque())
-
-        // Actually, `self` isn't available yet at this point in a failable init.
-        // We need a different approach: store a pointer to a Box that we fill in later.
-        // Use a context wrapper.
-
-        // Simplest approach: use a heap-allocated context box.
         let context = TerminalBridgeContext()
-
         let contextPtr = Unmanaged.passRetained(context).toOpaque()
 
-        tempHandle = cArgs.withUnsafeBufferPointer { argsBuffer in
-            let argPtrs = argsBuffer.map { UnsafePointer($0) }
-            return argPtrs.withUnsafeBufferPointer { argPtrBuffer in
-                cEnvKeys.withUnsafeBufferPointer { keysBuffer in
-                    let keyPtrs = keysBuffer.map { UnsafePointer($0) }
-                    return keyPtrs.withUnsafeBufferPointer { keyPtrBuffer in
-                        cEnvValues.withUnsafeBufferPointer { valuesBuffer in
-                            let valuePtrs = valuesBuffer.map { UnsafePointer($0) }
-                            return valuePtrs.withUnsafeBufferPointer { valuePtrBuffer in
-                                claide_terminal_create(
-                                    cShell,
-                                    argPtrBuffer.baseAddress,
-                                    UInt32(args.count),
-                                    keyPtrBuffer.baseAddress,
-                                    valuePtrBuffer.baseAddress,
-                                    UInt32(environment.count),
-                                    cDir,
-                                    cols, rows,
-                                    cellWidth, cellHeight,
-                                    terminalEventCallback,
-                                    contextPtr
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-        }
+        // Build optional pointer arrays matching C's `const char *const *` type
+        var argPtrs: [UnsafePointer<CChar>?] = cArgs.map { UnsafePointer($0) }
+        var keyPtrs: [UnsafePointer<CChar>?] = cEnvKeys.map { UnsafePointer($0) }
+        var valuePtrs: [UnsafePointer<CChar>?] = cEnvValues.map { UnsafePointer($0) }
 
-        guard let h = tempHandle else {
-            // Release the context since we won't be using it
+        let tempHandle = claide_terminal_create(
+            cShell,
+            &argPtrs,
+            UInt32(args.count),
+            &keyPtrs,
+            &valuePtrs,
+            UInt32(environment.count),
+            cDir,
+            cols, rows,
+            cellWidth, cellHeight,
+            terminalEventCallback,
+            contextPtr
+        )
+
+        guard let h: ClaideTerminalRef = tempHandle else {
             Unmanaged<TerminalBridgeContext>.fromOpaque(contextPtr).release()
             return nil
         }

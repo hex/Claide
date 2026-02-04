@@ -10,11 +10,6 @@ options:
   createIntermediateGroups: true
   defaultConfig: Debug
 
-packages:
-  SwiftTerm:
-    url: https://github.com/hex/SwiftTerm
-    revision: da9d4feffc06cd153c859f825f691767ba51d276
-
 targets:
   Claide:
     type: application
@@ -39,13 +34,12 @@ targets:
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         LIBRARY_SEARCH_PATHS: "$(PROJECT_DIR)/rust/target/lib"
         SWIFT_OBJC_BRIDGING_HEADER: Claide/BridgingHeader.h
+        OTHER_LDFLAGS: "-lclaide_terminal"
       configs:
         Release:
           CODE_SIGN_STYLE: Manual
           CODE_SIGN_IDENTITY: "Developer ID Application"
           ENABLE_HARDENED_RUNTIME: YES
-    dependencies:
-      - package: SwiftTerm
     entitlements:
       path: Claide/Claide.entitlements
       properties:
