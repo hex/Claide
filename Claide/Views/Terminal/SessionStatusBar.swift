@@ -1,5 +1,5 @@
 // ABOUTME: Displays context window token usage at the bottom of the terminal section.
-// ABOUTME: Color shifts from muted to warning as usage approaches compaction threshold.
+// ABOUTME: Color shifts green → yellow → orange → red as usage approaches compaction threshold.
 
 import SwiftUI
 
@@ -34,12 +34,17 @@ struct SessionStatusBar: View {
         }
     }
 
-    /// Muted below 60%, yellow approaching compaction, red past threshold.
+    /// Smooth green → yellow → orange → red gradient. Turns toward red past 60%.
     private func usageColor(percentage: Double) -> Color {
-        switch percentage {
-        case ..<60:  Theme.textMuted
-        case ..<80:  Theme.statusInProgress
-        default:     Theme.statusBlocked
+        let t = min(max(percentage / 100, 0), 1)
+        let hue: Double
+        if t < 0.6 {
+            // Green (0.33) → orange (0.08) over 0–60%
+            hue = 0.33 - (0.33 - 0.08) * (t / 0.6)
+        } else {
+            // Orange (0.08) → red (0.0) over 60–100%
+            hue = 0.08 * (1 - (t - 0.6) / 0.4)
         }
+        return Color(hue: hue, saturation: 0.75, brightness: 0.85)
     }
 }

@@ -25,16 +25,13 @@ struct ContentView: View {
     }
 
     var body: some View {
-        GeometryReader { geo in
         HSplitView {
-            // Terminal: ~65% width
             terminalSection
                 .frame(minWidth: 400)
+                .background(SplitDividerSetter(ratio: 0.7, vertical: true))
 
-            // Sidebar: ~35% width
             sidebarSection
-                .frame(minWidth: 280, idealWidth: geo.size.width * 0.35)
-        }
+                .frame(minWidth: 280)
         }
         .background(Theme.backgroundPrimary)
         .onAppear {
@@ -118,6 +115,7 @@ struct ContentView: View {
             }
             .frame(minHeight: 80)
         }
+        .padding(.top, 28)
         .background(Theme.backgroundPrimary)
         }
     }
