@@ -342,12 +342,53 @@ final class MetalTerminalView: NSView, CALayerDelegate {
         return super.performKeyEquivalent(with: event)
     }
 
-    // MARK: - Focus
+    // MARK: - Mouse / Selection
+
+    /// Whether a drag selection is in progress.
+    private var isDragging = false
+
+    /// Convert a mouse event location to grid (row, col, side).
+    private func gridPosition(for event: NSEvent) -> (row: Int32, col: UInt32, side: SelectionSide) {
+        let loc = convert(event.locationInWindow, from: nil)
+        // NSView Y is bottom-up; grid row 0 is at the top
+        let flippedY = bounds.height - loc.y
+        let col = max(0, loc.x) / atlas.cellWidth
+        let row = max(0, flippedY) / atlas.cellHeight
+        // Side: left half of cell = .left, right half = .right
+        let cellFraction = loc.x - CGFloat(Int(col)) * atlas.cellWidth
+        let side: SelectionSide = cellFraction < atlas.cellWidth / 2 ? .left : .right
+        return (Int32(row), UInt32(col), side)
+    }
 
     override func mouseDown(with event: NSEvent) {
         window?.makeFirstResponder(self)
-        super.mouseDown(with: event)
+
+        guard let bridge else { return }
+        let (row, col, side) = gridPosition(for: event)
+
+        let selectionType: SelectionKind = switch event.clickCount {
+        case 2: .semantic  // Double-click: word
+        case 3: .lines     // Triple-click: line
+        default: .simple   // Single click: character
+        }
+
+        bridge.startSelection(row: row, col: col, side: side, type: selectionType)
+        isDragging = true
+        needsRedraw = true
     }
+
+    override func mouseDragged(with event: NSEvent) {
+        guard isDragging, let bridge else { return }
+        let (row, col, side) = gridPosition(for: event)
+        bridge.updateSelection(row: row, col: col, side: side)
+        needsRedraw = true
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        isDragging = false
+    }
+
+    // MARK: - Focus
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
