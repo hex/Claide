@@ -68,6 +68,10 @@ final class MetalTerminalView: NSView, CALayerDelegate {
     /// Whether to treat Option key as Meta (sends ESC prefix).
     var optionAsMeta = true
 
+    /// IME marked text state (for NSTextInputClient).
+    private var markedTextStorage = NSMutableAttributedString()
+    private var markedRangeStorage = NSRange(location: NSNotFound, length: 0)
+
     // MARK: - Initialization
 
     override init(frame: NSRect) {
@@ -250,6 +254,10 @@ final class MetalTerminalView: NSView, CALayerDelegate {
         needsRedraw = true
     }
 
+    override func resetCursorRects() {
+        addCursorRect(bounds, cursor: .iBeam)
+    }
+
     // MARK: - Keyboard Input
 
     override var acceptsFirstResponder: Bool { true }
@@ -259,17 +267,18 @@ final class MetalTerminalView: NSView, CALayerDelegate {
     }
 
     override func keyDown(with event: NSEvent) {
-        interpretKeyEvents([event])
-    }
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
 
-    override func insertText(_ insertString: Any) {
-        guard let str = insertString as? String else { return }
-
-        if optionAsMeta && NSApp.currentEvent?.modifierFlags.contains(.option) == true {
-            bridge?.write("\u{1b}" + str)
-        } else {
-            bridge?.write(str)
+        // Option-as-Meta: send ESC + char directly, bypassing the input method
+        if optionAsMeta && flags.contains(.option)
+            && !flags.contains(.command) && !flags.contains(.control) {
+            if let chars = event.charactersIgnoringModifiers {
+                bridge?.write("\u{1b}" + chars)
+            }
+            return
         }
+
+        interpretKeyEvents([event])
     }
 
     override func doCommand(by selector: Selector) {
@@ -299,36 +308,16 @@ final class MetalTerminalView: NSView, CALayerDelegate {
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-        let chars = event.charactersIgnoringModifiers
-
-        // Cmd+C: copy selection to clipboard
-        if flags == .command, chars == "c" {
-            if let text = bridge?.selectedText() {
-                NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(text, forType: .string)
-                bridge?.clearSelection()
-                needsRedraw = true
-            }
-            return true
-        }
-
-        // Cmd+V: paste from clipboard
-        if flags == .command, chars == "v" {
-            if let text = NSPasteboard.general.string(forType: .string) {
-                bridge?.write(text)
-            }
-            return true
-        }
 
         // Ctrl+key combinations
         guard flags == .control,
-              let chars,
+              let chars = event.charactersIgnoringModifiers,
               let scalar = chars.unicodeScalars.first else {
             return super.performKeyEquivalent(with: event)
         }
 
         let value = scalar.value
-        // Ctrl+A through Ctrl+Z (and some punctuation)
+        // Ctrl+A through Ctrl+Z
         if value >= UInt32(Character("a").asciiValue!) && value <= UInt32(Character("z").asciiValue!) {
             let ctrlChar = value - UInt32(Character("a").asciiValue!) + 1
             if let scalar = Unicode.Scalar(ctrlChar) {
@@ -352,12 +341,6 @@ final class MetalTerminalView: NSView, CALayerDelegate {
         // Ctrl+\\ = FS
         if chars == "\\" {
             bridge?.write("\u{1c}")
-            return true
-        }
-
-        // Ctrl+C = ETX (0x03)
-        if chars == "c" {
-            bridge?.write("\u{03}")
             return true
         }
 
@@ -410,35 +393,9 @@ final class MetalTerminalView: NSView, CALayerDelegate {
         isDragging = false
     }
 
-    // MARK: - Context Menu
+    // MARK: - Standard Edit Actions
 
-    override func menu(for event: NSEvent) -> NSMenu? {
-        let menu = NSMenu()
-
-        let copyItem = NSMenuItem(title: "Copy", action: #selector(copySelection), keyEquivalent: "c")
-        copyItem.keyEquivalentModifierMask = .command
-        copyItem.isEnabled = bridge?.selectedText() != nil
-        menu.addItem(copyItem)
-
-        let pasteItem = NSMenuItem(title: "Paste", action: #selector(pasteClipboard), keyEquivalent: "v")
-        pasteItem.keyEquivalentModifierMask = .command
-        pasteItem.isEnabled = NSPasteboard.general.string(forType: .string) != nil
-        menu.addItem(pasteItem)
-
-        menu.addItem(.separator())
-
-        let selectAllItem = NSMenuItem(title: "Select All", action: #selector(selectAllText), keyEquivalent: "a")
-        selectAllItem.keyEquivalentModifierMask = .command
-        menu.addItem(selectAllItem)
-
-        let clearSelItem = NSMenuItem(title: "Clear Selection", action: #selector(clearSelectionAction), keyEquivalent: "")
-        clearSelItem.isEnabled = bridge?.selectedText() != nil
-        menu.addItem(clearSelItem)
-
-        return menu
-    }
-
-    @objc private func copySelection() {
+    @objc func copy(_ sender: Any?) {
         guard let text = bridge?.selectedText() else { return }
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(text, forType: .string)
@@ -446,12 +403,12 @@ final class MetalTerminalView: NSView, CALayerDelegate {
         needsRedraw = true
     }
 
-    @objc private func pasteClipboard() {
+    @objc func paste(_ sender: Any?) {
         guard let text = NSPasteboard.general.string(forType: .string) else { return }
         bridge?.write(text)
     }
 
-    @objc private func selectAllText() {
+    @objc override func selectAll(_ sender: Any?) {
         guard let bridge else { return }
         let (cols, rows) = gridDimensions
         bridge.startSelection(row: 0, col: 0, side: .left, type: .simple)
@@ -459,9 +416,49 @@ final class MetalTerminalView: NSView, CALayerDelegate {
         needsRedraw = true
     }
 
-    @objc private func clearSelectionAction() {
+    @objc private func clearSelection(_ sender: Any?) {
         bridge?.clearSelection()
         needsRedraw = true
+    }
+
+    func validateUserInterfaceItem(_ item: NSValidatedUserInterfaceItem) -> Bool {
+        switch item.action {
+        case #selector(copy(_:)):
+            return bridge?.selectedText() != nil
+        case #selector(paste(_:)):
+            return NSPasteboard.general.string(forType: .string) != nil
+        case #selector(selectAll(_:)):
+            return bridge != nil
+        case #selector(clearSelection(_:)):
+            return bridge?.selectedText() != nil
+        default:
+            return true
+        }
+    }
+
+    // MARK: - Context Menu
+
+    override func menu(for event: NSEvent) -> NSMenu? {
+        let menu = NSMenu()
+
+        let copyItem = NSMenuItem(title: "Copy", action: #selector(copy(_:)), keyEquivalent: "c")
+        copyItem.keyEquivalentModifierMask = .command
+        menu.addItem(copyItem)
+
+        let pasteItem = NSMenuItem(title: "Paste", action: #selector(paste(_:)), keyEquivalent: "v")
+        pasteItem.keyEquivalentModifierMask = .command
+        menu.addItem(pasteItem)
+
+        menu.addItem(.separator())
+
+        let selectAllItem = NSMenuItem(title: "Select All", action: #selector(selectAll(_:)), keyEquivalent: "a")
+        selectAllItem.keyEquivalentModifierMask = .command
+        menu.addItem(selectAllItem)
+
+        let clearSelItem = NSMenuItem(title: "Clear Selection", action: #selector(clearSelection(_:)), keyEquivalent: "")
+        menu.addItem(clearSelItem)
+
+        return menu
     }
 
     // MARK: - Focus
@@ -473,5 +470,84 @@ final class MetalTerminalView: NSView, CALayerDelegate {
 
     override func flagsChanged(with event: NSEvent) {
         // Could track modifier state if needed
+    }
+}
+
+// MARK: - NSTextInputClient
+
+extension MetalTerminalView: @preconcurrency NSTextInputClient {
+
+    func insertText(_ string: Any, replacementRange: NSRange) {
+        let text: String
+        if let s = string as? String {
+            text = s
+        } else if let attr = string as? NSAttributedString {
+            text = attr.string
+        } else {
+            return
+        }
+
+        // Clear any IME composition state
+        markedTextStorage.mutableString.setString("")
+        markedRangeStorage = NSRange(location: NSNotFound, length: 0)
+
+        bridge?.write(text)
+    }
+
+    func setMarkedText(_ string: Any, selectedRange: NSRange, replacementRange: NSRange) {
+        if let attr = string as? NSAttributedString {
+            markedTextStorage = NSMutableAttributedString(attributedString: attr)
+        } else if let s = string as? String {
+            markedTextStorage = NSMutableAttributedString(string: s)
+        }
+
+        if markedTextStorage.length > 0 {
+            markedRangeStorage = NSRange(location: 0, length: markedTextStorage.length)
+        } else {
+            markedRangeStorage = NSRange(location: NSNotFound, length: 0)
+        }
+
+        needsRedraw = true
+    }
+
+    func unmarkText() {
+        markedTextStorage.mutableString.setString("")
+        markedRangeStorage = NSRange(location: NSNotFound, length: 0)
+    }
+
+    func selectedRange() -> NSRange {
+        NSRange(location: NSNotFound, length: 0)
+    }
+
+    func markedRange() -> NSRange {
+        markedRangeStorage
+    }
+
+    func hasMarkedText() -> Bool {
+        markedTextStorage.length > 0
+    }
+
+    func attributedSubstring(forProposedRange range: NSRange, actualRange: NSRangePointer?) -> NSAttributedString? {
+        nil
+    }
+
+    func validAttributesForMarkedText() -> [NSAttributedString.Key] {
+        []
+    }
+
+    func firstRect(forCharacterRange range: NSRange, actualRange: NSRangePointer?) -> NSRect {
+        // Position the IME candidate window at the terminal cursor
+        guard let bridge, let snapshot = bridge.snapshot() else { return .zero }
+        let cursor = snapshot.pointee.cursor
+        TerminalBridge.freeSnapshot(snapshot)
+
+        let x = CGFloat(cursor.col) * atlas.cellWidth
+        let y = bounds.height - CGFloat(cursor.row + 1) * atlas.cellHeight
+        let rect = NSRect(x: x, y: y, width: atlas.cellWidth, height: atlas.cellHeight)
+        return window?.convertToScreen(convert(rect, to: nil)) ?? .zero
+    }
+
+    func characterIndex(for point: NSPoint) -> Int {
+        NSNotFound
     }
 }
