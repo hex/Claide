@@ -297,10 +297,32 @@ final class MetalTerminalView: NSView, CALayerDelegate {
         }
     }
 
-    // Handle Ctrl+key combinations
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
-        guard event.modifierFlags.contains(.control),
-              let chars = event.charactersIgnoringModifiers,
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        let chars = event.charactersIgnoringModifiers
+
+        // Cmd+C: copy selection to clipboard
+        if flags == .command, chars == "c" {
+            if let text = bridge?.selectedText() {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(text, forType: .string)
+                bridge?.clearSelection()
+                needsRedraw = true
+            }
+            return true
+        }
+
+        // Cmd+V: paste from clipboard
+        if flags == .command, chars == "v" {
+            if let text = NSPasteboard.general.string(forType: .string) {
+                bridge?.write(text)
+            }
+            return true
+        }
+
+        // Ctrl+key combinations
+        guard flags == .control,
+              let chars,
               let scalar = chars.unicodeScalars.first else {
             return super.performKeyEquivalent(with: event)
         }
