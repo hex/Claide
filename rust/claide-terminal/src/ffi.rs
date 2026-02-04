@@ -1,9 +1,12 @@
 // ABOUTME: C-compatible FFI functions callable from Swift via the bridging header.
 // ABOUTME: Wraps TerminalHandle operations behind opaque pointer and C types.
 
-use std::ffi::CStr;
+use std::ffi::{CStr, CString};
 use std::os::raw::{c_char, c_void};
 use std::slice;
+
+use alacritty_terminal::index::Side;
+use alacritty_terminal::selection::SelectionType;
 
 use crate::grid_snapshot::ClaideGridSnapshot;
 use crate::handle::TerminalHandle;
@@ -187,4 +190,100 @@ pub unsafe extern "C" fn claide_terminal_shell_pid(handle: ClaideTerminalRef) ->
         return 0;
     }
     (*handle).shell_pid()
+}
+
+// -- Selection --
+
+/// Start a selection at the given grid position.
+///
+/// `side`: 0 = Left, 1 = Right.
+/// `sel_type`: 0 = Simple, 1 = Block, 2 = Semantic, 3 = Lines.
+///
+/// # Safety
+/// `handle` must be valid.
+#[no_mangle]
+pub unsafe extern "C" fn claide_terminal_selection_start(
+    handle: ClaideTerminalRef,
+    row: i32,
+    col: u32,
+    side: u8,
+    sel_type: u8,
+) {
+    if handle.is_null() {
+        return;
+    }
+    let side = if side == 0 { Side::Left } else { Side::Right };
+    let ty = match sel_type {
+        1 => SelectionType::Block,
+        2 => SelectionType::Semantic,
+        3 => SelectionType::Lines,
+        _ => SelectionType::Simple,
+    };
+    (*handle).selection_start(row, col as usize, side, ty);
+}
+
+/// Update the selection endpoint.
+///
+/// `side`: 0 = Left, 1 = Right.
+///
+/// # Safety
+/// `handle` must be valid.
+#[no_mangle]
+pub unsafe extern "C" fn claide_terminal_selection_update(
+    handle: ClaideTerminalRef,
+    row: i32,
+    col: u32,
+    side: u8,
+) {
+    if handle.is_null() {
+        return;
+    }
+    let side = if side == 0 { Side::Left } else { Side::Right };
+    (*handle).selection_update(row, col as usize, side);
+}
+
+/// Clear the current selection.
+///
+/// # Safety
+/// `handle` must be valid.
+#[no_mangle]
+pub unsafe extern "C" fn claide_terminal_selection_clear(handle: ClaideTerminalRef) {
+    if handle.is_null() {
+        return;
+    }
+    (*handle).selection_clear();
+}
+
+/// Get the selected text as a null-terminated UTF-8 string.
+///
+/// Returns NULL if no selection exists. The caller must free the returned
+/// string with `claide_terminal_selection_text_free`.
+///
+/// # Safety
+/// `handle` must be valid.
+#[no_mangle]
+pub unsafe extern "C" fn claide_terminal_selection_text(
+    handle: ClaideTerminalRef,
+) -> *mut c_char {
+    if handle.is_null() {
+        return std::ptr::null_mut();
+    }
+    match (*handle).selection_text() {
+        Some(text) => match CString::new(text) {
+            Ok(cstr) => cstr.into_raw(),
+            Err(_) => std::ptr::null_mut(),
+        },
+        None => std::ptr::null_mut(),
+    }
+}
+
+/// Free a string returned by `claide_terminal_selection_text`.
+///
+/// # Safety
+/// `ptr` must be a pointer returned by `claide_terminal_selection_text`, or null.
+#[no_mangle]
+pub unsafe extern "C" fn claide_terminal_selection_text_free(ptr: *mut c_char) {
+    if !ptr.is_null() {
+        drop(CString::from_raw(ptr));
+    }
 }
