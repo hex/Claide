@@ -8,6 +8,8 @@ use std::sync::Arc;
 use std::thread::JoinHandle;
 
 use alacritty_terminal::grid::Dimensions;
+use alacritty_terminal::index::{Column, Line, Point, Side};
+use alacritty_terminal::selection::{Selection, SelectionType};
 use alacritty_terminal::sync::FairMutex;
 use alacritty_terminal::term::{Config, Term};
 
@@ -208,6 +210,34 @@ impl TerminalHandle {
     /// Get the shell process ID.
     pub fn shell_pid(&self) -> u32 {
         self.shell_pid
+    }
+
+    /// Start a new selection at the given grid position.
+    pub fn selection_start(&self, row: i32, col: usize, side: Side, ty: SelectionType) {
+        let mut term = self.term.lock();
+        let point = Point::new(Line(row), Column(col));
+        term.selection = Some(Selection::new(ty, point, side));
+    }
+
+    /// Update the selection endpoint.
+    pub fn selection_update(&self, row: i32, col: usize, side: Side) {
+        let mut term = self.term.lock();
+        if let Some(ref mut selection) = term.selection {
+            let point = Point::new(Line(row), Column(col));
+            selection.update(point, side);
+        }
+    }
+
+    /// Clear the current selection.
+    pub fn selection_clear(&self) {
+        let mut term = self.term.lock();
+        term.selection = None;
+    }
+
+    /// Extract the selected text as a String.
+    pub fn selection_text(&self) -> Option<String> {
+        let term = self.term.lock();
+        term.selection_to_string()
     }
 }
 
