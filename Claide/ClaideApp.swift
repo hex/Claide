@@ -70,15 +70,60 @@ private struct WindowConfigurator: NSViewRepresentable {
 }
 
 private final class WindowConfiguratorView: NSView {
+    private nonisolated(unsafe) var observers: [Any] = []
+
+    override func viewWillMove(toWindow newWindow: NSWindow?) {
+        super.viewWillMove(toWindow: newWindow)
+        if let newWindow { applyChrome(newWindow) }
+    }
+
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        observers.forEach { NotificationCenter.default.removeObserver($0) }
+        observers.removeAll()
+
         guard let window else { return }
+        applyChrome(window)
+
+        // SwiftUI resets window properties on activation and fullscreen transitions.
+        // Re-apply after SwiftUI's own handler finishes (async dispatch).
+        for name: Notification.Name in [
+            NSWindow.didBecomeKeyNotification,
+            NSWindow.didBecomeMainNotification,
+            NSWindow.didExitFullScreenNotification,
+            NSWindow.didEndLiveResizeNotification,
+        ] {
+            let observer = NotificationCenter.default.addObserver(
+                forName: name, object: window, queue: .main
+            ) { [weak self] _ in
+                DispatchQueue.main.async {
+                    guard let window = self?.window else { return }
+                    self?.applyChrome(window)
+                }
+            }
+            observers.append(observer)
+        }
+    }
+
+    private func applyChrome(_ window: NSWindow) {
         window.appearance = NSAppearance(named: .darkAqua)
         window.titlebarAppearsTransparent = true
         window.titleVisibility = .hidden
         window.titlebarSeparatorStyle = .none
         window.styleMask.insert(.fullSizeContentView)
         window.isMovableByWindowBackground = false
-        window.backgroundColor = Palette.nsColor(.bgPrimary)
+        window.tabbingMode = .disallowed
+        window.backgroundColor = Palette.nsColor(.bgTerminal)
+
+        // Negate the title bar safe area so NSSplitView content extends to the top.
+        // SwiftUI's .ignoresSafeArea() doesn't propagate through AppKit-backed views.
+        if let cv = window.contentView {
+            let titleBarHeight = window.frame.height - window.contentLayoutRect.height
+            cv.additionalSafeAreaInsets.top = -titleBarHeight
+        }
+    }
+
+    deinit {
+        observers.forEach { NotificationCenter.default.removeObserver($0) }
     }
 }

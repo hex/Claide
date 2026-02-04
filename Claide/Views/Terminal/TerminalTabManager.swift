@@ -75,6 +75,14 @@ final class TerminalTabManager {
             view.window?.makeFirstResponder(view)
             self?.applyCursorStyle(to: view)
         }
+
+        // Re-trigger SIGWINCH after shell init completes.
+        // The shell starts with frame: .zero, autolayout resizes almost immediately,
+        // but zsh ignores SIGWINCH during initialization (before TRAPWINCH is installed).
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak view] in
+            guard let view, view.frame.width > 0 else { return }
+            view.setFrameSize(view.frame.size)
+        }
     }
 
     func closeTab(id: UUID) {
