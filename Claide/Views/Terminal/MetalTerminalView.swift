@@ -410,6 +410,60 @@ final class MetalTerminalView: NSView, CALayerDelegate {
         isDragging = false
     }
 
+    // MARK: - Context Menu
+
+    override func menu(for event: NSEvent) -> NSMenu? {
+        let menu = NSMenu()
+
+        let copyItem = NSMenuItem(title: "Copy", action: #selector(copySelection), keyEquivalent: "c")
+        copyItem.keyEquivalentModifierMask = .command
+        copyItem.isEnabled = bridge?.selectedText() != nil
+        menu.addItem(copyItem)
+
+        let pasteItem = NSMenuItem(title: "Paste", action: #selector(pasteClipboard), keyEquivalent: "v")
+        pasteItem.keyEquivalentModifierMask = .command
+        pasteItem.isEnabled = NSPasteboard.general.string(forType: .string) != nil
+        menu.addItem(pasteItem)
+
+        menu.addItem(.separator())
+
+        let selectAllItem = NSMenuItem(title: "Select All", action: #selector(selectAllText), keyEquivalent: "a")
+        selectAllItem.keyEquivalentModifierMask = .command
+        menu.addItem(selectAllItem)
+
+        let clearSelItem = NSMenuItem(title: "Clear Selection", action: #selector(clearSelectionAction), keyEquivalent: "")
+        clearSelItem.isEnabled = bridge?.selectedText() != nil
+        menu.addItem(clearSelItem)
+
+        return menu
+    }
+
+    @objc private func copySelection() {
+        guard let text = bridge?.selectedText() else { return }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
+        bridge?.clearSelection()
+        needsRedraw = true
+    }
+
+    @objc private func pasteClipboard() {
+        guard let text = NSPasteboard.general.string(forType: .string) else { return }
+        bridge?.write(text)
+    }
+
+    @objc private func selectAllText() {
+        guard let bridge else { return }
+        let (cols, rows) = gridDimensions
+        bridge.startSelection(row: 0, col: 0, side: .left, type: .simple)
+        bridge.updateSelection(row: Int32(rows - 1), col: UInt32(cols - 1), side: .right)
+        needsRedraw = true
+    }
+
+    @objc private func clearSelectionAction() {
+        bridge?.clearSelection()
+        needsRedraw = true
+    }
+
     // MARK: - Focus
 
     override func viewDidMoveToWindow() {
