@@ -2,7 +2,7 @@
 // ABOUTME: Resolves named/indexed colors to RGB using the terminal's color palette.
 
 use alacritty_terminal::grid::Dimensions;
-use alacritty_terminal::index::{Column, Line};
+use alacritty_terminal::index::{Column, Line, Point};
 use alacritty_terminal::term::cell::{Cell, Flags};
 use alacritty_terminal::term::color::Colors;
 use alacritty_terminal::term::Term;
@@ -163,6 +163,9 @@ pub fn take_snapshot(term: &Term<Listener>) -> ClaideGridSnapshot {
     let cursor = &content.cursor;
     let mode = content.mode;
 
+    // Resolve selection range for per-cell flagging
+    let selection_range = term.selection.as_ref().and_then(|s| s.to_range(term));
+
     let total_cells = rows * cols;
     let mut cells: Vec<ClaideCellData> = Vec::with_capacity(total_cells);
 
@@ -192,6 +195,16 @@ pub fn take_snapshot(term: &Term<Listener>) -> ClaideGridSnapshot {
                 fg.b = fg.b / 2;
             }
 
+            let mut cell_flags = map_flags(cell.flags);
+
+            // Mark selected cells with bit 0x200
+            if let Some(ref range) = selection_range {
+                let point = Point::new(line, Column(col_idx));
+                if range.contains(point) {
+                    cell_flags |= 0x200;
+                }
+            }
+
             cells.push(ClaideCellData {
                 codepoint: cell.c as u32,
                 fg_r: fg.r,
@@ -200,7 +213,7 @@ pub fn take_snapshot(term: &Term<Listener>) -> ClaideGridSnapshot {
                 bg_r: bg.r,
                 bg_g: bg.g,
                 bg_b: bg.b,
-                flags: map_flags(cell.flags),
+                flags: cell_flags,
             });
         }
     }

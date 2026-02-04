@@ -41,7 +41,8 @@ typedef void (*ClaideEventCallback)(
 /// Per-cell data from the terminal grid.
 ///
 /// Flag bits: BOLD=0x01, ITALIC=0x02, UNDERLINE=0x04, STRIKEOUT=0x08,
-///            DIM=0x10, INVERSE=0x20, WIDE_CHAR=0x40, WIDE_SPACER=0x80, HIDDEN=0x100
+///            DIM=0x10, INVERSE=0x20, WIDE_CHAR=0x40, WIDE_SPACER=0x80,
+///            HIDDEN=0x100, SELECTED=0x200
 typedef struct {
     uint32_t codepoint;
     uint8_t fg_r, fg_g, fg_b;
@@ -138,5 +139,55 @@ void claide_terminal_snapshot_free(ClaideGridSnapshot *snapshot);
 
 /// Get the shell process ID.
 uint32_t claide_terminal_shell_pid(ClaideTerminalRef handle);
+
+// -- Selection --
+
+/// Selection side constants.
+enum {
+    ClaideSideLeft  = 0,
+    ClaideSideRight = 1,
+};
+
+/// Selection type constants.
+enum {
+    ClaideSelectionSimple   = 0,
+    ClaideSelectionBlock    = 1,
+    ClaideSelectionSemantic = 2,
+    ClaideSelectionLines    = 3,
+};
+
+/// Start a selection at the given grid position.
+///
+/// @param handle    Valid terminal handle.
+/// @param row       Grid row (0-based from top of visible area).
+/// @param col       Grid column (0-based).
+/// @param side      ClaideSideLeft or ClaideSideRight (which half of the cell).
+/// @param sel_type  ClaideSelection* constant.
+void claide_terminal_selection_start(
+    ClaideTerminalRef handle,
+    int32_t row,
+    uint32_t col,
+    uint8_t side,
+    uint8_t sel_type
+);
+
+/// Update the selection endpoint as the mouse moves.
+void claide_terminal_selection_update(
+    ClaideTerminalRef handle,
+    int32_t row,
+    uint32_t col,
+    uint8_t side
+);
+
+/// Clear the current selection.
+void claide_terminal_selection_clear(ClaideTerminalRef handle);
+
+/// Get the selected text as a null-terminated UTF-8 string.
+/// Returns NULL if no selection exists.
+/// The caller must free the returned string with claide_terminal_selection_text_free.
+char *claide_terminal_selection_text(ClaideTerminalRef handle);
+
+/// Free a string returned by claide_terminal_selection_text.
+void claide_terminal_selection_text_free(char *ptr);
 
 #endif // CLAIDE_TERMINAL_H
