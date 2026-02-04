@@ -1,9 +1,8 @@
 // ABOUTME: Single source of truth for all colors as 8-bit RGB values.
-// ABOUTME: Conversion functions produce SwiftUI Color, NSColor, and SwiftTerm.Color from one definition.
+// ABOUTME: Conversion functions produce SwiftUI Color and NSColor from one definition.
 
 import AppKit
 import SwiftUI
-import SwiftTerm
 
 /// 8-bit RGB color value. Static members define the app-wide palette.
 struct RGB: Equatable, Sendable {
@@ -88,14 +87,6 @@ enum Palette {
             green: CGFloat(rgb.g) / 255,
             blue: CGFloat(rgb.b) / 255,
             alpha: 1
-        )
-    }
-
-    static func termColor(_ rgb: RGB) -> SwiftTerm.Color {
-        SwiftTerm.Color(
-            red: UInt16(rgb.r) * 257,
-            green: UInt16(rgb.g) * 257,
-            blue: UInt16(rgb.b) * 257
         )
     }
 }

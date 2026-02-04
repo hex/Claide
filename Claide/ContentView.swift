@@ -48,18 +48,18 @@ struct ContentView: View {
                 await vm.loadIssues(workingDirectory: sessionDirectory)
             }
             discoverChangesFile(from: sessionDirectory)
-            let shellPid = tabManager.activeTab?.terminalView.process?.shellPid ?? 0
+            let shellPid = pid_t(tabManager.activeTab?.terminalView.shellPid ?? 0)
             sessionStatusVM.startWatching(sessionDirectory: sessionDirectory, shellPid: shellPid)
         }
         .focusedValue(\.tabManager, tabManager)
         .onChange(of: tabManager.activeViewModel?.currentDirectory) { _, newDir in
-            if let dir = newDir {
+            if let dir = newDir.flatMap({ $0 }) {
                 let vm = graphVM
                 Task { @MainActor in
                     await vm.loadIssues(workingDirectory: dir)
                 }
                 discoverChangesFile(from: dir)
-                let shellPid = tabManager.activeTab?.terminalView.process?.shellPid ?? 0
+                let shellPid = pid_t(tabManager.activeTab?.terminalView.shellPid ?? 0)
                 sessionStatusVM.startWatching(sessionDirectory: dir, shellPid: shellPid)
             }
         }

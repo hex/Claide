@@ -241,7 +241,7 @@ final class MetalTerminalView: NSView, CALayerDelegate {
         interpretKeyEvents([event])
     }
 
-    override func insertText(_ string: Any, replacementRange: NSRange) {
+    func insertText(_ string: Any, replacementRange: NSRange) {
         guard let str = string as? String else { return }
 
         if optionAsMeta && NSApp.currentEvent?.modifierFlags.contains(.option) == true {

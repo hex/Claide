@@ -1,8 +1,7 @@
 // ABOUTME: NSViewRepresentable host container that displays the active tab's terminal view.
-// ABOUTME: Swaps the active ResizableTerminalView in/out as tabs change, without recreating views.
+// ABOUTME: Swaps the active MetalTerminalView in/out as tabs change, without recreating views.
 
 import SwiftUI
-import SwiftTerm
 
 struct TerminalPanel: NSViewRepresentable {
     let tabManager: TerminalTabManager
@@ -36,8 +35,8 @@ struct TerminalPanel: NSViewRepresentable {
 
         // Apply font updates to the active view
         let desired = FontSelection.terminalFont(family: fontFamily, size: 14)
-        if activeView.font != desired {
-            activeView.font = desired
+        if activeView.terminalFont != desired {
+            activeView.terminalFont = desired
         }
     }
 }
