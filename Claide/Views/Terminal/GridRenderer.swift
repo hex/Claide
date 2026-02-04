@@ -89,9 +89,31 @@ final class GridRenderer {
                 let x = Float(col) * cellW
                 let y = Float(row) * cellH
 
-                let bgR = Float(cell.bg_r) / 255.0
-                let bgG = Float(cell.bg_g) / 255.0
-                let bgB = Float(cell.bg_b) / 255.0
+                let selected = cell.flags & 0x200 != 0
+
+                // Swap fg/bg when selected (standard terminal convention)
+                let bgR: Float
+                let bgG: Float
+                let bgB: Float
+                let fgR: Float
+                let fgG: Float
+                let fgB: Float
+
+                if selected {
+                    bgR = Float(cell.fg_r) / 255.0
+                    bgG = Float(cell.fg_g) / 255.0
+                    bgB = Float(cell.fg_b) / 255.0
+                    fgR = Float(cell.bg_r) / 255.0
+                    fgG = Float(cell.bg_g) / 255.0
+                    fgB = Float(cell.bg_b) / 255.0
+                } else {
+                    bgR = Float(cell.bg_r) / 255.0
+                    bgG = Float(cell.bg_g) / 255.0
+                    bgB = Float(cell.bg_b) / 255.0
+                    fgR = Float(cell.fg_r) / 255.0
+                    fgG = Float(cell.fg_g) / 255.0
+                    fgB = Float(cell.fg_b) / 255.0
+                }
 
                 // Background quad
                 bgInstances.append(CellInstance(
@@ -112,10 +134,6 @@ final class GridRenderer {
                 let italic = cell.flags & 0x02 != 0
 
                 guard let glyph = atlas.entry(for: cp, bold: bold, italic: italic) else { continue }
-
-                let fgR = Float(cell.fg_r) / 255.0
-                let fgG = Float(cell.fg_g) / 255.0
-                let fgB = Float(cell.fg_b) / 255.0
 
                 // Position the glyph within the cell
                 let glyphX = x + glyph.bearingX
