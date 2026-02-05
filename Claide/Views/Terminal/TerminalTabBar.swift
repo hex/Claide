@@ -14,7 +14,11 @@ struct TerminalTabBar: View {
         // .background() modifiers auto-extend into the parent's safe area, causing
         // tab colors to bleed into the title bar area.
         ZStack {
-            Theme.backgroundPrimary
+            LinearGradient(
+                colors: [Theme.backgroundSunken, Theme.backgroundPrimary],
+                startPoint: .top,
+                endPoint: .bottom
+            )
 
             HStack(spacing: 0) {
                 WindowDragArea()
@@ -37,27 +41,23 @@ struct TerminalTabBar: View {
                         onSelect: { tabManager.switchTo(id: tab.id) },
                         onClose: { tabManager.closeTab(id: tab.id) }
                     )
+                    .frame(maxWidth: .infinity)
                 }
 
-                HStack {
-                    Button(action: onAdd) {
-                        Image(systemName: "plus")
-                            .font(.system(size: 9, weight: .medium))
-                            .foregroundStyle(Theme.textMuted)
-                            .frame(width: 24, height: 24)
-                    }
-                    .buttonStyle(.plain)
-
-                    Spacer()
+                Button(action: onAdd) {
+                    Image(systemName: "plus")
+                        .font(.system(size: 9, weight: .medium))
+                        .foregroundStyle(Theme.textMuted)
+                        .frame(width: 32)
+                        .frame(maxHeight: .infinity)
                 }
-                .frame(maxHeight: .infinity)
+                .buttonStyle(.plain)
                 .overlay(alignment: .bottom) {
                     Rectangle()
                         .fill(Theme.border)
                         .frame(height: Theme.borderWidth)
                 }
             }
-            .padding(.trailing, Theme.panelPadding)
         }
         .fixedSize(horizontal: false, vertical: true)
         .overlay { CmdKeyMonitor(isPressed: $cmdHeld).frame(width: 0, height: 0) }
@@ -139,38 +139,39 @@ private struct TabButton: View {
             if isActive { Color(nsColor: TerminalTheme.background) }
 
             HStack(spacing: 6) {
+                // Close button and status dot (fixed on the left)
                 ZStack {
-                    Circle()
-                        .fill(isRunning ? Theme.accent : Theme.negative)
-                        .frame(width: 5, height: 5)
-                        .opacity(canClose && isHovered ? 0 : (showIndex && index <= 9 ? 0 : 1))
-
-                    if canClose && isHovered && !(showIndex && index <= 9) {
+                    HStack(spacing: 4) {
                         Button(action: onClose) {
                             Image(systemName: "xmark")
                                 .font(.system(size: 7, weight: .bold))
-                                .foregroundStyle(Theme.textMuted)
+                                .foregroundStyle(isHovered ? Theme.textPrimary : Theme.textMuted)
                         }
                         .buttonStyle(.plain)
+                        .frame(width: 14, height: 14)
+                        .opacity(canClose ? 1 : 0)
+                        .allowsHitTesting(canClose)
+
+                        Circle()
+                            .fill(isRunning ? Theme.accent : Theme.negative)
+                            .frame(width: 5, height: 5)
                     }
-                }
-                .frame(width: 14, height: 14)
-                .overlay {
+                    .opacity(showIndex && index <= 9 ? 0 : 1)
+
                     if showIndex && index <= 9 {
                         HStack(spacing: 2) {
-                                Text("\u{2318}")
-                                Text("\(index)")
-                            }
-                            .font(.system(size: 10, weight: .medium))
-                            .foregroundStyle(Theme.textMuted)
-                            .padding(.horizontal, 3)
-                            .padding(.vertical, 2)
-                            .background(
-                                RoundedRectangle(cornerRadius: 3)
-                                    .stroke(Theme.textMuted, lineWidth: 1)
-                            )
-                            .fixedSize()
-                            .offset(x: -1.5)
+                            Text("\u{2318}")
+                            Text("\(index)")
+                        }
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(Theme.textMuted)
+                        .padding(.horizontal, 3)
+                        .padding(.vertical, 2)
+                        .background(
+                            RoundedRectangle(cornerRadius: 3)
+                                .stroke(Theme.textMuted, lineWidth: 1)
+                        )
+                        .fixedSize()
                     }
                 }
 
@@ -178,10 +179,12 @@ private struct TabButton: View {
                     .font(Theme.labelFont)
                     .foregroundStyle(isActive ? Theme.textPrimary : Theme.textMuted)
                     .lineLimit(1)
+
+                Spacer()
             }
             .padding(.leading, 8)
             .padding(.trailing, 12)
-            .padding(.vertical, 10)
+            .padding(.vertical, 14)
         }
         .fixedSize(horizontal: false, vertical: true)
         .overlay {

@@ -51,7 +51,7 @@ struct ContentView: View {
             let shellPid = pid_t(tabManager.activeTab?.terminalView.shellPid ?? 0)
             sessionStatusVM.startWatching(sessionDirectory: sessionDirectory, shellPid: shellPid)
         }
-        .focusedValue(\.tabManager, tabManager)
+        .focusedSceneValue(\.tabManager, tabManager)
         .onChange(of: tabManager.activeViewModel?.currentDirectory) { _, newDir in
             if let dir = newDir.flatMap({ $0 }) {
                 let vm = graphVM
