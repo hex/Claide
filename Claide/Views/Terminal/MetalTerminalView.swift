@@ -308,15 +308,33 @@ final class MetalTerminalView: NSView, CALayerDelegate {
             if cols != currentCols || rows != currentRows {
                 currentCols = cols
                 currentRows = rows
-                bridge.resize(
-                    cols: UInt32(cols), rows: UInt32(rows),
-                    cellWidth: UInt16(atlas.cellWidth),
-                    cellHeight: UInt16(atlas.cellHeight)
-                )
+                // No-reflow resize: updates grid dimensions, scroll region, tabs, and
+                // damage without rewrapping content. Avoids lossy reflow of powerline
+                // prompts and other exact-width content.
+                bridge.resizeGridNoReflow(cols: UInt32(cols), rows: UInt32(rows))
+                if !inLiveResize {
+                    bridge.notifyPtySize(
+                        cols: UInt32(cols), rows: UInt32(rows),
+                        cellWidth: UInt16(atlas.cellWidth),
+                        cellHeight: UInt16(atlas.cellHeight)
+                    )
+                }
             }
         }
 
         needsRedraw = true
+    }
+
+    override func viewDidEndLiveResize() {
+        super.viewDidEndLiveResize()
+        // Grid is already at the correct dimensions from setFrameSize calls.
+        // Send SIGWINCH so the shell redraws for the new size.
+        guard let bridge, let atlas else { return }
+        bridge.notifyPtySize(
+            cols: UInt32(currentCols), rows: UInt32(currentRows),
+            cellWidth: UInt16(atlas.cellWidth),
+            cellHeight: UInt16(atlas.cellHeight)
+        )
     }
 
     override func viewDidChangeBackingProperties() {
@@ -450,7 +468,10 @@ final class MetalTerminalView: NSView, CALayerDelegate {
 
     // MARK: - Font Size
 
-    private static let defaultFontSize: CGFloat = 14
+    private static var defaultFontSize: CGFloat {
+        let size = UserDefaults.standard.double(forKey: "terminalFontSize")
+        return size > 0 ? size : 14
+    }
     private static let minFontSize: CGFloat = 8
     private static let maxFontSize: CGFloat = 72
 

@@ -188,6 +188,18 @@ impl TerminalHandle {
         term.resize(dims);
     }
 
+    /// Resize the terminal grid without reflowing content or notifying the shell.
+    /// Rows are truncated (shrink) or padded (grow) instead of being rewrapped.
+    /// All internal state (scroll region, tabs, damage) is updated correctly.
+    pub fn resize_grid_no_reflow(&self, cols: u32, rows: u32) {
+        let mut term = self.term.lock();
+        let dims = TermDimensions {
+            cols: cols as usize,
+            lines: rows as usize,
+        };
+        term.resize_no_reflow(dims);
+    }
+
     /// Notify the shell of the current window size (sends SIGWINCH).
     pub fn notify_pty_size(&self, cols: u32, rows: u32, cell_width: u16, cell_height: u16) {
         let winsize = libc::winsize {

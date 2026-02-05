@@ -171,6 +171,22 @@ pub unsafe extern "C" fn claide_terminal_resize_grid(
     (*handle).resize_grid(cols, rows);
 }
 
+/// Resize the terminal grid without reflowing content or notifying the shell.
+///
+/// # Safety
+/// `handle` must be valid.
+#[no_mangle]
+pub unsafe extern "C" fn claide_terminal_resize_grid_no_reflow(
+    handle: ClaideTerminalRef,
+    cols: u32,
+    rows: u32,
+) {
+    if handle.is_null() {
+        return;
+    }
+    (*handle).resize_grid_no_reflow(cols, rows);
+}
+
 /// Notify the shell of the current window size (sends SIGWINCH).
 ///
 /// # Safety
