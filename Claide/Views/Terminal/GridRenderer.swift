@@ -53,13 +53,13 @@ final class GridRenderer {
         bgDesc.colorAttachments[0].pixelFormat = .bgra8Unorm
         backgroundPipeline = try device.makeRenderPipelineState(descriptor: bgDesc)
 
-        // Glyph pipeline (alpha blended)
+        // Glyph pipeline (premultiplied alpha blending)
         let glyphDesc = MTLRenderPipelineDescriptor()
         glyphDesc.vertexFunction = vertexFn
         glyphDesc.fragmentFunction = glyphFragFn
         glyphDesc.colorAttachments[0].pixelFormat = .bgra8Unorm
         glyphDesc.colorAttachments[0].isBlendingEnabled = true
-        glyphDesc.colorAttachments[0].sourceRGBBlendFactor = .sourceAlpha
+        glyphDesc.colorAttachments[0].sourceRGBBlendFactor = .one
         glyphDesc.colorAttachments[0].destinationRGBBlendFactor = .oneMinusSourceAlpha
         glyphDesc.colorAttachments[0].sourceAlphaBlendFactor = .one
         glyphDesc.colorAttachments[0].destinationAlphaBlendFactor = .oneMinusSourceAlpha

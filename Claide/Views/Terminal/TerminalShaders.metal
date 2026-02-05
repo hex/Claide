@@ -67,7 +67,8 @@ fragment float4 backgroundFragment(VertexOut in [[stage_in]]) {
     return in.color;
 }
 
-// Glyph fragment: alpha-blended text from atlas texture.
+// Glyph fragment: alpha-blended text from single-channel atlas.
+// The atlas stores grayscale coverage in the R channel; multiply by text color for output.
 fragment float4 glyphFragment(
     VertexOut in [[stage_in]],
     texture2d<float> atlas [[texture(0)]]
@@ -79,7 +80,7 @@ fragment float4 glyphFragment(
     }
 
     float alpha = atlas.sample(s, in.texCoord).r;
-    return float4(in.color.rgb, in.color.a * alpha);
+    return float4(in.color.rgb * alpha, alpha);
 }
 
 // Emoji fragment: RGBA texture (not alpha-only).
