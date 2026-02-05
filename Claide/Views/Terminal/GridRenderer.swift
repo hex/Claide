@@ -135,9 +135,11 @@ final class GridRenderer {
 
                 guard let glyph = atlas.entry(for: cp, bold: bold, italic: italic) else { continue }
 
-                // Position the glyph within the cell
-                let glyphX = x + glyph.bearingX
-                let glyphY = y + cellH - Float(atlas.descent) - Float(glyph.height) - glyph.bearingY
+                // Snap glyph position to pixel boundaries for sharp text at all scales
+                let scale = Float(atlas.scale)
+                let glyphX = ((x + glyph.bearingX) * scale).rounded() / scale
+                let rawY = y + cellH - Float(atlas.descent) - Float(glyph.height) - glyph.bearingY
+                let glyphY = (rawY * scale).rounded() / scale
 
                 glyphInstances.append(CellInstance(
                     position: SIMD2(glyphX, glyphY),
