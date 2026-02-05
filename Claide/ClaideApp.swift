@@ -96,6 +96,7 @@ private final class WindowConfiguratorView: NSView {
             NSWindow.didEnterFullScreenNotification,
             NSWindow.didEndLiveResizeNotification,
             NSWindow.didChangeScreenNotification,
+            NSWindow.didMoveNotification,
             NSWindow.didDeminiaturizeNotification,
         ] {
             let observer = NotificationCenter.default.addObserver(
