@@ -89,6 +89,14 @@ private final class WindowConfiguratorView: NSView {
 
         // SwiftUI resets window properties on activation and fullscreen transitions.
         // Re-apply after SwiftUI's own handler finishes (async dispatch).
+        // Notifications that need a delayed second pass because SwiftUI's
+        // window restoration spans multiple run loop cycles.
+        let delayedNames: Set<Notification.Name> = [
+            NSWindow.didDeminiaturizeNotification,
+            NSWindow.didResizeNotification,
+            NSWindow.didExitFullScreenNotification,
+        ]
+
         for name: Notification.Name in [
             NSWindow.didBecomeKeyNotification,
             NSWindow.didBecomeMainNotification,
@@ -100,13 +108,21 @@ private final class WindowConfiguratorView: NSView {
             NSWindow.didChangeScreenNotification,
             NSWindow.didMoveNotification,
             NSWindow.didDeminiaturizeNotification,
+            NSWindow.didResizeNotification,
         ] {
+            let needsDelay = delayedNames.contains(name)
             let observer = NotificationCenter.default.addObserver(
                 forName: name, object: window, queue: .main
             ) { [weak self] _ in
-                DispatchQueue.main.async {
-                    guard let window = self?.window else { return }
-                    self?.applyChrome(window)
+                DispatchQueue.main.async { [weak self] in
+                    guard let self, let window = self.window else { return }
+                    self.applyChrome(window)
+                    if needsDelay {
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+                            guard let self, let window = self.window else { return }
+                            self.applyChrome(window)
+                        }
+                    }
                 }
             }
             observers.append(observer)

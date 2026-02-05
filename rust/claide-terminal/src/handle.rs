@@ -264,8 +264,12 @@ impl Drop for TerminalHandle {
         // Signal the reader thread to stop
         self.shutdown.store(true, Ordering::Relaxed);
 
-        // The OwnedFd for pty_master will be closed when dropped,
-        // which will cause the reader thread's read() to return EOF/error.
+        // Kill the shell so the PTY slave closes. Without this, the reader
+        // thread is stuck in a blocking read() on its dup'd master fd and
+        // join() would block the main thread forever.
+        unsafe {
+            libc::kill(self.shell_pid as i32, libc::SIGHUP);
+        }
 
         if let Some(thread) = self.reader_thread.take() {
             let _ = thread.join();
