@@ -133,6 +133,13 @@ void claide_terminal_resize_grid(
     uint32_t rows
 );
 
+/// Resize the terminal grid without reflowing content or notifying the shell.
+void claide_terminal_resize_grid_no_reflow(
+    ClaideTerminalRef handle,
+    uint32_t cols,
+    uint32_t rows
+);
+
 /// Notify the shell of the current window size (sends SIGWINCH).
 void claide_terminal_notify_pty_size(
     ClaideTerminalRef handle,

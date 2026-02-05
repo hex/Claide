@@ -115,6 +115,12 @@ final class TerminalBridge: @unchecked Sendable {
         claide_terminal_resize_grid(handle, cols, rows)
     }
 
+    /// Resize the terminal grid without reflowing content or notifying the shell.
+    /// Old content stays as-is — rows are truncated or padded instead of rewrapped.
+    func resizeGridNoReflow(cols: UInt32, rows: UInt32) {
+        claide_terminal_resize_grid_no_reflow(handle, cols, rows)
+    }
+
     /// Notify the shell of the current window size (sends SIGWINCH).
     func notifyPtySize(cols: UInt32, rows: UInt32, cellWidth: UInt16, cellHeight: UInt16) {
         claide_terminal_notify_pty_size(handle, cols, rows, cellWidth, cellHeight)
