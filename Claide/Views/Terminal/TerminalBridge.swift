@@ -105,9 +105,19 @@ final class TerminalBridge: @unchecked Sendable {
         }
     }
 
-    /// Resize the terminal grid and PTY.
+    /// Resize the terminal grid and notify the shell (sends SIGWINCH).
     func resize(cols: UInt32, rows: UInt32, cellWidth: UInt16, cellHeight: UInt16) {
         claide_terminal_resize(handle, cols, rows, cellWidth, cellHeight)
+    }
+
+    /// Resize the terminal grid without notifying the shell.
+    func resizeGrid(cols: UInt32, rows: UInt32) {
+        claide_terminal_resize_grid(handle, cols, rows)
+    }
+
+    /// Notify the shell of the current window size (sends SIGWINCH).
+    func notifyPtySize(cols: UInt32, rows: UInt32, cellWidth: UInt16, cellHeight: UInt16) {
+        claide_terminal_notify_pty_size(handle, cols, rows, cellWidth, cellHeight)
     }
 
     /// Take a snapshot of the visible terminal grid.
