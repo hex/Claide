@@ -13,8 +13,8 @@ struct TerminalTabManagerTests {
         let manager = TerminalTabManager()
         for _ in 0..<tabCount {
             manager.addTab(initialDirectory: nil, fontFamily: "", env: [
-                "PATH=/usr/bin:/bin",
-                "TERM=xterm-256color",
+                ("PATH", "/usr/bin:/bin"),
+                ("TERM", "xterm-256color"),
             ])
         }
         return manager
@@ -39,8 +39,8 @@ struct TerminalTabManagerTests {
         let firstID = manager.tabs[0].id
 
         manager.addTab(initialDirectory: nil, fontFamily: "", env: [
-            "PATH=/usr/bin:/bin",
-            "TERM=xterm-256color",
+            ("PATH", "/usr/bin:/bin"),
+            ("TERM", "xterm-256color"),
         ])
 
         #expect(manager.tabs.count == 2)
@@ -133,25 +133,25 @@ struct TerminalTabManagerTests {
     func buildEnvironmentIncludesHomebrew() {
         let env = TerminalTabManager.buildEnvironment()
 
-        let pathEntry = env.first { $0.hasPrefix("PATH=") }
-        #expect(pathEntry != nil)
-        #expect(pathEntry!.contains("/opt/homebrew/bin"))
+        let pathValue = env.first(where: { $0.0 == "PATH" })?.1
+        #expect(pathValue != nil)
+        #expect(pathValue!.contains("/opt/homebrew/bin"))
     }
 
     @Test("buildEnvironment sets TERM_PROGRAM to Apple_Terminal")
     func buildEnvironmentSetsTermProgram() {
         let env = TerminalTabManager.buildEnvironment()
 
-        let termProgram = env.first { $0.hasPrefix("TERM_PROGRAM=") }
-        #expect(termProgram == "TERM_PROGRAM=Apple_Terminal")
+        let value = env.first(where: { $0.0 == "TERM_PROGRAM" })?.1
+        #expect(value == "Apple_Terminal")
     }
 
     @Test("buildEnvironment disables shell sessions")
     func buildEnvironmentDisablesShellSessions() {
         let env = TerminalTabManager.buildEnvironment()
 
-        let sessionsDisable = env.first { $0.hasPrefix("SHELL_SESSIONS_DISABLE=") }
-        #expect(sessionsDisable == "SHELL_SESSIONS_DISABLE=1")
+        let value = env.first(where: { $0.0 == "SHELL_SESSIONS_DISABLE" })?.1
+        #expect(value == "1")
     }
 
     // MARK: - Tab Identity
@@ -231,8 +231,8 @@ struct TerminalTabManagerTests {
     func addTabNoArgsReusesDefaults() {
         let manager = TerminalTabManager()
         manager.addTab(initialDirectory: "/tmp", fontFamily: "Menlo", env: [
-            "PATH=/usr/bin:/bin",
-            "TERM=xterm-256color",
+            ("PATH", "/usr/bin:/bin"),
+            ("TERM", "xterm-256color"),
         ])
 
         #expect(manager.tabs.count == 1)

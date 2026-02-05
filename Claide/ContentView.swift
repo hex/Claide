@@ -4,7 +4,7 @@
 import SwiftUI
 
 struct ContentView: View {
-    @State private var tabManager = TerminalTabManager()
+    let tabManager: TerminalTabManager
     @State private var graphVM = GraphViewModel()
     @State private var fileLogVM = FileLogViewModel()
     @State private var sessionStatusVM = SessionStatusViewModel()
@@ -51,7 +51,6 @@ struct ContentView: View {
             let shellPid = pid_t(tabManager.activeTab?.terminalView.shellPid ?? 0)
             sessionStatusVM.startWatching(sessionDirectory: sessionDirectory, shellPid: shellPid)
         }
-        .focusedSceneValue(\.tabManager, tabManager)
         .onChange(of: tabManager.activeViewModel?.currentDirectory) { _, newDir in
             if let dir = newDir.flatMap({ $0 }) {
                 let vm = graphVM
@@ -212,9 +211,4 @@ struct ContentView: View {
     }
 }
 
-// MARK: - Focused Value
-
-extension FocusedValues {
-    @Entry var tabManager: TerminalTabManager?
-}
 
