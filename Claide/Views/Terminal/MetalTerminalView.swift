@@ -68,9 +68,23 @@ final class MetalTerminalView: NSView, CALayerDelegate {
     /// Whether to treat Option key as Meta (sends ESC prefix).
     var optionAsMeta = true
 
+    /// Cursor shape rendered by the view (overrides the terminal emulator's shape).
+    enum CursorShape: UInt8 {
+        case block = 0
+        case underline = 1
+        case beam = 2
+    }
+
+    private(set) var cursorShape: CursorShape = .beam
+    private(set) var cursorBlinking: Bool = true
+
     /// IME marked text state (for NSTextInputClient).
     private var markedTextStorage = NSMutableAttributedString()
     private var markedRangeStorage = NSRange(location: NSNotFound, length: 0)
+
+    /// Cursor blink state and timer (~530ms period, matching iTerm2/Alacritty convention).
+    private var cursorBlinkOn = true
+    private var cursorBlinkTimer: Timer?
 
     // MARK: - Initialization
 
@@ -106,13 +120,20 @@ final class MetalTerminalView: NSView, CALayerDelegate {
         let scale = NSScreen.main?.backingScaleFactor ?? 2.0
         atlas = GlyphAtlas(device: device, font: terminalFont, scale: scale)
 
-        let library = device.makeDefaultLibrary()!
-        gridRenderer = try! GridRenderer(device: device, atlas: atlas, library: library)
+        guard let library = device.makeDefaultLibrary() else {
+            fatalError("Metal shader library not found in app bundle")
+        }
+        do {
+            gridRenderer = try GridRenderer(device: device, atlas: atlas, library: library)
+        } catch {
+            fatalError("Failed to create GridRenderer: \(error)")
+        }
 
         startDisplayLink()
     }
 
     deinit {
+        stopCursorBlink()
         stopDisplayLink()
     }
 
@@ -141,10 +162,13 @@ final class MetalTerminalView: NSView, CALayerDelegate {
         bridge?.onWakeup = { [weak self] in
             self?.needsRedraw = true
         }
+
+        startCursorBlink()
     }
 
     /// Terminate the shell process and clean up.
     func terminate() {
+        stopCursorBlink()
         bridge = nil
         needsRedraw = true
     }
@@ -178,6 +202,44 @@ final class MetalTerminalView: NSView, CALayerDelegate {
         }
     }
 
+    // MARK: - Cursor Preferences
+
+    /// Apply cursor shape and blink settings from the UI.
+    func applyCursorPreferences(shape: CursorShape, blinking: Bool) {
+        cursorShape = shape
+        cursorBlinking = blinking
+        if blinking {
+            if cursorBlinkTimer == nil { startCursorBlink() }
+        } else {
+            stopCursorBlink()
+            cursorBlinkOn = true
+        }
+        needsRedraw = true
+    }
+
+    // MARK: - Cursor Blink
+
+    private func startCursorBlink() {
+        cursorBlinkOn = true
+        cursorBlinkTimer = Timer.scheduledTimer(withTimeInterval: 0.53, repeats: true) { [weak self] _ in
+            self?.cursorBlinkOn.toggle()
+            self?.needsRedraw = true
+        }
+    }
+
+    private func stopCursorBlink() {
+        cursorBlinkTimer?.invalidate()
+        cursorBlinkTimer = nil
+    }
+
+    /// Reset blink cycle so the cursor is visible immediately after input.
+    private func resetCursorBlink() {
+        guard cursorBlinking else { return }
+        cursorBlinkOn = true
+        cursorBlinkTimer?.fireDate = Date(timeIntervalSinceNow: 0.53)
+        needsRedraw = true
+    }
+
     // MARK: - Rendering
 
     private func render() {
@@ -196,6 +258,12 @@ final class MetalTerminalView: NSView, CALayerDelegate {
 
         // Take snapshot and update buffers
         if let bridge, let snapshot = bridge.snapshot() {
+            // Apply user's cursor shape preference
+            snapshot.pointee.cursor.shape = cursorShape.rawValue
+            // Hide cursor during blink-off phase
+            if cursorBlinking && !cursorBlinkOn {
+                snapshot.pointee.cursor.visible = false
+            }
             gridRenderer.update(snapshot: snapshot)
             TerminalBridge.freeSnapshot(snapshot)
         }
@@ -267,6 +335,8 @@ final class MetalTerminalView: NSView, CALayerDelegate {
     }
 
     override func keyDown(with event: NSEvent) {
+        resetCursorBlink()
+
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
 
         // Option-as-Meta: send ESC + char directly, bypassing the input method
@@ -308,11 +378,33 @@ final class MetalTerminalView: NSView, CALayerDelegate {
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        guard let chars = event.charactersIgnoringModifiers else {
+            return super.performKeyEquivalent(with: event)
+        }
+
+        // Cmd+key: font size adjustment
+        if flags == .command || flags == [.command, .shift] {
+            switch chars {
+            case "=", "+":
+                adjustFontSize(by: 1)
+                return true
+            case "-":
+                if flags == .command {
+                    adjustFontSize(by: -1)
+                    return true
+                }
+            case "0":
+                if flags == .command {
+                    resetFontSize()
+                    return true
+                }
+            default:
+                break
+            }
+        }
 
         // Ctrl+key combinations
-        guard flags == .control,
-              let chars = event.charactersIgnoringModifiers,
-              let scalar = chars.unicodeScalars.first else {
+        guard flags == .control, let scalar = chars.unicodeScalars.first else {
             return super.performKeyEquivalent(with: event)
         }
 
@@ -347,6 +439,24 @@ final class MetalTerminalView: NSView, CALayerDelegate {
         return super.performKeyEquivalent(with: event)
     }
 
+    // MARK: - Font Size
+
+    private static let defaultFontSize: CGFloat = 14
+    private static let minFontSize: CGFloat = 8
+    private static let maxFontSize: CGFloat = 72
+
+    private func adjustFontSize(by delta: CGFloat) {
+        let newSize = min(Self.maxFontSize, max(Self.minFontSize, terminalFont.pointSize + delta))
+        guard newSize != terminalFont.pointSize else { return }
+        terminalFont = NSFont(descriptor: terminalFont.fontDescriptor, size: newSize)
+            ?? NSFont.monospacedSystemFont(ofSize: newSize, weight: .regular)
+    }
+
+    private func resetFontSize() {
+        terminalFont = NSFont(descriptor: terminalFont.fontDescriptor, size: Self.defaultFontSize)
+            ?? NSFont.monospacedSystemFont(ofSize: Self.defaultFontSize, weight: .regular)
+    }
+
     // MARK: - Mouse / Selection
 
     /// Whether a drag selection is in progress.
@@ -367,6 +477,7 @@ final class MetalTerminalView: NSView, CALayerDelegate {
 
     override func mouseDown(with event: NSEvent) {
         window?.makeFirstResponder(self)
+        resetCursorBlink()
 
         guard let bridge else { return }
         let (row, col, side) = gridPosition(for: event)

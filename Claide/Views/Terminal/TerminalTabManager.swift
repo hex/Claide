@@ -66,6 +66,8 @@ final class TerminalTabManager {
             vm?.processTerminated(exitCode: code)
         }
 
+        applyCursorStyle(to: view)
+
         let tab = Tab(id: UUID(), viewModel: vm, terminalView: view)
         tabs.append(tab)
         activeTabID = tab.id
@@ -118,19 +120,17 @@ final class TerminalTabManager {
 
     // MARK: - Cursor Style
 
-    /// DECSCUSR base codes (blinking). Add 1 for steady variant.
-    static let cursorStyleCodes: [String: Int] = [
-        "block": 1,
-        "underline": 3,
-        "bar": 5,
-    ]
-
     func applyCursorStyle(to view: MetalTerminalView) {
         let pref = UserDefaults.standard.string(forKey: "cursorStyle") ?? "bar"
         let blink = UserDefaults.standard.object(forKey: "cursorBlink") as? Bool ?? true
-        var code = Self.cursorStyleCodes[pref] ?? 5
-        if !blink { code += 1 }
-        view.bridge?.write("\u{1b}[\(code) q")
+
+        let shape: MetalTerminalView.CursorShape = switch pref {
+        case "block": .block
+        case "underline": .underline
+        default: .beam
+        }
+
+        view.applyCursorPreferences(shape: shape, blinking: blink)
     }
 
     func applyCursorStyleToAll() {
