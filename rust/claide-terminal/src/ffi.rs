@@ -137,7 +137,7 @@ pub unsafe extern "C" fn claide_terminal_write_str(
     }
 }
 
-/// Resize the terminal and PTY.
+/// Resize the terminal grid and notify the shell (sends SIGWINCH).
 ///
 /// # Safety
 /// `handle` must be valid.
@@ -153,6 +153,40 @@ pub unsafe extern "C" fn claide_terminal_resize(
         return;
     }
     (*handle).resize(cols, rows, cell_width, cell_height);
+}
+
+/// Resize the terminal grid without notifying the shell.
+///
+/// # Safety
+/// `handle` must be valid.
+#[no_mangle]
+pub unsafe extern "C" fn claide_terminal_resize_grid(
+    handle: ClaideTerminalRef,
+    cols: u32,
+    rows: u32,
+) {
+    if handle.is_null() {
+        return;
+    }
+    (*handle).resize_grid(cols, rows);
+}
+
+/// Notify the shell of the current window size (sends SIGWINCH).
+///
+/// # Safety
+/// `handle` must be valid.
+#[no_mangle]
+pub unsafe extern "C" fn claide_terminal_notify_pty_size(
+    handle: ClaideTerminalRef,
+    cols: u32,
+    rows: u32,
+    cell_width: u16,
+    cell_height: u16,
+) {
+    if handle.is_null() {
+        return;
+    }
+    (*handle).notify_pty_size(cols, rows, cell_width, cell_height);
 }
 
 /// Take a snapshot of the visible terminal grid.

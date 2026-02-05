@@ -117,8 +117,24 @@ void claide_terminal_write_str(ClaideTerminalRef handle, const char *str);
 
 // -- Resize --
 
-/// Resize the terminal and PTY. Sends SIGWINCH to the child process.
+/// Resize the terminal grid and notify the shell (sends SIGWINCH).
 void claide_terminal_resize(
+    ClaideTerminalRef handle,
+    uint32_t cols,
+    uint32_t rows,
+    uint16_t cell_width,
+    uint16_t cell_height
+);
+
+/// Resize the terminal grid without notifying the shell.
+void claide_terminal_resize_grid(
+    ClaideTerminalRef handle,
+    uint32_t cols,
+    uint32_t rows
+);
+
+/// Notify the shell of the current window size (sends SIGWINCH).
+void claide_terminal_notify_pty_size(
     ClaideTerminalRef handle,
     uint32_t cols,
     uint32_t rows,

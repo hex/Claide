@@ -38,21 +38,22 @@ final class MetalTerminalView: NSView, CALayerDelegate {
     /// Terminal bridge (set when startShell is called).
     private(set) var bridge: TerminalBridge?
 
-    /// Current font.
+    /// Current font. Changing this re-rasterizes glyphs immediately for visual
+    /// feedback, then schedules a debounced grid resize to match.
     var terminalFont: NSFont = NSFont.monospacedSystemFont(ofSize: 14, weight: .regular) {
         didSet {
             atlas?.setFont(terminalFont)
             needsRedraw = true
-            if let bridge {
-                let (cols, rows) = gridDimensions
-                bridge.resize(
-                    cols: UInt32(cols), rows: UInt32(rows),
-                    cellWidth: UInt16(atlas.cellWidth),
-                    cellHeight: UInt16(atlas.cellHeight)
-                )
-            }
+            debouncedResize()
         }
     }
+
+    /// Last grid dimensions sent to the terminal bridge, used to avoid redundant reflows.
+    private var currentCols = 0
+    private var currentRows = 0
+
+    /// Pending font-zoom resize work item (debounced to coalesce rapid Cmd+=/Cmd+- presses).
+    private var resizeDebounceWork: DispatchWorkItem?
 
     /// Shell process ID (0 if no shell running).
     var shellPid: UInt32 { bridge?.shellPid ?? 0 }
@@ -264,7 +265,11 @@ final class MetalTerminalView: NSView, CALayerDelegate {
             if cursorBlinking && !cursorBlinkOn {
                 snapshot.pointee.cursor.visible = false
             }
-            gridRenderer.update(snapshot: snapshot)
+            // Bottom-align the grid so the prompt stays visible when the grid
+            // (at the current font size) extends beyond the view bounds.
+            let gridPixelHeight = Float(snapshot.pointee.rows) * Float(atlas.cellHeight)
+            let yOffset = max(0, gridPixelHeight - Float(bounds.height))
+            gridRenderer.update(snapshot: snapshot, yOffset: yOffset)
             TerminalBridge.freeSnapshot(snapshot)
         }
 
@@ -300,11 +305,15 @@ final class MetalTerminalView: NSView, CALayerDelegate {
 
         if let bridge, let atlas {
             let (cols, rows) = gridDimensions
-            bridge.resize(
-                cols: UInt32(cols), rows: UInt32(rows),
-                cellWidth: UInt16(atlas.cellWidth),
-                cellHeight: UInt16(atlas.cellHeight)
-            )
+            if cols != currentCols || rows != currentRows {
+                currentCols = cols
+                currentRows = rows
+                bridge.resize(
+                    cols: UInt32(cols), rows: UInt32(rows),
+                    cellWidth: UInt16(atlas.cellWidth),
+                    cellHeight: UInt16(atlas.cellHeight)
+                )
+            }
         }
 
         needsRedraw = true
@@ -455,6 +464,28 @@ final class MetalTerminalView: NSView, CALayerDelegate {
     private func resetFontSize() {
         terminalFont = NSFont(descriptor: terminalFont.fontDescriptor, size: Self.defaultFontSize)
             ?? NSFont.monospacedSystemFont(ofSize: Self.defaultFontSize, weight: .regular)
+    }
+
+    /// Schedule a grid resize after a short delay to coalesce rapid font size changes.
+    /// The atlas is already updated (immediate visual feedback); this adapts the grid.
+    private func debouncedResize() {
+        resizeDebounceWork?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            guard let self, let bridge, let atlas else { return }
+            let (cols, rows) = self.gridDimensions
+            if cols != self.currentCols || rows != self.currentRows {
+                self.currentCols = cols
+                self.currentRows = rows
+                bridge.resize(
+                    cols: UInt32(cols), rows: UInt32(rows),
+                    cellWidth: UInt16(atlas.cellWidth),
+                    cellHeight: UInt16(atlas.cellHeight)
+                )
+                self.needsRedraw = true
+            }
+        }
+        resizeDebounceWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2, execute: work)
     }
 
     // MARK: - Mouse / Selection
