@@ -273,13 +273,13 @@ struct GraphPanel: View {
 
                 // Draw nodes
                 let textFont: Font = fontFamily.isEmpty
-                    ? .system(size: 10 * zoom, design: .monospaced)
+                    ? .system(size: 10 * zoom)
                     : .custom(fontFamily, size: 10 * zoom)
                 let boldFont: Font = fontFamily.isEmpty
-                    ? .system(size: 10 * zoom, weight: .bold, design: .monospaced)
+                    ? .system(size: 10 * zoom, weight: .bold)
                     : .custom(fontFamily, size: 10 * zoom).bold()
-                let badgeFont: Font = .system(size: 7 * zoom, weight: .semibold, design: .monospaced)
-                let smallFont: Font = .system(size: 8 * zoom, design: .monospaced)
+                let badgeFont: Font = .system(size: 7 * zoom, weight: .semibold)
+                let smallFont: Font = .system(size: 8 * zoom)
 
                 for issue in viewModel.issues {
                     guard let pos = viewModel.positions[issue.id] else { continue }
@@ -648,7 +648,7 @@ struct GraphPanel: View {
                 .foregroundStyle(Theme.negative)
                 .tracking(1.5)
             Text(message)
-                .font(Theme.monoFontSmall)
+                .font(Theme.bodyFontSmall)
                 .foregroundStyle(Theme.textSecondary)
                 .multilineTextAlignment(.center)
         }

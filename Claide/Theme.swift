@@ -65,12 +65,16 @@ enum Theme {
     static let edgeBlocks  = Palette.color(.uiRed).opacity(0.6)
     static let edgeDefault = Palette.color(.edgeMuted)
 
-    // Typography
-    static let monoFont = Font.system(size: 12, design: .monospaced)
-    static let monoFontSmall = Font.system(size: 10, design: .monospaced)
-    static let labelFont = Font.system(size: 10, weight: .medium, design: .monospaced)
-    static let headingFont = Font.system(size: 11, weight: .semibold, design: .monospaced)
-    static let titleFont = Font.system(size: 13, weight: .bold, design: .monospaced)
+    // Typography — sizes derived from the user's "uiFontSize" preference.
+    private static var baseFontSize: CGFloat {
+        let size = UserDefaults.standard.double(forKey: "uiFontSize")
+        return size > 0 ? size : 13
+    }
+    static var bodyFont: Font { .system(size: baseFontSize) }
+    static var bodyFontSmall: Font { .system(size: baseFontSize - 2) }
+    static var labelFont: Font { .system(size: baseFontSize - 2, weight: .medium) }
+    static var headingFont: Font { .system(size: baseFontSize - 1, weight: .semibold) }
+    static var titleFont: Font { .system(size: baseFontSize + 1, weight: .bold) }
 
     // Spacing
     static let panelPadding: CGFloat = 12
@@ -244,7 +248,7 @@ struct SectionHeader: View {
             Spacer()
             if let trailing {
                 Text(trailing)
-                    .font(Theme.monoFontSmall)
+                    .font(Theme.bodyFontSmall)
                     .foregroundStyle(Theme.textMuted)
             }
         }

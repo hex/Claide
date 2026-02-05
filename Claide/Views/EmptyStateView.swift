@@ -18,13 +18,13 @@ struct EmptyStateView: View {
                 .tracking(1.5)
 
             Text(subtitle)
-                .font(Theme.monoFontSmall)
+                .font(Theme.bodyFontSmall)
                 .foregroundStyle(Theme.textMuted)
                 .multilineTextAlignment(.center)
 
             if let hint {
                 Text(hint)
-                    .font(Theme.monoFontSmall)
+                    .font(Theme.bodyFontSmall)
                     .foregroundStyle(Theme.textSecondary)
                     .padding(.horizontal, 8)
                     .padding(.vertical, 4)

@@ -12,7 +12,7 @@ struct SessionStatusBar: View {
         if let status {
             HStack {
                 Text(status.formattedUsage)
-                    .font(Theme.monoFontSmall)
+                    .font(Theme.bodyFontSmall)
                     .foregroundStyle(usageColor(percentage: status.usedPercentage))
                 Spacer()
             }

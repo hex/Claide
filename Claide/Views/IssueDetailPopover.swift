@@ -26,11 +26,11 @@ struct IssueDetailPopover: View {
     private var headerRow: some View {
         HStack {
             Text(issue.id)
-                .font(Theme.monoFont)
+                .font(Theme.bodyFont)
                 .foregroundStyle(issue.typeColor)
             Spacer()
             Text(issue.issueType.capitalized)
-                .font(.system(size: 9, weight: .semibold, design: .monospaced))
+                .font(.system(size: 9, weight: .semibold))
                 .foregroundStyle(issue.typeBadge.fg)
                 .padding(.horizontal, 6)
                 .padding(.vertical, 2)
@@ -55,7 +55,7 @@ struct IssueDetailPopover: View {
 
     private func descriptionRow(_ text: String) -> some View {
         Text(text)
-            .font(Theme.monoFontSmall)
+            .font(Theme.bodyFontSmall)
             .foregroundStyle(Theme.textSecondary)
             .lineLimit(4)
             .padding(.horizontal, 12)
@@ -91,11 +91,11 @@ struct IssueDetailPopover: View {
     private func detailRow(_ label: String, value: String, color: Color = Theme.textPrimary) -> some View {
         HStack(alignment: .top, spacing: 8) {
             Text(label)
-                .font(.system(size: 9, weight: .medium, design: .monospaced))
+                .font(.system(size: 9, weight: .medium))
                 .foregroundStyle(Theme.textMuted)
                 .frame(width: 60, alignment: .leading)
             Text(value)
-                .font(Theme.monoFontSmall)
+                .font(Theme.bodyFontSmall)
                 .foregroundStyle(color)
                 .lineLimit(2)
         }
