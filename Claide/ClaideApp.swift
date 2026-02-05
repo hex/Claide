@@ -10,6 +10,8 @@ struct ClaideApp: App {
         UserDefaults.standard.register(defaults: [
             "cursorStyle": "bar",
             "cursorBlink": true,
+            "terminalFontSize": 14.0,
+            "uiFontSize": 13.0,
         ])
     }
 
