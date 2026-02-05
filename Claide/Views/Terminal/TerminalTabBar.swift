@@ -161,7 +161,7 @@ private struct TabButton: View {
                                 Text("\u{2318}")
                                 Text("\(index)")
                             }
-                            .font(.system(size: 10, weight: .medium, design: .monospaced))
+                            .font(.system(size: 10, weight: .medium))
                             .foregroundStyle(Theme.textMuted)
                             .padding(.horizontal, 3)
                             .padding(.vertical, 2)

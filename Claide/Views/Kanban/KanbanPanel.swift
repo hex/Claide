@@ -14,7 +14,7 @@ struct KanbanPanel: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if let error = viewModel.error {
                 Text(error)
-                    .font(Theme.monoFontSmall)
+                    .font(Theme.bodyFontSmall)
                     .foregroundStyle(Theme.negative)
                     .padding(Theme.panelPadding)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -84,7 +84,7 @@ struct KanbanPanel: View {
                 .tracking(1.0)
             Spacer()
             Text("\(count)")
-                .font(Theme.monoFontSmall)
+                .font(Theme.bodyFontSmall)
                 .foregroundStyle(Theme.textMuted)
         }
         .padding(.horizontal, 8)
@@ -103,17 +103,17 @@ struct KanbanPanel: View {
             VStack(alignment: .leading, spacing: 3) {
                 // Title
                 Text(issue.title)
-                    .font(Theme.monoFontSmall)
+                    .font(Theme.bodyFontSmall)
                     .foregroundStyle(Theme.textPrimary)
                     .lineLimit(2)
 
                 // Priority + type
                 HStack(spacing: 4) {
                     Text(NodeVisuals.priorityLabel(for: issue))
-                        .font(.system(size: 9, weight: .medium, design: .monospaced))
+                        .font(.system(size: 9, weight: .medium))
                         .foregroundStyle(issue.priorityColor)
                     Text(issue.issueType)
-                        .font(.system(size: 9, design: .monospaced))
+                        .font(.system(size: 9))
                         .foregroundStyle(Theme.textMuted)
                 }
 
@@ -124,13 +124,13 @@ struct KanbanPanel: View {
                     HStack(spacing: 4) {
                         if let owner {
                             Text(owner)
-                                .font(.system(size: 9, design: .monospaced))
+                                .font(.system(size: 9))
                                 .foregroundStyle(Theme.textSecondary)
                         }
                         Spacer()
                         if let depLabel {
                             Text(depLabel)
-                                .font(.system(size: 9, design: .monospaced))
+                                .font(.system(size: 9))
                                 .foregroundStyle(Theme.textMuted)
                         }
                     }

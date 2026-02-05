@@ -18,11 +18,11 @@ struct FileLogPanel: View {
 
             if let error = viewModel.error {
                 Text(error)
-                    .font(Theme.monoFontSmall)
+                    .font(Theme.bodyFontSmall)
                     .foregroundStyle(Theme.negative)
             } else if viewModel.changes.isEmpty {
                 Text("No file changes recorded")
-                    .font(Theme.monoFontSmall)
+                    .font(Theme.bodyFontSmall)
                     .foregroundStyle(Theme.textMuted)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
@@ -45,13 +45,13 @@ struct FileLogPanel: View {
         HStack(spacing: 8) {
             // Timestamp
             Text(Self.timeFormatter.string(from: change.timestamp))
-                .font(Theme.monoFontSmall)
+                .font(Theme.bodyFontSmall)
                 .foregroundStyle(Theme.textMuted)
                 .frame(width: 55, alignment: .leading)
 
             // Tool badge
             Text(change.tool.uppercased())
-                .font(.system(size: 9, weight: .medium, design: .monospaced))
+                .font(.system(size: 9, weight: .medium))
                 .foregroundStyle(toolColor(change.tool))
                 .padding(.horizontal, 4)
                 .padding(.vertical, 1)
@@ -62,12 +62,12 @@ struct FileLogPanel: View {
             // Filename
             VStack(alignment: .leading, spacing: 0) {
                 Text(change.fileName)
-                    .font(Theme.monoFontSmall)
+                    .font(Theme.bodyFontSmall)
                     .foregroundStyle(Theme.textPrimary)
                     .lineLimit(1)
 
                 Text(change.directory)
-                    .font(.system(size: 9, design: .monospaced))
+                    .font(.system(size: 9))
                     .foregroundStyle(Theme.textMuted)
                     .lineLimit(1)
                     .truncationMode(.head)

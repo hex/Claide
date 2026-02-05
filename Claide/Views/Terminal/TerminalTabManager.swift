@@ -42,7 +42,8 @@ final class TerminalTabManager {
         let vm = TerminalViewModel()
         let view = MetalTerminalView(frame: .zero)
 
-        view.terminalFont = FontSelection.terminalFont(family: fontFamily, size: 14)
+        let termSize = UserDefaults.standard.double(forKey: "terminalFontSize")
+        view.terminalFont = FontSelection.terminalFont(family: fontFamily, size: termSize > 0 ? termSize : 14)
 
         let environment = env ?? Self.buildEnvironment()
         let directory = initialDirectory ?? NSHomeDirectory()
