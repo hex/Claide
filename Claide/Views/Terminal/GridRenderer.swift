@@ -38,6 +38,13 @@ final class GridRenderer {
         Float(0x28) / 255.0
     )
 
+    /// Selection highlight background color (matches Palette.selection).
+    private let selectionBg: SIMD3<Float> = SIMD3<Float>(
+        Float(131) / 255.0,
+        Float(74) / 255.0,
+        Float(136) / 255.0
+    )
+
     init(device: MTLDevice, atlas: GlyphAtlas, library: MTLLibrary) throws {
         self.device = device
         self.atlas = atlas
@@ -93,28 +100,23 @@ final class GridRenderer {
 
                 let selected = cell.flags & 0x200 != 0
 
-                // Swap fg/bg when selected (standard terminal convention)
+                let fgR = Float(cell.fg_r) / 255.0
+                let fgG = Float(cell.fg_g) / 255.0
+                let fgB = Float(cell.fg_b) / 255.0
+
+                // Selected cells use the selection color as background; text color stays
                 let bgR: Float
                 let bgG: Float
                 let bgB: Float
-                let fgR: Float
-                let fgG: Float
-                let fgB: Float
 
                 if selected {
-                    bgR = Float(cell.fg_r) / 255.0
-                    bgG = Float(cell.fg_g) / 255.0
-                    bgB = Float(cell.fg_b) / 255.0
-                    fgR = Float(cell.bg_r) / 255.0
-                    fgG = Float(cell.bg_g) / 255.0
-                    fgB = Float(cell.bg_b) / 255.0
+                    bgR = selectionBg.x
+                    bgG = selectionBg.y
+                    bgB = selectionBg.z
                 } else {
                     bgR = Float(cell.bg_r) / 255.0
                     bgG = Float(cell.bg_g) / 255.0
                     bgB = Float(cell.bg_b) / 255.0
-                    fgR = Float(cell.fg_r) / 255.0
-                    fgG = Float(cell.fg_g) / 255.0
-                    fgB = Float(cell.fg_b) / 255.0
                 }
 
                 // Background quad
