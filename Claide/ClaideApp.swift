@@ -90,8 +90,13 @@ private final class WindowConfiguratorView: NSView {
         for name: Notification.Name in [
             NSWindow.didBecomeKeyNotification,
             NSWindow.didBecomeMainNotification,
+            NSWindow.didResignKeyNotification,
+            NSWindow.didResignMainNotification,
             NSWindow.didExitFullScreenNotification,
+            NSWindow.didEnterFullScreenNotification,
             NSWindow.didEndLiveResizeNotification,
+            NSWindow.didChangeScreenNotification,
+            NSWindow.didDeminiaturizeNotification,
         ] {
             let observer = NotificationCenter.default.addObserver(
                 forName: name, object: window, queue: .main
