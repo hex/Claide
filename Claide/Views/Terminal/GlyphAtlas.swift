@@ -98,7 +98,7 @@ final class GlyphAtlas {
         CTFontGetAdvancesForGlyphs(baseFont, .horizontal, &glyph, &advance, 1)
         self.cellWidth = ceil(advance.width)
 
-        // Create the atlas texture
+        // Create the atlas texture (single-channel grayscale coverage)
         let descriptor = MTLTextureDescriptor.texture2DDescriptor(
             pixelFormat: .r8Unorm,
             width: width,
@@ -165,19 +165,26 @@ final class GlyphAtlas {
 
         shelfHeight = max(shelfHeight, bitmapHeight)
 
-        // Rasterize at native resolution
-        var pixels = [UInt8](repeating: 0, count: bitmapWidth * bitmapHeight)
+        // Rasterize in sRGB BGRA (preserves Core Text's full rendering quality),
+        // then extract the R channel for the single-channel atlas.
+        let bgraBytes = 4
+        var bgraPixels = [UInt8](repeating: 0, count: bitmapWidth * bitmapHeight * bgraBytes)
 
-        pixels.withUnsafeMutableBufferPointer { buffer in
+        bgraPixels.withUnsafeMutableBufferPointer { buffer in
+            let bitmapInfo = CGBitmapInfo.byteOrder32Little.rawValue | CGImageAlphaInfo.noneSkipFirst.rawValue
             guard let context = CGContext(
                 data: buffer.baseAddress,
                 width: bitmapWidth,
                 height: bitmapHeight,
                 bitsPerComponent: 8,
-                bytesPerRow: bitmapWidth,
-                space: CGColorSpaceCreateDeviceGray(),
-                bitmapInfo: CGImageAlphaInfo.none.rawValue
+                bytesPerRow: bitmapWidth * bgraBytes,
+                space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                bitmapInfo: bitmapInfo
             ) else { return }
+
+            // Fill with opaque black (font smoothing needs a solid background)
+            context.setFillColor(CGColor(red: 0, green: 0, blue: 0, alpha: 1))
+            context.fill(CGRect(x: 0, y: 0, width: bitmapWidth, height: bitmapHeight))
 
             // Scale so Core Text renders at native pixel density
             context.scaleBy(x: scale, y: scale)
@@ -187,14 +194,20 @@ final class GlyphAtlas {
             context.setAllowsAntialiasing(true)
             context.setShouldAntialias(true)
 
-            // Draw at the glyph's natural position (in points, scaled by context)
+            // Draw white text — RGB values are per-channel coverage (R==G==B on macOS 10.14+)
             let drawX = -bounds.origin.x + 1
             let drawY = -bounds.origin.y + 1
             context.textPosition = CGPoint(x: drawX, y: drawY)
             CTLineDraw(line, context)
         }
 
-        // Upload to atlas (pixel dimensions)
+        // Extract R channel from BGRA (byteOrder32Little: B=0, G=1, R=2, A=3)
+        var pixels = [UInt8](repeating: 0, count: bitmapWidth * bitmapHeight)
+        for i in 0..<(bitmapWidth * bitmapHeight) {
+            pixels[i] = bgraPixels[i * bgraBytes + 2]  // R channel
+        }
+
+        // Upload to atlas (pixel dimensions, 1 byte per pixel)
         let region = MTLRegion(
             origin: MTLOrigin(x: cursorX, y: shelfY, z: 0),
             size: MTLSize(width: bitmapWidth, height: bitmapHeight, depth: 1)
