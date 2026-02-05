@@ -178,27 +178,33 @@ impl TerminalHandle {
         result
     }
 
-    /// Resize the terminal and PTY.
-    pub fn resize(&self, cols: u32, rows: u32, cell_width: u16, cell_height: u16) {
-        let winsize = libc::winsize {
-            ws_row: rows as u16,
-            ws_col: cols as u16,
-            ws_xpixel: cols as u16 * cell_width,
-            ws_ypixel: rows as u16 * cell_height,
-        };
-
-        // Update PTY window size (sends SIGWINCH to child)
-        unsafe {
-            libc::ioctl(self.pty_master.as_raw_fd(), libc::TIOCSWINSZ, &winsize);
-        }
-
-        // Update terminal emulator dimensions
+    /// Resize the terminal grid without notifying the shell.
+    pub fn resize_grid(&self, cols: u32, rows: u32) {
         let mut term = self.term.lock();
         let dims = TermDimensions {
             cols: cols as usize,
             lines: rows as usize,
         };
         term.resize(dims);
+    }
+
+    /// Notify the shell of the current window size (sends SIGWINCH).
+    pub fn notify_pty_size(&self, cols: u32, rows: u32, cell_width: u16, cell_height: u16) {
+        let winsize = libc::winsize {
+            ws_row: rows as u16,
+            ws_col: cols as u16,
+            ws_xpixel: cols as u16 * cell_width,
+            ws_ypixel: rows as u16 * cell_height,
+        };
+        unsafe {
+            libc::ioctl(self.pty_master.as_raw_fd(), libc::TIOCSWINSZ, &winsize);
+        }
+    }
+
+    /// Resize the terminal grid and notify the shell.
+    pub fn resize(&self, cols: u32, rows: u32, cell_width: u16, cell_height: u16) {
+        self.resize_grid(cols, rows);
+        self.notify_pty_size(cols, rows, cell_width, cell_height);
     }
 
     /// Take a snapshot of the visible grid.

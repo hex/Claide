@@ -33,8 +33,9 @@ struct TerminalPanel: NSViewRepresentable {
             ])
         }
 
-        // Apply font updates to the active view
-        let desired = FontSelection.terminalFont(family: fontFamily, size: 14)
+        // Apply font family changes to the active view (preserving the current point size)
+        let currentSize = activeView.terminalFont.pointSize
+        let desired = FontSelection.terminalFont(family: fontFamily, size: currentSize)
         if activeView.terminalFont != desired {
             activeView.terminalFont = desired
         }
