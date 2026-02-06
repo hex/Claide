@@ -43,12 +43,31 @@ final class MainWindowController: NSWindowController, NSWindowDelegate {
         fatalError()
     }
 
+    override func showWindow(_ sender: Any?) {
+        super.showWindow(sender)
+        guard let window else { return }
+        repositionTrafficLights(window)
+    }
+
     // MARK: - Safe Area
 
     private func negateTitleBarSafeArea(_ window: NSWindow) {
         guard let contentView = window.contentView else { return }
         let titleBarHeight = window.frame.height - window.contentLayoutRect.height
         contentView.additionalSafeAreaInsets.top = -titleBarHeight
+    }
+
+    // MARK: - Traffic Lights
+
+    /// Shift the traffic light buttons down to vertically center with the tab bar.
+    private func repositionTrafficLights(_ window: NSWindow) {
+        let verticalOffset: CGFloat = 3
+        for type: NSWindow.ButtonType in [.closeButton, .miniaturizeButton, .zoomButton] {
+            guard let button = window.standardWindowButton(type) else { continue }
+            var origin = button.frame.origin
+            origin.y -= verticalOffset
+            button.setFrameOrigin(origin)
+        }
     }
 
     // MARK: - NSWindowDelegate
@@ -61,5 +80,6 @@ final class MainWindowController: NSWindowController, NSWindowDelegate {
     func windowDidExitFullScreen(_ notification: Notification) {
         guard let window else { return }
         negateTitleBarSafeArea(window)
+        repositionTrafficLights(window)
     }
 }
