@@ -90,8 +90,9 @@ final class TerminalTabManager {
         }
 
         // Re-trigger resize after shell init completes.
-        // The shell starts with frame: .zero, autolayout resizes almost immediately,
-        // but zsh ignores SIGWINCH during initialization (before TRAPWINCH is installed).
+        // The shell starts at 80x24 (default when frame is zero), autolayout resizes
+        // almost immediately, but zsh ignores SIGWINCH during initialization
+        // (before TRAPWINCH is installed). This nudge ensures final dimensions are applied.
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak view] in
             guard let view, view.frame.width > 0 else { return }
             view.setFrameSize(view.frame.size)
@@ -155,7 +156,7 @@ final class TerminalTabManager {
 
     private func focusActiveTab() {
         guard let view = activeTab?.terminalView else { return }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak view] in
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak view] in
             view?.window?.makeFirstResponder(view)
         }
     }

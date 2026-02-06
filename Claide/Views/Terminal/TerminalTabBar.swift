@@ -32,16 +32,27 @@ struct TerminalTabBar: View {
                     }
 
                 ForEach(Array(tabManager.tabs.enumerated()), id: \.element.id) { index, tab in
+                    let isActive = tab.id == tabManager.activeTabID
+                    let isLast = index == tabManager.tabs.count - 1
+                    let nextIsActive = !isLast && tabManager.tabs[index + 1].id == tabManager.activeTabID
+
                     TabButton(
-                        title: tab.viewModel.title,
-                        isActive: tab.id == tabManager.activeTabID,
+                        title: tab.viewModel.displayTitle,
+                        isActive: isActive,
                         isRunning: tab.viewModel.isRunning,
                         executablePath: tab.viewModel.executablePath,
+                        tabColor: tab.viewModel.tabColor,
                         canClose: tabManager.tabs.count > 1,
+                        showDivider: !isLast && !isActive && !nextIsActive,
                         index: index + 1,
                         showIndex: cmdHeld,
                         onSelect: { tabManager.switchTo(id: tab.id) },
-                        onClose: { tabManager.closeTab(id: tab.id) }
+                        onClose: { tabManager.closeTab(id: tab.id) },
+                        onRename: { name in
+                            let trimmed = name.trimmingCharacters(in: .whitespaces)
+                            tab.viewModel.customTitle = trimmed.isEmpty ? nil : trimmed
+                        },
+                        onSetColor: { tab.viewModel.tabColor = $0 }
                     )
                     .frame(maxWidth: .infinity)
                 }
@@ -109,25 +120,37 @@ private struct WindowDragArea: NSViewRepresentable {
 private struct ProcessIcon: View {
     let path: String?
     let isRunning: Bool
+    var colorOverride: Color?
 
     var body: some View {
-        let command = path.map { ($0 as NSString).lastPathComponent } ?? ""
-        let info = Self.lookup(command)
+        let info = Self.lookup(path)
 
         Image(systemName: info.symbol)
             .font(.system(size: 13, weight: .medium))
-            .foregroundStyle(info.color)
+            .foregroundStyle(colorOverride ?? info.color)
             .frame(width: 16, height: 16)
             .opacity(isRunning ? 1.0 : 0.4)
     }
 
-    private static func lookup(_ command: String) -> (symbol: String, color: Color) {
+    private static func lookup(_ path: String?) -> (symbol: String, color: Color) {
+        guard let path else { return ("questionmark.circle", .gray) }
+        let command = (path as NSString).lastPathComponent
+
         if let match = iconMap[command] { return match }
         // Normalize: "python3.12" → "python", "Emacs-29" → "emacs"
         let normalized = command.lowercased().replacingOccurrences(
             of: #"[\d._-]+$"#, with: "", options: .regularExpression
         )
         if let match = iconMap[normalized] { return match }
+
+        // Some tools use versioned paths (e.g. ~/.local/share/claude/versions/2.1.34).
+        // Check parent directory names for a known command.
+        let components = path.components(separatedBy: "/")
+        for component in components.reversed().dropFirst() {
+            let lower = component.lowercased()
+            if let match = iconMap[lower] { return match }
+        }
+
         return ("questionmark.circle", .gray)
     }
 
@@ -251,63 +274,94 @@ private struct TabButton: View {
     let isActive: Bool
     let isRunning: Bool
     let executablePath: String?
+    let tabColor: TabColor?
     let canClose: Bool
+    let showDivider: Bool
     let index: Int
     let showIndex: Bool
     let onSelect: () -> Void
     let onClose: () -> Void
+    let onRename: (String) -> Void
+    let onSetColor: (TabColor?) -> Void
 
     @State private var isHovered = false
     @State private var closeHovered = false
+    @State private var isEditing = false
+    @State private var editText = ""
+    @State private var lastTapTime: Date = .distantPast
+    @FocusState private var editFocused: Bool
 
     var body: some View {
         ZStack {
-            if isActive { Color(nsColor: TerminalTheme.background) }
+            if isActive {
+                Color(nsColor: TerminalTheme.background)
+            } else if isHovered {
+                Theme.backgroundHover
+            }
+
+            if let tabColor {
+                isActive ? tabColor.tint : tabColor.tint.opacity(0.6)
+            }
 
             HStack(spacing: 6) {
-                // Close button and process icon (fixed on the left)
-                // Both states always rendered; opacity toggled to avoid layout shift.
+                // Close button visible on hover; icon always present.
+                // ZStack keeps the icon fixed while close button appears alongside.
                 ZStack {
-                    HStack(spacing: 4) {
+                    ProcessIcon(
+                        path: executablePath,
+                        isRunning: isRunning,
+                        colorOverride: !isActive ? inactiveColor : nil
+                    )
+                    .opacity(showIndex && index <= 9 ? 0 : 1)
+
+                    if index <= 9 {
+                        Text("\(index)")
+                            .font(.system(size: 9, weight: .bold))
+                            .foregroundStyle(Theme.textPrimary)
+                            .frame(width: 16, height: 16)
+                            .background(
+                                RoundedRectangle(cornerRadius: 3)
+                                    .fill(Theme.backgroundPanel)
+                            )
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 3)
+                                    .stroke(Theme.border, lineWidth: 1)
+                            )
+                            .opacity(showIndex ? 1 : 0)
+                    }
+
+                    if canClose && isHovered && !showIndex {
                         Button(action: onClose) {
                             Image(systemName: "xmark")
                                 .font(.system(size: 7, weight: .bold))
                                 .foregroundStyle(closeHovered ? Theme.textPrimary : Theme.textMuted)
-                                .frame(width: 18, height: 18)
-                                .background(closeHovered ? Theme.backgroundHover : .clear)
-                                .clipShape(RoundedRectangle(cornerRadius: 4))
-                                .contentShape(Rectangle())
+                                .frame(width: 16, height: 16)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 3)
+                                        .fill(closeHovered ? Theme.backgroundHover : Theme.backgroundPanel)
+                                )
                         }
                         .buttonStyle(.plain)
                         .onHover { closeHovered = $0 }
-                        .opacity(canClose ? 1 : 0)
-                        .allowsHitTesting(canClose)
-
-                        ProcessIcon(path: executablePath, isRunning: isRunning)
                     }
-                    .opacity(showIndex && index <= 9 ? 0 : 1)
-
-                    HStack(spacing: 2) {
-                        Text("\u{2318}")
-                        Text("\(index)")
-                    }
-                    .font(.system(size: 10, weight: .medium))
-                    .foregroundStyle(Theme.textMuted)
-                    .padding(.horizontal, 3)
-                    .padding(.vertical, 2)
-                    .background(
-                        RoundedRectangle(cornerRadius: 3)
-                            .stroke(Theme.textMuted, lineWidth: 1)
-                    )
-                    .fixedSize()
-                    .opacity(showIndex && index <= 9 ? 1 : 0)
                 }
+                .animation(.easeInOut(duration: 0.15), value: showIndex)
 
-                Text(title)
-                    .font(Theme.labelFont)
-                    .foregroundStyle(isActive ? Theme.textPrimary : Theme.textMuted)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
+                if isEditing {
+                    TextField("", text: $editText)
+                        .font(Theme.labelFont)
+                        .textFieldStyle(.plain)
+                        .focused($editFocused)
+                        .onSubmit { commitEdit() }
+                        .onExitCommand { cancelEdit() }
+                        .onKeyPress(.escape) { cancelEdit(); return .handled }
+                } else {
+                    Text(title)
+                        .font(Theme.labelFont)
+                        .foregroundStyle(isActive ? Theme.textPrimary : inactiveColor)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
 
                 Spacer()
             }
@@ -330,8 +384,72 @@ private struct TabButton: View {
                     .frame(height: Theme.borderWidth)
             }
         }
-        .onTapGesture(perform: onSelect)
+        .overlay(alignment: .trailing) {
+            if showDivider {
+                Rectangle()
+                    .fill(Theme.border)
+                    .frame(width: Theme.borderWidth)
+                    .padding(.vertical, 8)
+            }
+        }
+        .contextMenu {
+            Button("Rename...") { startEditing() }
+
+            Menu("Tab Color") {
+                ForEach(TabColor.allCases, id: \.self) { preset in
+                    Toggle(isOn: Binding(
+                        get: { tabColor == preset },
+                        set: { _ in onSetColor(preset) }
+                    )) {
+                        Label {
+                            Text(preset.label)
+                        } icon: {
+                            preset.swatch
+                        }
+                    }
+                }
+
+                Divider()
+
+                Button("Clear") { onSetColor(nil) }
+                    .disabled(tabColor == nil)
+            }
+
+            if canClose {
+                Divider()
+                Button("Close Tab") { onClose() }
+            }
+        }
+        .onTapGesture {
+            let now = Date()
+            let isDoubleClick = now.timeIntervalSince(lastTapTime) < NSEvent.doubleClickInterval
+            lastTapTime = now
+            if isDoubleClick {
+                startEditing()
+            } else {
+                onSelect()
+            }
+        }
         .onHover { isHovered = $0 }
     }
 
+    private var inactiveColor: Color {
+        if let tabColor, tabColor != .base { return tabColor.color.opacity(0.35) }
+        return Theme.textMuted
+    }
+
+    private func startEditing() {
+        editText = title
+        isEditing = true
+        editFocused = true
+    }
+
+    private func commitEdit() {
+        isEditing = false
+        onRename(editText)
+    }
+
+    private func cancelEdit() {
+        isEditing = false
+    }
 }

@@ -9,6 +9,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var tabManager: TerminalTabManager!
     private var windowController: MainWindowController!
 
+    private var keyMonitor: Any?
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         tabManager = TerminalTabManager()
         windowController = MainWindowController(tabManager: tabManager)
@@ -17,6 +19,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // SwiftUI builds the main menu asynchronously after launch.
         // Delay so our Terminal menu is appended after SwiftUI's menu is in place.
         DispatchQueue.main.async { self.installTerminalMenu() }
+
+        installKeyMonitor()
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
@@ -64,6 +68,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let menuBarItem = NSMenuItem()
         menuBarItem.submenu = menu
         mainMenu.addItem(menuBarItem)
+    }
+
+    // MARK: - Key Monitor
+
+    /// Global key monitor for terminal shortcuts. Fires at the NSApplication level
+    /// before any view's performKeyEquivalent, bypassing SwiftUI's responder chain
+    /// which can silently swallow key events.
+    private func installKeyMonitor() {
+        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard let self else { return event }
+            let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+            guard flags == .command, let chars = event.charactersIgnoringModifiers else {
+                return event
+            }
+            switch chars {
+            case "t":
+                self.newTab()
+                return nil
+            case "w":
+                self.closeTab()
+                return nil
+            default:
+                return event
+            }
+        }
     }
 
     // MARK: - Actions
