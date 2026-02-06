@@ -210,6 +210,15 @@ final class MetalTerminalView: NSView, CALayerDelegate {
         }
     }
 
+    // MARK: - Color Scheme
+
+    /// Apply a color scheme to both the Rust terminal and the renderer.
+    func applyColorScheme(_ scheme: TerminalColorScheme) {
+        bridge?.setColors(scheme)
+        gridRenderer?.applyScheme(scheme)
+        needsRedraw = true
+    }
+
     // MARK: - Cursor Preferences
 
     /// Apply cursor shape and blink settings from the UI.

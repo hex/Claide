@@ -8,6 +8,7 @@ struct SettingsView: View {
     @AppStorage("cursorStyle") private var cursorStyle: String = "bar"
     @AppStorage("cursorBlink") private var cursorBlink: Bool = true
     @AppStorage("terminalFontSize") private var terminalFontSize: Double = 14
+    @AppStorage("terminalColorScheme") private var schemeName: String = "snazzy"
     @AppStorage("uiFontSize") private var uiFontSize: Double = 12
 
     var body: some View {
@@ -40,6 +41,12 @@ struct SettingsView: View {
                 }
 
                 Toggle("Blinking Cursor", isOn: $cursorBlink)
+
+                Picker("Color Scheme", selection: $schemeName) {
+                    ForEach(TerminalColorScheme.builtIn) { scheme in
+                        Text(scheme.name).tag(scheme.id)
+                    }
+                }
             }
 
             Section("Appearance") {

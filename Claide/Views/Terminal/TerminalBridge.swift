@@ -160,6 +160,30 @@ final class TerminalBridge: @unchecked Sendable {
         return String(cString: ptr)
     }
 
+    // MARK: - Colors
+
+    /// Push a color scheme's 16 ANSI + FG + BG colors to the Rust terminal.
+    func setColors(_ scheme: TerminalColorScheme) {
+        var palette = ClaideColorPalette()
+        // C arrays import as tuples in Swift; use pointer to write bytes
+        withUnsafeMutablePointer(to: &palette.ansi) { tuplePtr in
+            tuplePtr.withMemoryRebound(to: UInt8.self, capacity: 48) { ptr in
+                for i in 0..<16 {
+                    ptr[i * 3]     = scheme.ansi[i].r
+                    ptr[i * 3 + 1] = scheme.ansi[i].g
+                    ptr[i * 3 + 2] = scheme.ansi[i].b
+                }
+            }
+        }
+        palette.fg_r = scheme.foreground.r
+        palette.fg_g = scheme.foreground.g
+        palette.fg_b = scheme.foreground.b
+        palette.bg_r = scheme.background.r
+        palette.bg_g = scheme.background.g
+        palette.bg_b = scheme.background.b
+        claide_terminal_set_colors(handle, &palette)
+    }
+
     deinit {
         claide_terminal_destroy(handle)
     }
