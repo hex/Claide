@@ -90,27 +90,19 @@ struct FileLogPanel: View {
     // MARK: - Row
 
     private func changeRow(_ change: FileChange, showTimestamp: Bool) -> some View {
-        HStack(spacing: 0) {
-            // Left accent stripe
-            RoundedRectangle(cornerRadius: 1)
-                .fill(toolColor(change.tool))
-                .frame(width: 2)
-                .padding(.vertical, 2)
+        HStack(spacing: 6) {
+            badge(change)
+            fileInfo(change)
+            Spacer(minLength: 4)
 
-            HStack(spacing: 4) {
-                badge(change)
-                fileInfo(change)
-                Spacer(minLength: 4)
-
-                if showTimestamp {
-                    Text(Self.timeFormatter.string(from: change.timestamp))
-                        .font(.system(size: 9).monospacedDigit())
-                        .foregroundStyle(Theme.textMuted)
-                }
+            if showTimestamp {
+                Text(Self.timeFormatter.string(from: change.timestamp))
+                    .font(.system(size: 9).monospacedDigit())
+                    .foregroundStyle(Theme.textMuted)
             }
-            .padding(.leading, 6)
-            .padding(.trailing, 6)
         }
+        .padding(.leading, 6)
+        .padding(.trailing, 10)
         .padding(.vertical, 3)
         .background(hoveredId == change.id ? Theme.backgroundHover : .clear)
         .clipShape(RoundedRectangle(cornerRadius: 2))
@@ -126,7 +118,7 @@ struct FileLogPanel: View {
                 .font(.system(size: 8, weight: .heavy))
                 .foregroundStyle(toolColor(change.tool))
         }
-        .frame(width: 14, height: 14)
+        .frame(width: 18, height: 14)
     }
 
     private func fileInfo(_ change: FileChange) -> some View {
