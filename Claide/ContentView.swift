@@ -78,6 +78,10 @@ struct ContentView: View {
                 tabManager.addTab(initialDirectory: sessionDirectory, fontFamily: fontFamily)
             }
 
+            // Colored strip between tab bar and terminal, matching the active tab's tint
+            (tabManager.activeViewModel?.tabColor?.tint ?? Color(nsColor: TerminalTheme.background))
+                .frame(height: 2)
+
             TerminalPanel(tabManager: tabManager, fontFamily: fontFamily)
                 .padding(12)
                 .background(Color(nsColor: TerminalTheme.background))

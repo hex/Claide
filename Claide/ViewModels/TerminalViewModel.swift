@@ -5,10 +5,70 @@ import SwiftUI
 import Foundation
 import Darwin
 
+enum TabColor: String, CaseIterable {
+    case base, red, orange, yellow, green, cyan, blue, purple, pink
+
+    // Tokyo Night palette
+    var color: Color {
+        switch self {
+        case .base:   Color(nsColor: TerminalTheme.background)
+        case .red:    Color(red: 0.97, green: 0.31, blue: 0.35) // #f7544a
+        case .orange: Color(red: 1.00, green: 0.63, blue: 0.35) // #ffa159
+        case .yellow: Color(red: 0.88, green: 0.77, blue: 0.40) // #e0c566
+        case .green:  Color(red: 0.45, green: 0.82, blue: 0.52) // #73d185
+        case .cyan:   Color(red: 0.49, green: 0.84, blue: 0.87) // #7dd6de
+        case .blue:   Color(red: 0.49, green: 0.63, blue: 0.96) // #7da0f5
+        case .purple: Color(red: 0.73, green: 0.56, blue: 0.98) // #bb8ffa
+        case .pink:   Color(red: 1.00, green: 0.47, blue: 0.66) // #ff78a8
+        }
+    }
+
+    var label: String {
+        switch self {
+        case .base: "Default"
+        default: rawValue.capitalized
+        }
+    }
+
+    /// Color pre-blended with the terminal background at 25% mix.
+    /// Produces an opaque color that looks identical on any dark surface.
+    var tint: Color {
+        let bg = TerminalTheme.background
+        let fg = NSColor(color).usingColorSpace(.sRGB) ?? NSColor(color)
+        let mix = 0.25
+        return Color(
+            red:   Double(bg.redComponent)   * (1 - mix) + Double(fg.redComponent)   * mix,
+            green: Double(bg.greenComponent) * (1 - mix) + Double(fg.greenComponent) * mix,
+            blue:  Double(bg.blueComponent)  * (1 - mix) + Double(fg.blueComponent)  * mix
+        )
+    }
+
+    /// Colored circle for use in NSMenu-backed context menus.
+    /// NSMenu renders SF Symbols as template images, stripping color.
+    var swatch: Image {
+        let size: CGFloat = 12
+        let nsImage = NSImage(size: NSSize(width: size, height: size), flipped: false) { rect in
+            NSColor(self.color).setFill()
+            NSBezierPath(ovalIn: rect).fill()
+            return true
+        }
+        nsImage.isTemplate = false
+        return Image(nsImage: nsImage)
+    }
+}
+
 @MainActor @Observable
 final class TerminalViewModel {
     var title: String = "zsh"
+    var customTitle: String?
+    var tabColor: TabColor?
     var isRunning: Bool = false
+
+    var displayTitle: String {
+        if let custom = customTitle, !custom.isEmpty { return custom }
+        return title
+    }
+
     var currentDirectory: String?
     var executablePath: String?
 

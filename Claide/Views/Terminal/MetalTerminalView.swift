@@ -61,8 +61,11 @@ final class MetalTerminalView: NSView, CALayerDelegate {
     /// Computed grid dimensions from view size and cell metrics.
     var gridDimensions: (cols: Int, rows: Int) {
         guard let atlas else { return (80, 24) }
-        let cols = max(2, Int(bounds.width / atlas.cellWidth))
-        let rows = max(1, Int(bounds.height / atlas.cellHeight))
+        let cols = Int(bounds.width / atlas.cellWidth)
+        let rows = Int(bounds.height / atlas.cellHeight)
+        // Before autolayout, bounds are zero → calculated dims are tiny.
+        // Fall back to standard 80x24 so the shell starts with a usable PTY.
+        guard cols >= 2, rows >= 1 else { return (80, 24) }
         return (cols, rows)
     }
 
@@ -409,24 +412,22 @@ final class MetalTerminalView: NSView, CALayerDelegate {
             return super.performKeyEquivalent(with: event)
         }
 
-        // Cmd+key: font size adjustment
+        // Cmd+key: font size adjustment.
+        // Unhandled Cmd combinations return false — Cmd+T/W are handled by
+        // AppDelegate's global key monitor which fires before the responder chain.
         if flags == .command || flags == [.command, .shift] {
             switch chars {
             case "=", "+":
                 adjustFontSize(by: 1)
                 return true
-            case "-":
-                if flags == .command {
-                    adjustFontSize(by: -1)
-                    return true
-                }
-            case "0":
-                if flags == .command {
-                    resetFontSize()
-                    return true
-                }
+            case "-" where flags == .command:
+                adjustFontSize(by: -1)
+                return true
+            case "0" where flags == .command:
+                resetFontSize()
+                return true
             default:
-                break
+                return false
             }
         }
 

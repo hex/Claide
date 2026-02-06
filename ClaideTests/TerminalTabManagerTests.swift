@@ -225,6 +225,19 @@ struct TerminalTabManagerTests {
         #expect(manager.activeTabID == id)
     }
 
+    // MARK: - Grid Dimensions at Startup
+
+    @Test("terminal view uses standard 80x24 when frame is zero")
+    func gridDimensionsDefaultsAtZeroFrame() {
+        let manager = makeManager(tabCount: 1)
+        let view = manager.tabs[0].terminalView
+
+        // View was created with frame: .zero — should fall back to 80x24, not 2x1
+        let (cols, rows) = view.gridDimensions
+        #expect(cols == 80)
+        #expect(rows == 24)
+    }
+
     // MARK: - No-Args addTab
 
     @Test("addTab with no args reuses last directory and font")
