@@ -38,7 +38,8 @@ struct SidebarSection: View {
             Task { @MainActor in
                 await vm.loadIssues(workingDirectory: sessionDirectory)
             }
-            discoverChangesFile(from: sessionDirectory)
+            let shellPid = pid_t(tabManager.activeTab?.terminalView.shellPid ?? 0)
+            fileLogVM.startWatching(sessionDirectory: sessionDirectory, shellPid: shellPid)
         }
         .onChange(of: tabManager.activeViewModel?.currentDirectory) { _, newDir in
             if let dir = newDir.flatMap({ $0 }) {
@@ -46,7 +47,8 @@ struct SidebarSection: View {
                 Task { @MainActor in
                     await vm.loadIssues(workingDirectory: dir)
                 }
-                discoverChangesFile(from: dir)
+                let shellPid = pid_t(tabManager.activeTab?.terminalView.shellPid ?? 0)
+                fileLogVM.startWatching(sessionDirectory: dir, shellPid: shellPid)
             }
         }
     }
@@ -55,9 +57,7 @@ struct SidebarSection: View {
 
     private var tasksSection: some View {
         VStack(spacing: 0) {
-            sectionHeader("Tasks", isExpanded: $tasksExpanded) {
-                tasksHeaderControls
-            }
+            sectionHeader("Tasks", isExpanded: $tasksExpanded)
 
             if tasksExpanded {
                 Group {
@@ -69,6 +69,9 @@ struct SidebarSection: View {
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .overlay(alignment: .bottomLeading) {
+                    floatingTabControls
+                }
             }
         }
         .frame(maxWidth: .infinity)
@@ -139,7 +142,7 @@ struct SidebarSection: View {
 
     // MARK: - Tasks Header Controls
 
-    private var tasksHeaderControls: some View {
+    private var floatingTabControls: some View {
         HStack(spacing: 2) {
             tabIcon(.board, systemName: "rectangle.split.3x3")
             tabIcon(.graph, systemName: "point.3.connected.trianglepath.dotted")
@@ -159,6 +162,7 @@ struct SidebarSection: View {
                     .frame(width: 20, height: 20)
             }
             .buttonStyle(.plain)
+            .overlay(Tooltip("Refresh").allowsHitTesting(false))
 
             if showDataSourceToggle {
                 Divider()
@@ -169,6 +173,14 @@ struct SidebarSection: View {
                 dataSourceIcon(.claudeCode, systemName: "checklist")
             }
         }
+        .padding(3)
+        .background(Theme.backgroundPanel.opacity(0.9))
+        .clipShape(RoundedRectangle(cornerRadius: 6))
+        .overlay(
+            RoundedRectangle(cornerRadius: 6)
+                .stroke(Theme.border, lineWidth: Theme.borderWidth)
+        )
+        .padding(8)
     }
 
     private var showDataSourceToggle: Bool { true }
@@ -188,6 +200,7 @@ struct SidebarSection: View {
                 .clipShape(RoundedRectangle(cornerRadius: 4))
         }
         .buttonStyle(.plain)
+        .overlay(Tooltip(source.rawValue).allowsHitTesting(false))
     }
 
     private func tabIcon(_ tab: SidebarTab, systemName: String) -> some View {
@@ -202,19 +215,7 @@ struct SidebarSection: View {
                 .clipShape(RoundedRectangle(cornerRadius: 4))
         }
         .buttonStyle(.plain)
+        .overlay(Tooltip(tab.rawValue).allowsHitTesting(false))
     }
 
-    // MARK: - Discovery
-
-    private func discoverChangesFile(from directory: String) {
-        var dir = directory
-        for _ in 0..<5 {
-            let candidate = (dir as NSString).appendingPathComponent("changes.md")
-            if FileManager.default.fileExists(atPath: candidate) {
-                fileLogVM.startWatching(path: candidate)
-                return
-            }
-            dir = (dir as NSString).deletingLastPathComponent
-        }
-    }
 }

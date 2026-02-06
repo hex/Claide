@@ -182,15 +182,23 @@ struct Tooltip: NSViewRepresentable {
         private func showTooltip() {
             guard let window, let screen = window.screen else { return }
             let mouseScreen = NSEvent.mouseLocation
-            let padding: CGFloat = 4
+            let padding: CGFloat = 6
             let font = NSFont.systemFont(ofSize: NSFont.smallSystemFontSize)
-            let attrs: [NSAttributedString.Key: Any] = [.font: font]
-            let size = (tooltipText as NSString).size(withAttributes: attrs)
-            let tipWidth = size.width + padding * 2 + 4
-            let tipHeight = size.height + padding * 2
+            let maxTextWidth: CGFloat = 400
+
+            // Let NSTextField compute its own size via Auto Layout
+            let label = NSTextField(wrappingLabelWithString: tooltipText)
+            label.font = font
+            label.textColor = .white
+            label.isSelectable = false
+            label.preferredMaxLayoutWidth = maxTextWidth
+            let labelSize = label.fittingSize
+            label.frame = NSRect(x: padding, y: padding, width: labelSize.width, height: labelSize.height)
+
+            let tipWidth = labelSize.width + padding * 2
+            let tipHeight = labelSize.height + padding * 2
 
             var origin = CGPoint(x: mouseScreen.x + 12, y: mouseScreen.y - tipHeight - 8)
-            // Keep on screen
             if origin.x + tipWidth > screen.visibleFrame.maxX {
                 origin.x = screen.visibleFrame.maxX - tipWidth
             }
@@ -208,11 +216,6 @@ struct Tooltip: NSViewRepresentable {
             tipWindow.backgroundColor = .clear
             tipWindow.level = .floating
             tipWindow.ignoresMouseEvents = true
-
-            let label = NSTextField(labelWithString: tooltipText)
-            label.font = font
-            label.textColor = .white
-            label.frame = NSRect(x: padding, y: padding, width: size.width + 4, height: size.height)
 
             let container = NSView(frame: NSRect(origin: .zero, size: CGSize(width: tipWidth, height: tipHeight)))
             container.wantsLayer = true
