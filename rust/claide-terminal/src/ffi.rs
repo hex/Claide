@@ -9,7 +9,7 @@ use alacritty_terminal::index::Side;
 use alacritty_terminal::selection::SelectionType;
 
 use crate::grid_snapshot::ClaideGridSnapshot;
-use crate::handle::TerminalHandle;
+use crate::handle::{ClaideColorPalette, TerminalHandle};
 use crate::listener::{ClaideEventCallback, Listener};
 
 /// Opaque pointer type for the terminal handle.
@@ -336,4 +336,21 @@ pub unsafe extern "C" fn claide_terminal_selection_text_free(ptr: *mut c_char) {
     if !ptr.is_null() {
         drop(CString::from_raw(ptr));
     }
+}
+
+// -- Colors --
+
+/// Set the terminal's color palette.
+///
+/// # Safety
+/// `handle` and `palette` must be valid pointers.
+#[no_mangle]
+pub unsafe extern "C" fn claide_terminal_set_colors(
+    handle: ClaideTerminalRef,
+    palette: *const ClaideColorPalette,
+) {
+    if handle.is_null() || palette.is_null() {
+        return;
+    }
+    (*handle).set_colors(&*palette);
 }

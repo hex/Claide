@@ -12,8 +12,9 @@ use alacritty_terminal::index::{Column, Line, Point, Side};
 use alacritty_terminal::selection::{Selection, SelectionType};
 use alacritty_terminal::sync::FairMutex;
 use alacritty_terminal::term::{Config, Term};
+use alacritty_terminal::vte::ansi::Rgb;
 
-use crate::grid_snapshot::{self, ClaideGridSnapshot};
+use crate::grid_snapshot::{self, ClaideGridSnapshot, DEFAULT_ANSI, DEFAULT_BG, DEFAULT_FG};
 use crate::listener::Listener;
 use crate::pty_reader;
 
@@ -35,6 +36,35 @@ impl Dimensions for TermDimensions {
     }
 }
 
+/// Per-instance color palette: 16 ANSI colors + default foreground/background.
+pub struct ColorPalette {
+    pub ansi: [Rgb; 16],
+    pub fg: Rgb,
+    pub bg: Rgb,
+}
+
+impl Default for ColorPalette {
+    fn default() -> Self {
+        Self {
+            ansi: DEFAULT_ANSI,
+            fg: DEFAULT_FG,
+            bg: DEFAULT_BG,
+        }
+    }
+}
+
+/// C-compatible palette struct for FFI.
+#[repr(C)]
+pub struct ClaideColorPalette {
+    pub ansi: [u8; 48], // 16 colors x 3 bytes (r, g, b)
+    pub fg_r: u8,
+    pub fg_g: u8,
+    pub fg_b: u8,
+    pub bg_r: u8,
+    pub bg_g: u8,
+    pub bg_b: u8,
+}
+
 /// Opaque handle owning all terminal state.
 pub struct TerminalHandle {
     term: Arc<FairMutex<Term<Listener>>>,
@@ -42,6 +72,7 @@ pub struct TerminalHandle {
     shell_pid: u32,
     reader_thread: Option<JoinHandle<()>>,
     shutdown: Arc<AtomicBool>,
+    palette: FairMutex<ColorPalette>,
 }
 
 impl TerminalHandle {
@@ -166,7 +197,22 @@ impl TerminalHandle {
             shell_pid: pid as u32,
             reader_thread: Some(reader_thread),
             shutdown,
+            palette: FairMutex::new(ColorPalette::default()),
         })
+    }
+
+    /// Replace the color palette from a C-compatible struct.
+    pub fn set_colors(&self, c_palette: &ClaideColorPalette) {
+        let mut palette = self.palette.lock();
+        for i in 0..16 {
+            palette.ansi[i] = Rgb {
+                r: c_palette.ansi[i * 3],
+                g: c_palette.ansi[i * 3 + 1],
+                b: c_palette.ansi[i * 3 + 2],
+            };
+        }
+        palette.fg = Rgb { r: c_palette.fg_r, g: c_palette.fg_g, b: c_palette.fg_b };
+        palette.bg = Rgb { r: c_palette.bg_r, g: c_palette.bg_g, b: c_palette.bg_b };
     }
 
     /// Write bytes to the PTY master (terminal input).
@@ -219,10 +265,11 @@ impl TerminalHandle {
         self.notify_pty_size(cols, rows, cell_width, cell_height);
     }
 
-    /// Take a snapshot of the visible grid.
+    /// Take a snapshot of the visible grid using the current palette.
     pub fn snapshot(&self) -> Box<ClaideGridSnapshot> {
         let term = self.term.lock();
-        Box::new(grid_snapshot::take_snapshot(&term))
+        let palette = self.palette.lock();
+        Box::new(grid_snapshot::take_snapshot(&term, &palette))
     }
 
     /// Get the shell process ID.
