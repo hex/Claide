@@ -4,6 +4,7 @@
 #import "../rust/claide-terminal/include/claide_terminal.h"
 
 #import <CoreGraphics/CoreGraphics.h>
+#import <libproc.h>
 
 // Private CoreGraphics API for controlling font stroke weight.
 // Style 16 produces thinner strokes, preventing text from looking too bold on dark backgrounds.
