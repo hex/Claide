@@ -61,8 +61,8 @@ final class MetalTerminalView: NSView, CALayerDelegate {
     /// Computed grid dimensions from view size and cell metrics.
     var gridDimensions: (cols: Int, rows: Int) {
         guard let atlas else { return (80, 24) }
-        let cols = Int(bounds.width / atlas.cellWidth)
-        let rows = Int(bounds.height / atlas.cellHeight)
+        let cols = Int((bounds.width - 2 * contentInset) / atlas.cellWidth)
+        let rows = Int((bounds.height - 2 * contentInset) / atlas.cellHeight)
         // Before autolayout, bounds are zero → calculated dims are tiny.
         // Fall back to standard 80x24 so the shell starts with a usable PTY.
         guard cols >= 2, rows >= 1 else { return (80, 24) }
@@ -71,6 +71,10 @@ final class MetalTerminalView: NSView, CALayerDelegate {
 
     /// Whether to treat Option key as Meta (sends ESC prefix).
     var optionAsMeta = true
+
+    /// Inset applied inside the Metal view so the grid has breathing room.
+    /// The Metal clear color fills this area, dynamically matching the content background.
+    private let contentInset: CGFloat = 14
 
     /// Cursor shape rendered by the view (overrides the terminal emulator's shape).
     enum CursorShape: UInt8 {
@@ -272,7 +276,16 @@ final class MetalTerminalView: NSView, CALayerDelegate {
             // (at the current font size) extends beyond the view bounds.
             let gridPixelHeight = Float(snapshot.pointee.rows) * Float(atlas.cellHeight)
             let yOffset = max(0, gridPixelHeight - Float(bounds.height))
-            gridRenderer.update(snapshot: snapshot, yOffset: yOffset)
+            let inset = Float(contentInset)
+            gridRenderer.update(snapshot: snapshot, yOffset: yOffset, origin: SIMD2(inset, inset))
+            // Dynamic clear color: match the content background so padding blends
+            let bg = snapshot.pointee
+            renderPassDesc.colorAttachments[0].clearColor = MTLClearColor(
+                red: Double(bg.padding_bg_r) / 255.0,
+                green: Double(bg.padding_bg_g) / 255.0,
+                blue: Double(bg.padding_bg_b) / 255.0,
+                alpha: 1.0
+            )
             TerminalBridge.freeSnapshot(snapshot)
         }
 
@@ -520,10 +533,10 @@ final class MetalTerminalView: NSView, CALayerDelegate {
         let loc = convert(event.locationInWindow, from: nil)
         // NSView Y is bottom-up; grid row 0 is at the top
         let flippedY = bounds.height - loc.y
-        let col = max(0, loc.x) / atlas.cellWidth
-        let row = max(0, flippedY) / atlas.cellHeight
+        let col = max(0, loc.x - contentInset) / atlas.cellWidth
+        let row = max(0, flippedY - contentInset) / atlas.cellHeight
         // Side: left half of cell = .left, right half = .right
-        let cellFraction = loc.x - CGFloat(Int(col)) * atlas.cellWidth
+        let cellFraction = (loc.x - contentInset) - CGFloat(Int(col)) * atlas.cellWidth
         let side: SelectionSide = cellFraction < atlas.cellWidth / 2 ? .left : .right
         return (Int32(row), UInt32(col), side)
     }
@@ -705,8 +718,8 @@ extension MetalTerminalView: @preconcurrency NSTextInputClient {
         let cursor = snapshot.pointee.cursor
         TerminalBridge.freeSnapshot(snapshot)
 
-        let x = CGFloat(cursor.col) * atlas.cellWidth
-        let y = bounds.height - CGFloat(cursor.row + 1) * atlas.cellHeight
+        let x = CGFloat(cursor.col) * atlas.cellWidth + contentInset
+        let y = bounds.height - CGFloat(cursor.row + 1) * atlas.cellHeight - contentInset
         let rect = NSRect(x: x, y: y, width: atlas.cellWidth, height: atlas.cellHeight)
         return window?.convertToScreen(convert(rect, to: nil)) ?? .zero
     }

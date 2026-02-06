@@ -68,7 +68,7 @@ enum Theme {
     // Typography — sizes derived from the user's "uiFontSize" preference.
     private static var baseFontSize: CGFloat {
         let size = UserDefaults.standard.double(forKey: "uiFontSize")
-        return size > 0 ? size : 13
+        return size > 0 ? size : 12
     }
     static var bodyFont: Font { .system(size: baseFontSize) }
     static var bodyFontSmall: Font { .system(size: baseFontSize - 2) }

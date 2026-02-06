@@ -65,6 +65,9 @@ typedef struct {
     uint32_t cols;
     ClaideCursorInfo cursor;
     uint32_t mode_flags;
+    uint8_t padding_bg_r;
+    uint8_t padding_bg_g;
+    uint8_t padding_bg_b;
 } ClaideGridSnapshot;
 
 // -- Lifecycle --

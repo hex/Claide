@@ -25,8 +25,6 @@ struct TerminalSection: View {
                 .frame(height: 2)
 
             TerminalPanel(tabManager: tabManager, fontFamily: fontFamily)
-                .padding(12)
-                .background(Color(nsColor: TerminalTheme.background))
 
             SessionStatusBar(status: sessionStatusVM.status)
         }

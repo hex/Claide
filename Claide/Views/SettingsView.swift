@@ -8,7 +8,7 @@ struct SettingsView: View {
     @AppStorage("cursorStyle") private var cursorStyle: String = "bar"
     @AppStorage("cursorBlink") private var cursorBlink: Bool = true
     @AppStorage("terminalFontSize") private var terminalFontSize: Double = 14
-    @AppStorage("uiFontSize") private var uiFontSize: Double = 13
+    @AppStorage("uiFontSize") private var uiFontSize: Double = 12
 
     var body: some View {
         Form {
