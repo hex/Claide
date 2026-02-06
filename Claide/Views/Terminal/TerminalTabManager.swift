@@ -74,6 +74,10 @@ final class TerminalTabManager {
             vm?.processTerminated(exitCode: code)
         }
 
+        if let shellPid = view.bridge.map({ pid_t($0.shellPid) }), shellPid > 0 {
+            vm.startTrackingForeground(shellPid: shellPid)
+        }
+
         applyCursorStyle(to: view)
 
         let tab = Tab(id: UUID(), viewModel: vm, terminalView: view)
