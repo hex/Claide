@@ -76,7 +76,7 @@ final class GridRenderer {
     /// Build instance buffers from a grid snapshot.
     /// When `yOffset` is non-zero, the grid is shifted up so the bottom rows
     /// remain visible (used for visual-only font zoom).
-    func update(snapshot: UnsafePointer<ClaideGridSnapshot>, yOffset: Float = 0) {
+    func update(snapshot: UnsafePointer<ClaideGridSnapshot>, yOffset: Float = 0, origin: SIMD2<Float> = .zero) {
         let rows = Int(snapshot.pointee.rows)
         let cols = Int(snapshot.pointee.cols)
         let cellW = Float(atlas.cellWidth)
@@ -95,8 +95,8 @@ final class GridRenderer {
                 let idx = row * cols + col
                 let cell = cells[idx]
 
-                let x = Float(col) * cellW
-                let y = Float(row) * cellH - yOffset
+                let x = Float(col) * cellW + origin.x
+                let y = Float(row) * cellH - yOffset + origin.y
 
                 let selected = cell.flags & 0x200 != 0
 
@@ -157,8 +157,8 @@ final class GridRenderer {
         // Cursor overlay
         let cursor = snapshot.pointee.cursor
         if cursor.visible && cursor.row < rows && cursor.col < cols {
-            let cx = Float(cursor.col) * cellW
-            let cy = Float(cursor.row) * cellH - yOffset
+            let cx = Float(cursor.col) * cellW + origin.x
+            let cy = Float(cursor.row) * cellH - yOffset + origin.y
 
             switch cursor.shape {
             case 0, 4: // Block or HollowBlock

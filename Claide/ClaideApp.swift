@@ -12,7 +12,7 @@ struct ClaideApp: App {
             "cursorStyle": "bar",
             "cursorBlink": true,
             "terminalFontSize": 14.0,
-            "uiFontSize": 13.0,
+            "uiFontSize": 12.0,
         ])
     }
 

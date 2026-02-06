@@ -40,6 +40,9 @@ pub struct ClaideGridSnapshot {
     pub cols: u32,
     pub cursor: ClaideCursorInfo,
     pub mode_flags: u32,
+    pub padding_bg_r: u8,
+    pub padding_bg_g: u8,
+    pub padding_bg_b: u8,
 }
 
 /// Default ANSI colors (Snazzy palette, matches Palette.swift).
@@ -218,6 +221,15 @@ pub fn take_snapshot(term: &Term<Listener>) -> ClaideGridSnapshot {
         }
     }
 
+    // Sample padding background from bottom-left cell (tracks TUI app backgrounds)
+    let last_row_start = (rows - 1) * cols;
+    let padding_bg = if last_row_start < cells.len() {
+        let c = &cells[last_row_start];
+        (c.bg_r, c.bg_g, c.bg_b)
+    } else {
+        (DEFAULT_BG.r, DEFAULT_BG.g, DEFAULT_BG.b)
+    };
+
     let cells_ptr = cells.as_mut_ptr();
     std::mem::forget(cells);
 
@@ -232,6 +244,7 @@ pub fn take_snapshot(term: &Term<Listener>) -> ClaideGridSnapshot {
     let cursor_row = (cursor.point.line.0 + display_offset as i32).max(0) as u32;
     let cursor_col = cursor.point.column.0 as u32;
 
+
     ClaideGridSnapshot {
         cells: cells_ptr,
         rows: rows as u32,
@@ -243,6 +256,9 @@ pub fn take_snapshot(term: &Term<Listener>) -> ClaideGridSnapshot {
             visible: cursor_shape != 3,
         },
         mode_flags: mode.bits(),
+        padding_bg_r: padding_bg.0,
+        padding_bg_g: padding_bg.1,
+        padding_bg_b: padding_bg.2,
     }
 }
 
