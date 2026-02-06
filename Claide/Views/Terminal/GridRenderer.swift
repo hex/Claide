@@ -31,19 +31,41 @@ final class GridRenderer {
     private var backgroundCount: Int = 0
     private var glyphCount: Int = 0
 
-    /// Default terminal background color (matches Palette.bgTerminal).
+    /// Terminal background color (used for Metal clear color).
     var defaultBg: SIMD3<Float> = SIMD3<Float>(
         Float(0x15) / 255.0,
         Float(0x17) / 255.0,
         Float(0x28) / 255.0
     )
 
-    /// Selection highlight background color (matches Palette.selection).
-    private let selectionBg: SIMD3<Float> = SIMD3<Float>(
+    /// Selection highlight background color.
+    var selectionBg: SIMD3<Float> = SIMD3<Float>(
         Float(131) / 255.0,
         Float(74) / 255.0,
         Float(136) / 255.0
     )
+
+    /// Cursor color (RGB, alpha applied per shape).
+    var cursorColor: SIMD3<Float> = SIMD3<Float>(0.92, 0.92, 0.92)
+
+    /// Apply a color scheme to the renderer's configurable colors.
+    func applyScheme(_ scheme: TerminalColorScheme) {
+        defaultBg = SIMD3<Float>(
+            Float(scheme.background.r) / 255.0,
+            Float(scheme.background.g) / 255.0,
+            Float(scheme.background.b) / 255.0
+        )
+        selectionBg = SIMD3<Float>(
+            Float(scheme.selection.r) / 255.0,
+            Float(scheme.selection.g) / 255.0,
+            Float(scheme.selection.b) / 255.0
+        )
+        cursorColor = SIMD3<Float>(
+            Float(scheme.cursor.r) / 255.0,
+            Float(scheme.cursor.g) / 255.0,
+            Float(scheme.cursor.b) / 255.0
+        )
+    }
 
     init(device: MTLDevice, atlas: GlyphAtlas, library: MTLLibrary) throws {
         self.device = device
@@ -160,27 +182,28 @@ final class GridRenderer {
             let cx = Float(cursor.col) * cellW + origin.x
             let cy = Float(cursor.row) * cellH - yOffset + origin.y
 
+            let cc = cursorColor
             switch cursor.shape {
             case 0, 4: // Block or HollowBlock
                 let alpha: Float = cursor.shape == 0 ? 0.6 : 0.3
                 bgInstances.append(CellInstance(
                     position: SIMD2(cx, cy),
                     size: SIMD2(cellW, cellH),
-                    color: SIMD4(0.92, 0.92, 0.92, alpha),
+                    color: SIMD4(cc.x, cc.y, cc.z, alpha),
                     texCoords: SIMD4(0, 0, 0, 0)
                 ))
             case 1: // Underline
                 bgInstances.append(CellInstance(
                     position: SIMD2(cx, cy + cellH - 2),
                     size: SIMD2(cellW, 2),
-                    color: SIMD4(0.92, 0.92, 0.92, 0.9),
+                    color: SIMD4(cc.x, cc.y, cc.z, 0.9),
                     texCoords: SIMD4(0, 0, 0, 0)
                 ))
             case 2: // Beam
                 bgInstances.append(CellInstance(
                     position: SIMD2(cx, cy),
                     size: SIMD2(2, cellH),
-                    color: SIMD4(0.92, 0.92, 0.92, 0.9),
+                    color: SIMD4(cc.x, cc.y, cc.z, 0.9),
                     texCoords: SIMD4(0, 0, 0, 0)
                 ))
             default:

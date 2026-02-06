@@ -9,6 +9,7 @@ struct TerminalSection: View {
     @AppStorage("fontFamily") private var fontFamily: String = ""
     @AppStorage("cursorStyle") private var cursorStyle: String = "bar"
     @AppStorage("cursorBlink") private var cursorBlink: Bool = true
+    @AppStorage("terminalColorScheme") private var schemeName: String = "snazzy"
 
     private static let initialDirectory: String = {
         ProcessInfo.processInfo.environment["CLAIDE_DIR"]
@@ -44,6 +45,9 @@ struct TerminalSection: View {
         }
         .onChange(of: cursorBlink) {
             tabManager.applyCursorStyleToAll()
+        }
+        .onChange(of: schemeName) {
+            tabManager.applyColorSchemeToAll()
         }
     }
 }

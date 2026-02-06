@@ -5,7 +5,7 @@ import AppKit
 import SwiftUI
 
 /// 8-bit RGB color value. Static members define the app-wide palette.
-struct RGB: Equatable, Sendable {
+struct RGB: Equatable, Hashable, Sendable {
     let r: UInt8, g: UInt8, b: UInt8
     init(_ r: UInt8, _ g: UInt8, _ b: UInt8) {
         self.r = r; self.g = g; self.b = b

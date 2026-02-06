@@ -79,6 +79,7 @@ final class TerminalTabManager {
         }
 
         applyCursorStyle(to: view)
+        applyColorScheme(to: view)
 
         let tab = Tab(id: UUID(), viewModel: vm, terminalView: view)
         tabs.append(tab)
@@ -157,6 +158,20 @@ final class TerminalTabManager {
     func applyCursorStyleToAll() {
         for tab in tabs {
             applyCursorStyle(to: tab.terminalView)
+        }
+    }
+
+    // MARK: - Color Scheme
+
+    func applyColorScheme(to view: MetalTerminalView) {
+        let schemeName = UserDefaults.standard.string(forKey: "terminalColorScheme") ?? "snazzy"
+        let scheme = TerminalColorScheme.named(schemeName)
+        view.applyColorScheme(scheme)
+    }
+
+    func applyColorSchemeToAll() {
+        for tab in tabs {
+            applyColorScheme(to: tab.terminalView)
         }
     }
 
