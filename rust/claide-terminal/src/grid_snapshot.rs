@@ -8,6 +8,7 @@ use alacritty_terminal::term::color::Colors;
 use alacritty_terminal::term::Term;
 use alacritty_terminal::vte::ansi::{Color, NamedColor, Rgb};
 
+use crate::handle::ColorPalette;
 use crate::listener::Listener;
 
 /// Per-cell data exposed to Swift via C FFI.
@@ -45,8 +46,8 @@ pub struct ClaideGridSnapshot {
     pub padding_bg_b: u8,
 }
 
-/// Default ANSI colors (Snazzy palette, matches Palette.swift).
-const DEFAULT_ANSI: [Rgb; 16] = [
+/// Snazzy palette ANSI colors (used as initial values for ColorPalette).
+pub const DEFAULT_ANSI: [Rgb; 16] = [
     Rgb { r: 0x00, g: 0x00, b: 0x00 }, // Black
     Rgb { r: 0xff, g: 0x5c, b: 0x57 }, // Red
     Rgb { r: 0x5a, g: 0xf7, b: 0x8e }, // Green
@@ -65,13 +66,19 @@ const DEFAULT_ANSI: [Rgb; 16] = [
     Rgb { r: 0xef, g: 0xf0, b: 0xeb }, // Bright White
 ];
 
-/// Default foreground color.
-const DEFAULT_FG: Rgb = Rgb { r: 0xef, g: 0xf0, b: 0xeb };
-/// Default background color.
-const DEFAULT_BG: Rgb = Rgb { r: 0x15, g: 0x17, b: 0x28 };
+/// Snazzy foreground color (used as initial value for ColorPalette).
+pub const DEFAULT_FG: Rgb = Rgb { r: 0xef, g: 0xf0, b: 0xeb };
+/// Snazzy background color (used as initial value for ColorPalette).
+pub const DEFAULT_BG: Rgb = Rgb { r: 0x15, g: 0x17, b: 0x28 };
 
-/// Resolve a Color enum to an RGB triple using the terminal's configured colors.
-fn resolve_color(color: &Color, colors: &Colors, is_foreground: bool) -> Rgb {
+/// Resolve a Color enum to an RGB triple using the terminal's configured colors
+/// and the per-instance palette for fallback values.
+fn resolve_color(
+    color: &Color,
+    colors: &Colors,
+    is_foreground: bool,
+    palette: &ColorPalette,
+) -> Rgb {
     match color {
         Color::Spec(rgb) => *rgb,
         Color::Named(named) => {
@@ -80,14 +87,14 @@ fn resolve_color(color: &Color, colors: &Colors, is_foreground: bool) -> Rgb {
                 rgb
             } else {
                 match named {
-                    NamedColor::Foreground => colors[NamedColor::Foreground].unwrap_or(DEFAULT_FG),
-                    NamedColor::Background => colors[NamedColor::Background].unwrap_or(DEFAULT_BG),
-                    _ if index < 16 => DEFAULT_ANSI[index],
+                    NamedColor::Foreground => colors[NamedColor::Foreground].unwrap_or(palette.fg),
+                    NamedColor::Background => colors[NamedColor::Background].unwrap_or(palette.bg),
+                    _ if index < 16 => palette.ansi[index],
                     _ => {
                         if is_foreground {
-                            DEFAULT_FG
+                            palette.fg
                         } else {
-                            DEFAULT_BG
+                            palette.bg
                         }
                     }
                 }
@@ -98,7 +105,7 @@ fn resolve_color(color: &Color, colors: &Colors, is_foreground: bool) -> Rgb {
             if let Some(rgb) = colors[index] {
                 rgb
             } else if index < 16 {
-                DEFAULT_ANSI[index]
+                palette.ansi[index]
             } else if index < 232 {
                 // 6x6x6 color cube
                 let idx = index - 16;
@@ -155,7 +162,7 @@ fn map_flags(flags: Flags) -> u16 {
 /// Take a snapshot of the visible terminal grid.
 ///
 /// The caller must free the returned snapshot with `snapshot_free`.
-pub fn take_snapshot(term: &Term<Listener>) -> ClaideGridSnapshot {
+pub fn take_snapshot(term: &Term<Listener>, palette: &ColorPalette) -> ClaideGridSnapshot {
     let grid = term.grid();
     let rows = grid.screen_lines();
     let cols = grid.columns();
@@ -181,13 +188,13 @@ pub fn take_snapshot(term: &Term<Listener>) -> ClaideGridSnapshot {
 
             let (mut fg, bg) = if cell.flags.contains(Flags::INVERSE) {
                 (
-                    resolve_color(&cell.bg, colors, true),
-                    resolve_color(&cell.fg, colors, false),
+                    resolve_color(&cell.bg, colors, true, palette),
+                    resolve_color(&cell.fg, colors, false, palette),
                 )
             } else {
                 (
-                    resolve_color(&cell.fg, colors, true),
-                    resolve_color(&cell.bg, colors, false),
+                    resolve_color(&cell.fg, colors, true, palette),
+                    resolve_color(&cell.bg, colors, false, palette),
                 )
             };
 
@@ -227,7 +234,7 @@ pub fn take_snapshot(term: &Term<Listener>) -> ClaideGridSnapshot {
         let c = &cells[last_row_start];
         (c.bg_r, c.bg_g, c.bg_b)
     } else {
-        (DEFAULT_BG.r, DEFAULT_BG.g, DEFAULT_BG.b)
+        (palette.bg.r, palette.bg.g, palette.bg.b)
     };
 
     let cells_ptr = cells.as_mut_ptr();
@@ -243,7 +250,6 @@ pub fn take_snapshot(term: &Term<Listener>) -> ClaideGridSnapshot {
 
     let cursor_row = (cursor.point.line.0 + display_offset as i32).max(0) as u32;
     let cursor_col = cursor.point.column.0 as u32;
-
 
     ClaideGridSnapshot {
         cells: cells_ptr,

@@ -70,6 +70,15 @@ typedef struct {
     uint8_t padding_bg_b;
 } ClaideGridSnapshot;
 
+// -- Color palette --
+
+/// Terminal color palette: 16 ANSI colors + default foreground/background.
+typedef struct {
+    uint8_t ansi[48];   // 16 colors x 3 bytes (r,g,b), in order 0-15
+    uint8_t fg_r, fg_g, fg_b;
+    uint8_t bg_r, bg_g, bg_b;
+} ClaideColorPalette;
+
 // -- Lifecycle --
 
 /// Returns the library version as packed integer (major * 10000 + minor * 100 + patch).
@@ -215,5 +224,10 @@ char *claide_terminal_selection_text(ClaideTerminalRef handle);
 
 /// Free a string returned by claide_terminal_selection_text.
 void claide_terminal_selection_text_free(char *ptr);
+
+// -- Colors --
+
+/// Set the terminal's color palette.
+void claide_terminal_set_colors(ClaideTerminalRef handle, const ClaideColorPalette *palette);
 
 #endif // CLAIDE_TERMINAL_H
