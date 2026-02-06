@@ -50,7 +50,7 @@ The window is split horizontally: terminal on the left (~65%), sidebar on the ri
 
 ### Terminal
 
-GPU-accelerated terminal powered by [alacritty_terminal](https://crates.io/crates/alacritty_terminal) (Rust) for VT emulation and Metal for rendering. Launches `/bin/zsh -l` with full environment (homebrew paths, OSC 7 directory tracking). Supports multiple tabs, custom font selection, and cursor style configuration.
+GPU-accelerated terminal powered by [alacritty_terminal](https://crates.io/crates/alacritty_terminal) (Rust) for VT emulation and Metal for rendering. Launches `/bin/zsh -l` with full environment (homebrew paths, OSC 7 directory tracking). Supports multiple tabs, custom font selection, cursor style configuration, and color schemes (Snazzy, Dracula, Nord, Catppuccin Frappe, One Dark, Gruvbox Dark, Tokyo Night, Solarized Dark/Light).
 
 ### Board
 
@@ -104,6 +104,7 @@ Claide/
     IssueDependency.swift    # Edge between issues
     FileChange.swift         # Parsed change log entry
     SessionStatus.swift      # Claude Code session context usage
+    TerminalColorScheme.swift # Built-in terminal color schemes
   ViewModels/
     GraphViewModel.swift     # Issues, positions, force layout
     FileLogViewModel.swift   # File watcher + parser
@@ -126,7 +127,7 @@ Claide/
       SessionStatusBar.swift   # Context usage indicator
     EmptyStateView.swift     # Data-source-aware placeholder
     IssueDetailPopover.swift
-    SettingsView.swift       # Font picker, cursor style
+    SettingsView.swift       # Font picker, cursor style, color scheme
   Services/
     BeadsService.swift       # Runs bd CLI, decodes JSON
     ClaudeTaskService.swift  # Reads ~/.claude/tasks/ files
@@ -137,7 +138,7 @@ rust/
     src/
       lib.rs               # Crate root
       ffi.rs               # C ABI entry points
-      handle.rs            # PTY fork/exec, Term creation
+      handle.rs            # PTY fork/exec, Term creation, per-instance palette
       pty_reader.rs        # Background thread: PTY → VTE parser
       listener.rs          # Event dispatch to Swift callbacks
       grid_snapshot.rs     # Visible grid → C-compatible struct
