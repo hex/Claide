@@ -10,15 +10,15 @@ struct TerminalSection: View {
     @AppStorage("cursorStyle") private var cursorStyle: String = "bar"
     @AppStorage("cursorBlink") private var cursorBlink: Bool = true
 
-    private let sessionDirectory: String = {
-        let home = FileManager.default.homeDirectoryForCurrentUser.path
-        return (home as NSString).appendingPathComponent(".claude-sessions/claide")
+    private static let initialDirectory: String = {
+        ProcessInfo.processInfo.environment["CLAIDE_DIR"]
+            ?? FileManager.default.homeDirectoryForCurrentUser.path
     }()
 
     var body: some View {
         VStack(spacing: 0) {
             TerminalTabBar(tabManager: tabManager) {
-                tabManager.addTab(initialDirectory: sessionDirectory, fontFamily: fontFamily)
+                tabManager.addTab(initialDirectory: Self.initialDirectory, fontFamily: fontFamily)
             }
 
             (tabManager.activeViewModel?.tabColor?.tint ?? Color(nsColor: TerminalTheme.background))
@@ -31,9 +31,9 @@ struct TerminalSection: View {
             SessionStatusBar(status: sessionStatusVM.status)
         }
         .onAppear {
-            tabManager.addTab(initialDirectory: sessionDirectory, fontFamily: fontFamily)
+            tabManager.addTab(initialDirectory: Self.initialDirectory, fontFamily: fontFamily)
             let shellPid = pid_t(tabManager.activeTab?.terminalView.shellPid ?? 0)
-            sessionStatusVM.startWatching(sessionDirectory: sessionDirectory, shellPid: shellPid)
+            sessionStatusVM.startWatching(sessionDirectory: Self.initialDirectory, shellPid: shellPid)
         }
         .onChange(of: tabManager.activeViewModel?.currentDirectory) { _, newDir in
             if let dir = newDir.flatMap({ $0 }) {
