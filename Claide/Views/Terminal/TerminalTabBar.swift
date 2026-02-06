@@ -9,6 +9,10 @@ struct TerminalTabBar: View {
     let onAdd: () -> Void
 
     @State private var cmdHeld = false
+    @State private var draggedTabID: UUID?
+    @State private var dragOffset: CGFloat = 0
+    @State private var dragAccumulator: CGFloat = 0
+    @State private var tabWidth: CGFloat = 0
 
     var body: some View {
         // ZStack instead of .background() to prevent safe area background propagation.
@@ -55,6 +59,22 @@ struct TerminalTabBar: View {
                         onSetColor: { tab.viewModel.tabColor = $0 }
                     )
                     .frame(maxWidth: .infinity)
+                    .background(
+                        GeometryReader { geo in
+                            Color.clear.preference(key: TabWidthKey.self, value: geo.size.width)
+                        }
+                    )
+                    .offset(x: draggedTabID == tab.id ? dragOffset : 0)
+                    .opacity(draggedTabID == tab.id ? 0.85 : 1)
+                    .zIndex(draggedTabID == tab.id ? 1 : 0)
+                    .shadow(color: draggedTabID == tab.id ? .black.opacity(0.4) : .clear, radius: 4, y: 2)
+                    .simultaneousGesture(
+                        DragGesture(minimumDistance: 5, coordinateSpace: .global)
+                            .onChanged { value in
+                                handleDragChanged(tabID: tab.id, translation: value.translation.width)
+                            }
+                            .onEnded { _ in handleDragEnded() }
+                    )
                 }
 
                 AddTabButton(action: onAdd)
@@ -66,7 +86,50 @@ struct TerminalTabBar: View {
             }
         }
         .fixedSize(horizontal: false, vertical: true)
+        .onPreferenceChange(TabWidthKey.self) { tabWidth = $0 }
         .overlay { CmdKeyMonitor(isPressed: $cmdHeld).frame(width: 0, height: 0) }
+    }
+
+    // MARK: - Drag Reorder
+
+    private func handleDragChanged(tabID: UUID, translation: CGFloat) {
+        if draggedTabID == nil {
+            draggedTabID = tabID
+            dragAccumulator = 0
+        }
+        dragOffset = translation - dragAccumulator
+
+        guard tabWidth > 0,
+              let sourceIndex = tabManager.tabs.firstIndex(where: { $0.id == tabID }) else { return }
+
+        let threshold = tabWidth / 2
+
+        if dragOffset > threshold, sourceIndex < tabManager.tabs.count - 1 {
+            performMove(from: sourceIndex, to: sourceIndex + 1)
+            dragAccumulator += tabWidth
+            dragOffset = translation - dragAccumulator
+        } else if dragOffset < -threshold, sourceIndex > 0 {
+            performMove(from: sourceIndex, to: sourceIndex - 1)
+            dragAccumulator -= tabWidth
+            dragOffset = translation - dragAccumulator
+        }
+    }
+
+    private func handleDragEnded() {
+        dragAccumulator = 0
+        if NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+            dragOffset = 0
+            draggedTabID = nil
+        } else {
+            withAnimation(.easeOut(duration: 0.15)) {
+                dragOffset = 0
+                draggedTabID = nil
+            }
+        }
+    }
+
+    private func performMove(from source: Int, to destination: Int) {
+        tabManager.moveTab(from: source, to: destination)
     }
 }
 
@@ -235,6 +298,14 @@ private extension Color {
             green: Double((hex >> 8) & 0xFF) / 255,
             blue: Double(hex & 0xFF) / 255
         )
+    }
+}
+
+private struct TabWidthKey: PreferenceKey {
+    nonisolated(unsafe) static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        let next = nextValue()
+        if next > 0 { value = next }
     }
 }
 

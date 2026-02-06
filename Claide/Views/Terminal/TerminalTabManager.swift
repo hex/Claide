@@ -99,6 +99,14 @@ final class TerminalTabManager {
         }
     }
 
+    func moveTab(from sourceIndex: Int, to destinationIndex: Int) {
+        guard sourceIndex != destinationIndex,
+              tabs.indices.contains(sourceIndex),
+              destinationIndex >= 0, destinationIndex < tabs.count else { return }
+        let tab = tabs.remove(at: sourceIndex)
+        tabs.insert(tab, at: destinationIndex)
+    }
+
     func closeTab(id: UUID) {
         guard tabs.count > 1 else { return }
         guard let index = tabs.firstIndex(where: { $0.id == id }) else { return }
