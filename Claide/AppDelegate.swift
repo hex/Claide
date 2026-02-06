@@ -29,7 +29,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         if !flag {
-            windowController.showWindow(nil)
+            windowController?.showWindow(self)
         }
         return true
     }
@@ -51,6 +51,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let closeTab = NSMenuItem(title: "Close Tab", action: #selector(closeTab), keyEquivalent: "w")
         closeTab.target = self
         menu.addItem(closeTab)
+
+        menu.addItem(.separator())
+
+        let sidebar = NSMenuItem(title: "Toggle Sidebar", action: #selector(toggleSidebar), keyEquivalent: "b")
+        sidebar.target = self
+        menu.addItem(sidebar)
 
         menu.addItem(.separator())
 
@@ -79,19 +85,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard let self else { return event }
             let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-            guard flags == .command, let chars = event.charactersIgnoringModifiers else {
-                return event
+
+            if flags == .command, let chars = event.charactersIgnoringModifiers {
+                switch chars {
+                case "t":
+                    self.newTab()
+                    return nil
+                case "w":
+                    self.closeTab()
+                    return nil
+                case "b":
+                    self.toggleSidebar()
+                    return nil
+                default:
+                    break
+                }
             }
-            switch chars {
-            case "t":
-                self.newTab()
-                return nil
-            case "w":
-                self.closeTab()
-                return nil
-            default:
-                return event
+
+            if flags == [.command, .shift] {
+                switch event.keyCode {
+                case 123: // Left arrow
+                    self.moveActiveTabLeft()
+                    return nil
+                case 124: // Right arrow
+                    self.moveActiveTabRight()
+                    return nil
+                default:
+                    break
+                }
             }
+
+            return event
         }
     }
 
@@ -105,8 +129,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         tabManager.closeActiveTab()
     }
 
+    @objc private func toggleSidebar() {
+        windowController.splitViewController.toggleSidebarPanel()
+    }
+
     @objc private func switchToTab(_ sender: NSMenuItem) {
         tabManager.switchToTab(at: sender.tag)
+    }
+
+    private func moveActiveTabLeft() {
+        guard let id = tabManager.activeTabID,
+              let index = tabManager.tabs.firstIndex(where: { $0.id == id }),
+              index > 0 else { return }
+        tabManager.moveTab(from: index, to: index - 1)
+    }
+
+    private func moveActiveTabRight() {
+        guard let id = tabManager.activeTabID,
+              let index = tabManager.tabs.firstIndex(where: { $0.id == id }),
+              index < tabManager.tabs.count - 1 else { return }
+        tabManager.moveTab(from: index, to: index + 1)
     }
 }
 

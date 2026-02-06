@@ -238,6 +238,74 @@ struct TerminalTabManagerTests {
         #expect(rows == 24)
     }
 
+    // MARK: - Move Tab
+
+    @Test("moveTab forward shifts tab to later position")
+    func moveTabForward() {
+        let manager = makeManager(tabCount: 3)
+        let ids = manager.tabs.map(\.id)
+
+        manager.moveTab(from: 0, to: 2)
+
+        #expect(manager.tabs.map(\.id) == [ids[1], ids[2], ids[0]])
+    }
+
+    @Test("moveTab backward shifts tab to earlier position")
+    func moveTabBackward() {
+        let manager = makeManager(tabCount: 3)
+        let ids = manager.tabs.map(\.id)
+
+        manager.moveTab(from: 2, to: 0)
+
+        #expect(manager.tabs.map(\.id) == [ids[2], ids[0], ids[1]])
+    }
+
+    @Test("moveTab to same index is a no-op")
+    func moveTabSameIndex() {
+        let manager = makeManager(tabCount: 3)
+        let ids = manager.tabs.map(\.id)
+
+        manager.moveTab(from: 1, to: 1)
+
+        #expect(manager.tabs.map(\.id) == ids)
+    }
+
+    @Test("moveTab with out-of-bounds indices is a no-op")
+    func moveTabOutOfBounds() {
+        let manager = makeManager(tabCount: 3)
+        let ids = manager.tabs.map(\.id)
+
+        manager.moveTab(from: -1, to: 0)
+        #expect(manager.tabs.map(\.id) == ids)
+
+        manager.moveTab(from: 0, to: 5)
+        #expect(manager.tabs.map(\.id) == ids)
+
+        manager.moveTab(from: 3, to: 0)
+        #expect(manager.tabs.map(\.id) == ids)
+    }
+
+    @Test("moveTab preserves active tab selection")
+    func moveTabPreservesActive() {
+        let manager = makeManager(tabCount: 3)
+        let ids = manager.tabs.map(\.id)
+        manager.switchTo(id: ids[0])
+
+        manager.moveTab(from: 0, to: 2)
+
+        // Active tab moved but stays active
+        #expect(manager.activeTabID == ids[0])
+    }
+
+    @Test("moveTab adjacent swap works correctly")
+    func moveTabAdjacentSwap() {
+        let manager = makeManager(tabCount: 3)
+        let ids = manager.tabs.map(\.id)
+
+        manager.moveTab(from: 0, to: 1)
+        #expect(manager.tabs.map(\.id) == [ids[1], ids[0], ids[2]])
+    }
+
     // MARK: - No-Args addTab
 
     @Test("addTab with no args reuses last directory and font")

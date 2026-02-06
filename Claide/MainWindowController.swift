@@ -7,6 +7,8 @@ import SwiftUI
 @MainActor
 final class MainWindowController: NSWindowController, NSWindowDelegate {
 
+    let splitViewController: MainSplitViewController
+
     init(tabManager: TerminalTabManager) {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 1200, height: 700),
@@ -18,6 +20,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate {
         window.titlebarAppearsTransparent = true
         window.titleVisibility = .hidden
         window.titlebarSeparatorStyle = .none
+        window.isMovable = false
         window.isMovableByWindowBackground = false
         window.tabbingMode = .disallowed
         window.backgroundColor = Palette.nsColor(.bgTerminal)
@@ -25,12 +28,9 @@ final class MainWindowController: NSWindowController, NSWindowDelegate {
         window.minSize = NSSize(width: 900, height: 500)
         window.setFrameAutosaveName("ClaideMainWindow")
 
-        let hostingView = NSHostingView(
-            rootView: ContentView(tabManager: tabManager)
-                .ignoresSafeArea()
-                .preferredColorScheme(.dark)
-        )
-        window.contentView = hostingView
+        let splitVC = MainSplitViewController(tabManager: tabManager)
+        self.splitViewController = splitVC
+        window.contentViewController = splitVC
 
         super.init(window: window)
         window.delegate = self

@@ -1,0 +1,51 @@
+// ABOUTME: Left pane of the main split: tab bar, terminal panel, and status bar.
+// ABOUTME: Owns session-scoped view models and wires terminal lifecycle events.
+
+import SwiftUI
+
+struct TerminalSection: View {
+    let tabManager: TerminalTabManager
+    @State private var sessionStatusVM = SessionStatusViewModel()
+    @AppStorage("fontFamily") private var fontFamily: String = ""
+    @AppStorage("cursorStyle") private var cursorStyle: String = "bar"
+    @AppStorage("cursorBlink") private var cursorBlink: Bool = true
+
+    private let sessionDirectory: String = {
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        return (home as NSString).appendingPathComponent(".claude-sessions/claide")
+    }()
+
+    var body: some View {
+        VStack(spacing: 0) {
+            TerminalTabBar(tabManager: tabManager) {
+                tabManager.addTab(initialDirectory: sessionDirectory, fontFamily: fontFamily)
+            }
+
+            (tabManager.activeViewModel?.tabColor?.tint ?? Color(nsColor: TerminalTheme.background))
+                .frame(height: 2)
+
+            TerminalPanel(tabManager: tabManager, fontFamily: fontFamily)
+                .padding(12)
+                .background(Color(nsColor: TerminalTheme.background))
+
+            SessionStatusBar(status: sessionStatusVM.status)
+        }
+        .onAppear {
+            tabManager.addTab(initialDirectory: sessionDirectory, fontFamily: fontFamily)
+            let shellPid = pid_t(tabManager.activeTab?.terminalView.shellPid ?? 0)
+            sessionStatusVM.startWatching(sessionDirectory: sessionDirectory, shellPid: shellPid)
+        }
+        .onChange(of: tabManager.activeViewModel?.currentDirectory) { _, newDir in
+            if let dir = newDir.flatMap({ $0 }) {
+                let shellPid = pid_t(tabManager.activeTab?.terminalView.shellPid ?? 0)
+                sessionStatusVM.startWatching(sessionDirectory: dir, shellPid: shellPid)
+            }
+        }
+        .onChange(of: cursorStyle) {
+            tabManager.applyCursorStyleToAll()
+        }
+        .onChange(of: cursorBlink) {
+            tabManager.applyCursorStyleToAll()
+        }
+    }
+}

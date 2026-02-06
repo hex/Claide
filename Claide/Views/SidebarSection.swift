@@ -1,0 +1,220 @@
+// ABOUTME: Right pane of the main split: collapsible board/graph and file log panels.
+// ABOUTME: Each panel has a disclosure header for independent expand/collapse.
+
+import SwiftUI
+
+struct SidebarSection: View {
+    let tabManager: TerminalTabManager
+    @State private var graphVM = GraphViewModel()
+    @State private var fileLogVM = FileLogViewModel()
+    @State private var sidebarTab: SidebarTab = .board
+    @AppStorage("fontFamily") private var fontFamily: String = ""
+    @AppStorage("tasksExpanded") private var tasksExpanded = true
+    @AppStorage("filesExpanded") private var filesExpanded = true
+
+    private let sessionDirectory: String = {
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        return (home as NSString).appendingPathComponent(".claude-sessions/claide")
+    }()
+
+    enum SidebarTab: String, CaseIterable {
+        case board = "Board"
+        case graph = "Graph"
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            tasksSection
+            filesSection
+            Spacer(minLength: 0)
+        }
+        .padding(.top, 28)
+        .background(Theme.backgroundPrimary)
+        .onAppear {
+            if BeadsService.findBinary() == nil && ClaudeTaskService.isAvailable {
+                graphVM.dataSource = .claudeCode
+            }
+            let vm = graphVM
+            Task { @MainActor in
+                await vm.loadIssues(workingDirectory: sessionDirectory)
+            }
+            discoverChangesFile(from: sessionDirectory)
+        }
+        .onChange(of: tabManager.activeViewModel?.currentDirectory) { _, newDir in
+            if let dir = newDir.flatMap({ $0 }) {
+                let vm = graphVM
+                Task { @MainActor in
+                    await vm.loadIssues(workingDirectory: dir)
+                }
+                discoverChangesFile(from: dir)
+            }
+        }
+    }
+
+    // MARK: - Tasks Section
+
+    private var tasksSection: some View {
+        VStack(spacing: 0) {
+            sectionHeader("Tasks", isExpanded: $tasksExpanded) {
+                tasksHeaderControls
+            }
+
+            if tasksExpanded {
+                Group {
+                    switch sidebarTab {
+                    case .board:
+                        KanbanPanel(viewModel: graphVM)
+                    case .graph:
+                        GraphPanel(viewModel: graphVM, fontFamily: fontFamily)
+                    }
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .frame(maxHeight: tasksExpanded ? .infinity : nil)
+    }
+
+    // MARK: - Files Section
+
+    private var filesSection: some View {
+        VStack(spacing: 0) {
+            sectionHeader("Files", isExpanded: $filesExpanded)
+
+            if filesExpanded {
+                FileLogPanel(viewModel: fileLogVM)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .frame(maxHeight: filesExpanded ? .infinity : nil)
+    }
+
+    // MARK: - Section Header
+
+    private func sectionHeader<Trailing: View>(
+        _ title: String,
+        isExpanded: Binding<Bool>,
+        @ViewBuilder trailing: () -> Trailing
+    ) -> some View {
+        HStack(spacing: 4) {
+            Button {
+                withAnimation(.easeInOut(duration: 0.15)) {
+                    isExpanded.wrappedValue.toggle()
+                }
+            } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 8, weight: .bold))
+                        .rotationEffect(.degrees(isExpanded.wrappedValue ? 90 : 0))
+                        .frame(width: 12)
+
+                    Text(title)
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(Theme.textSecondary)
+                }
+            }
+            .buttonStyle(.plain)
+
+            Spacer()
+
+            if isExpanded.wrappedValue {
+                trailing()
+            }
+        }
+        .padding(.horizontal, 8)
+        .frame(height: 24)
+        .background(Theme.backgroundSunken)
+        .overlay(alignment: .bottom) {
+            Theme.border.frame(height: Theme.borderWidth)
+        }
+    }
+
+    private func sectionHeader(
+        _ title: String,
+        isExpanded: Binding<Bool>
+    ) -> some View {
+        sectionHeader(title, isExpanded: isExpanded) { EmptyView() }
+    }
+
+    // MARK: - Tasks Header Controls
+
+    private var tasksHeaderControls: some View {
+        HStack(spacing: 2) {
+            tabIcon(.board, systemName: "rectangle.split.3x3")
+            tabIcon(.graph, systemName: "point.3.connected.trianglepath.dotted")
+
+            Divider()
+                .frame(height: 12)
+                .padding(.horizontal, 2)
+
+            Button {
+                let vm = graphVM
+                let dir = tabManager.activeViewModel?.currentDirectory
+                Task { @MainActor in await vm.loadIssues(workingDirectory: dir) }
+            } label: {
+                Image(systemName: "arrow.clockwise")
+                    .font(.system(size: 10))
+                    .foregroundStyle(Theme.textMuted)
+                    .frame(width: 20, height: 20)
+            }
+            .buttonStyle(.plain)
+
+            if showDataSourceToggle {
+                Divider()
+                    .frame(height: 12)
+                    .padding(.horizontal, 2)
+
+                dataSourceIcon(.beads, systemName: "circle.hexagongrid")
+                dataSourceIcon(.claudeCode, systemName: "checklist")
+            }
+        }
+    }
+
+    private var showDataSourceToggle: Bool { true }
+
+    private func dataSourceIcon(_ source: DataSource, systemName: String) -> some View {
+        Button {
+            graphVM.dataSource = source
+            let vm = graphVM
+            let dir = tabManager.activeViewModel?.currentDirectory
+            Task { @MainActor in await vm.loadIssues(workingDirectory: dir) }
+        } label: {
+            Image(systemName: systemName)
+                .font(.system(size: 10))
+                .foregroundStyle(graphVM.dataSource == source ? Theme.textPrimary : Theme.textMuted)
+                .frame(width: 20, height: 20)
+                .background(graphVM.dataSource == source ? Theme.backgroundHover : .clear)
+                .clipShape(RoundedRectangle(cornerRadius: 4))
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func tabIcon(_ tab: SidebarTab, systemName: String) -> some View {
+        Button {
+            sidebarTab = tab
+        } label: {
+            Image(systemName: systemName)
+                .font(.system(size: 10))
+                .foregroundStyle(sidebarTab == tab ? Theme.textPrimary : Theme.textMuted)
+                .frame(width: 20, height: 20)
+                .background(sidebarTab == tab ? Theme.backgroundHover : .clear)
+                .clipShape(RoundedRectangle(cornerRadius: 4))
+        }
+        .buttonStyle(.plain)
+    }
+
+    // MARK: - Discovery
+
+    private func discoverChangesFile(from directory: String) {
+        var dir = directory
+        for _ in 0..<5 {
+            let candidate = (dir as NSString).appendingPathComponent("changes.md")
+            if FileManager.default.fileExists(atPath: candidate) {
+                fileLogVM.startWatching(path: candidate)
+                return
+            }
+            dir = (dir as NSString).deletingLastPathComponent
+        }
+    }
+}
