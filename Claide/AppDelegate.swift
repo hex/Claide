@@ -12,8 +12,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         tabManager = TerminalTabManager()
         windowController = MainWindowController(tabManager: tabManager)
-        buildTerminalMenu()
         windowController.showWindow(nil)
+
+        // SwiftUI builds the main menu asynchronously after launch.
+        // Delay so our Terminal menu is appended after SwiftUI's menu is in place.
+        DispatchQueue.main.async { self.installTerminalMenu() }
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
@@ -29,7 +32,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     // MARK: - Terminal Menu
 
-    private func buildTerminalMenu() {
+    private var terminalMenuInstalled = false
+
+    private func installTerminalMenu() {
+        guard !terminalMenuInstalled, let mainMenu = NSApp.mainMenu else { return }
+        terminalMenuInstalled = true
+
         let menu = NSMenu(title: "Terminal")
 
         let newTab = NSMenuItem(title: "New Tab", action: #selector(newTab), keyEquivalent: "t")
@@ -55,7 +63,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let menuBarItem = NSMenuItem()
         menuBarItem.submenu = menu
-        NSApp.mainMenu?.addItem(menuBarItem)
+        mainMenu.addItem(menuBarItem)
     }
 
     // MARK: - Actions

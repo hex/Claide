@@ -3,6 +3,13 @@
 
 import SwiftUI
 
+private let loginShell: String = {
+    if let shell = ProcessInfo.processInfo.environment["SHELL"], !shell.isEmpty {
+        return shell
+    }
+    return "/bin/zsh"
+}()
+
 @MainActor @Observable
 final class TerminalTabManager {
 
@@ -49,12 +56,12 @@ final class TerminalTabManager {
         let directory = initialDirectory ?? NSHomeDirectory()
 
         view.startShell(
-            executable: "/bin/zsh",
+            executable: loginShell,
             args: ["-l"],
             environment: environment,
             directory: directory
         )
-        vm.processStarted(executable: "/bin/zsh", args: ["-l"])
+        vm.processStarted(executable: loginShell, args: ["-l"])
 
         // Wire up bridge events to view model
         view.bridge?.onTitle = { [weak vm] title in

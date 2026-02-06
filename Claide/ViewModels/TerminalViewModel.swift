@@ -9,9 +9,11 @@ final class TerminalViewModel {
     var title: String = "zsh"
     var isRunning: Bool = false
     var currentDirectory: String?
+    var executablePath: String?
 
     func processStarted(executable: String, args: [String]) {
         isRunning = true
+        executablePath = executable
         let name = (executable as NSString).lastPathComponent
         title = ([name] + args).joined(separator: " ")
     }
