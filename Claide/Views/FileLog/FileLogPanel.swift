@@ -90,7 +90,7 @@ struct FileLogPanel: View {
     // MARK: - Row
 
     private func changeRow(_ change: FileChange, showTimestamp: Bool) -> some View {
-        HStack(spacing: 6) {
+        HStack(spacing: 12) {
             badge(change)
             fileInfo(change)
             Spacer(minLength: 4)
@@ -106,7 +106,7 @@ struct FileLogPanel: View {
         .padding(.vertical, 3)
         .background(hoveredId == change.id ? Theme.backgroundHover : .clear)
         .clipShape(RoundedRectangle(cornerRadius: 2))
-        .overlay(Tooltip(rowTooltip(change)).allowsHitTesting(false))
+        .overlay(Tooltip(lines: rowTooltipLines(change), accentColor: toolColor(change.tool)).allowsHitTesting(false))
         .onHover { hovering in hoveredId = hovering ? change.id : nil }
     }
 
@@ -134,7 +134,7 @@ struct FileLogPanel: View {
                     .foregroundStyle(change.source == .transcript ? Theme.statusOpen : Theme.textMuted)
 
                 Text(change.directory)
-                    .font(.system(size: 9))
+                    .font(.system(size: 9, design: .monospaced))
                     .foregroundStyle(Theme.textMuted)
                     .lineLimit(1)
                     .truncationMode(.head)
@@ -144,10 +144,13 @@ struct FileLogPanel: View {
 
     // MARK: - Tooltip
 
-    private func rowTooltip(_ change: FileChange) -> String {
+    private func rowTooltipLines(_ change: FileChange) -> [TooltipLine] {
         let source = change.source == .transcript ? "Claude Code" : "Local"
-        let date = Self.fullDateFormatter.string(from: change.timestamp)
-        return "\(change.tool) — \(source)\n\(date)\n\(change.filePath)"
+        return [
+            TooltipLine(text: "\(change.tool) — \(source)", style: .bold),
+            TooltipLine(text: Self.fullDateFormatter.string(from: change.timestamp), style: .muted),
+            TooltipLine(text: change.filePath, style: .mono),
+        ]
     }
 
     // MARK: - Badge Helpers

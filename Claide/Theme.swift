@@ -124,29 +124,58 @@ struct BadgeColors: Equatable, Sendable {
     }
 }
 
+/// Describes the visual style of a single tooltip line.
+enum TooltipLineStyle {
+    case bold       // Medium weight, primary color
+    case normal     // Regular weight, primary color
+    case muted      // Regular weight, dimmed color
+    case mono       // Monospaced, slightly smaller
+}
+
+/// A single styled line in a structured tooltip.
+struct TooltipLine {
+    let text: String
+    let style: TooltipLineStyle
+}
+
 /// Fast-appearing tooltip for SwiftUI views where `.help()` doesn't work
 /// (e.g. buttons with `.buttonStyle(.plain)`).
 /// Shows after 0.1s instead of the default ~1.5s macOS delay.
+/// Supports plain text or structured multi-line content with accent color.
 struct Tooltip: NSViewRepresentable {
-    let text: String
+    let lines: [TooltipLine]
+    let accentColor: Color?
 
-    init(_ text: String) { self.text = text }
+    /// Plain text tooltip
+    init(_ text: String) {
+        self.lines = [TooltipLine(text: text, style: .normal)]
+        self.accentColor = nil
+    }
+
+    /// Structured tooltip with individually styled lines and optional accent
+    init(lines: [TooltipLine], accentColor: Color? = nil) {
+        self.lines = lines
+        self.accentColor = accentColor
+    }
 
     func makeNSView(context: Context) -> TooltipView {
-        TooltipView(text: text)
+        TooltipView(lines: lines, accentColor: accentColor.map { NSColor($0) })
     }
 
     func updateNSView(_ nsView: TooltipView, context: Context) {
-        nsView.tooltipText = text
+        nsView.lines = lines
+        nsView.accentColor = accentColor.map { NSColor($0) }
     }
 
     final class TooltipView: NSView {
-        var tooltipText: String
+        var lines: [TooltipLine]
+        var accentColor: NSColor?
         private var hoverTimer: Timer?
         private var tooltipWindow: NSWindow?
 
-        init(text: String) {
-            self.tooltipText = text
+        init(lines: [TooltipLine], accentColor: NSColor?) {
+            self.lines = lines
+            self.accentColor = accentColor
             super.init(frame: .zero)
             let area = NSTrackingArea(
                 rect: .zero,
@@ -179,25 +208,122 @@ struct Tooltip: NSViewRepresentable {
             super.removeFromSuperview()
         }
 
+        // MARK: - Label Factory
+
+        private func makeLabel(_ line: TooltipLine) -> NSTextField {
+            let font: NSFont
+            let color: NSColor
+
+            switch line.style {
+            case .bold:
+                font = NSFont.systemFont(ofSize: 12, weight: .medium)
+                color = NSColor(srgbRed: 224/255, green: 230/255, blue: 235/255, alpha: 1)
+            case .normal:
+                font = NSFont.systemFont(ofSize: 11)
+                color = NSColor(srgbRed: 224/255, green: 230/255, blue: 235/255, alpha: 1)
+            case .muted:
+                font = NSFont.systemFont(ofSize: 10)
+                color = NSColor(srgbRed: 89/255, green: 97/255, blue: 107/255, alpha: 1)
+            case .mono:
+                font = NSFont.monospacedSystemFont(ofSize: 10, weight: .regular)
+                color = NSColor(srgbRed: 224/255, green: 230/255, blue: 235/255, alpha: 0.75)
+            }
+
+            let label: NSTextField
+            if line.style == .mono {
+                // Wrapping label for long file paths
+                label = NSTextField(wrappingLabelWithString: line.text)
+                label.maximumNumberOfLines = 3
+            } else {
+                label = NSTextField(labelWithString: line.text)
+                label.lineBreakMode = .byTruncatingTail
+                label.maximumNumberOfLines = 1
+            }
+            label.font = font
+            label.textColor = color
+            label.isSelectable = false
+            return label
+        }
+
+        // MARK: - Show / Hide
+
         private func showTooltip() {
             guard let window, let screen = window.screen else { return }
             let mouseScreen = NSEvent.mouseLocation
-            let padding: CGFloat = 6
-            let font = NSFont.systemFont(ofSize: NSFont.smallSystemFontSize)
-            let maxTextWidth: CGFloat = 400
+            let paddingH: CGFloat = 12
+            let paddingV: CGFloat = 10
+            let maxTipWidth: CGFloat = 340
+            let lineSpacing: CGFloat = 3
+            let isStructured = accentColor != nil && lines.count >= 3
+            let maxTextWidth = maxTipWidth - paddingH * 2
 
-            // Let NSTextField compute its own size via Auto Layout
-            let label = NSTextField(wrappingLabelWithString: tooltipText)
-            label.font = font
-            label.textColor = .white
-            label.isSelectable = false
-            label.preferredMaxLayoutWidth = maxTextWidth
-            let labelSize = label.fittingSize
-            label.frame = NSRect(x: padding, y: padding, width: labelSize.width, height: labelSize.height)
+            // Create and measure labels (constrained to max width)
+            var labelData: [(NSTextField, CGSize)] = []
+            var maxWidth: CGFloat = 0
+            for line in lines {
+                let label = makeLabel(line)
+                label.preferredMaxLayoutWidth = maxTextWidth
+                let size = label.fittingSize
+                let constrainedWidth = min(size.width, maxTextWidth)
+                // Re-measure height at constrained width for wrapping labels
+                let finalSize: CGSize
+                if constrainedWidth < size.width {
+                    label.preferredMaxLayoutWidth = constrainedWidth
+                    finalSize = CGSize(width: constrainedWidth, height: label.fittingSize.height)
+                } else {
+                    finalSize = size
+                }
+                labelData.append((label, finalSize))
+                maxWidth = max(maxWidth, finalSize.width)
+            }
 
-            let tipWidth = labelSize.width + padding * 2
-            let tipHeight = labelSize.height + padding * 2
+            // Calculate total content height
+            let accentGap: CGFloat = 10   // 4 + 1.5 accent + 4.5
+            let separatorGap: CGFloat = 12 // 5.5 + 0.5 sep + 6
+            var contentHeight: CGFloat = 0
+            for (i, (_, size)) in labelData.enumerated() {
+                contentHeight += size.height
+                if i < labelData.count - 1 {
+                    if isStructured && i == 0 {
+                        contentHeight += accentGap
+                    } else if isStructured && i == labelData.count - 2 {
+                        contentHeight += separatorGap
+                    } else {
+                        contentHeight += lineSpacing
+                    }
+                }
+            }
 
+            let tipWidth = maxWidth + paddingH * 2
+            let tipHeight = contentHeight + paddingV * 2
+
+            // Layout labels top-down (NSView y=0 is bottom)
+            var y = tipHeight - paddingV
+            var accentLineY: CGFloat = 0
+            var separatorY: CGFloat = 0
+
+            for (i, (label, size)) in labelData.enumerated() {
+                y -= size.height
+                label.frame = NSRect(x: paddingH, y: y, width: maxWidth, height: size.height)
+
+                if i < labelData.count - 1 {
+                    if isStructured && i == 0 {
+                        y -= 4
+                        y -= 1.5
+                        accentLineY = y
+                        y -= 4.5
+                    } else if isStructured && i == labelData.count - 2 {
+                        y -= 5.5
+                        y -= 0.5
+                        separatorY = y
+                        y -= 6
+                    } else {
+                        y -= lineSpacing
+                    }
+                }
+            }
+
+            // Position window near cursor
             var origin = CGPoint(x: mouseScreen.x + 12, y: mouseScreen.y - tipHeight - 8)
             if origin.x + tipWidth > screen.visibleFrame.maxX {
                 origin.x = screen.visibleFrame.maxX - tipWidth
@@ -217,16 +343,57 @@ struct Tooltip: NSViewRepresentable {
             tipWindow.level = .floating
             tipWindow.ignoresMouseEvents = true
 
+            // Container with rounded corners
             let container = NSView(frame: NSRect(origin: .zero, size: CGSize(width: tipWidth, height: tipHeight)))
             container.wantsLayer = true
-            container.layer?.backgroundColor = NSColor(white: 0.15, alpha: 0.95).cgColor
-            container.layer?.cornerRadius = 4
-            container.layer?.borderWidth = 0.5
-            container.layer?.borderColor = NSColor(white: 0.3, alpha: 1).cgColor
-            container.addSubview(label)
+            container.layer?.cornerRadius = 10
+            container.layer?.masksToBounds = true
+
+            // Gradient background: lighter at top, darker at bottom
+            let gradient = CAGradientLayer()
+            gradient.frame = container.bounds
+            gradient.colors = [
+                CGColor(srgbRed: 22/255, green: 25/255, blue: 33/255, alpha: 1),
+                CGColor(srgbRed: 13/255, green: 15/255, blue: 20/255, alpha: 1),
+            ]
+            gradient.startPoint = CGPoint(x: 0.5, y: 1) // top
+            gradient.endPoint = CGPoint(x: 0.5, y: 0)   // bottom
+            container.layer?.addSublayer(gradient)
+
+            // Accent underline after header
+            if isStructured, let color = accentColor {
+                let accent = CALayer()
+                accent.frame = CGRect(x: paddingH, y: accentLineY, width: maxWidth, height: 1.5)
+                accent.backgroundColor = color.withAlphaComponent(0.5).cgColor
+                accent.cornerRadius = 0.75
+                container.layer?.addSublayer(accent)
+            }
+
+            // Separator before path
+            if isStructured {
+                let sep = CALayer()
+                sep.frame = CGRect(x: paddingH, y: separatorY, width: maxWidth, height: 0.5)
+                sep.backgroundColor = CGColor(srgbRed: 46/255, green: 51/255, blue: 61/255, alpha: 1)
+                container.layer?.addSublayer(sep)
+            }
+
+            // Add labels on top
+            for (label, _) in labelData {
+                container.addSubview(label)
+            }
 
             tipWindow.contentView = container
+            tipWindow.hasShadow = true
+
+            // Fade-in animation
+            tipWindow.alphaValue = 0
             tipWindow.orderFront(nil)
+            NSAnimationContext.runAnimationGroup { ctx in
+                ctx.duration = 0.15
+                ctx.timingFunction = CAMediaTimingFunction(name: .easeOut)
+                tipWindow.animator().alphaValue = 1
+            }
+
             self.tooltipWindow = tipWindow
         }
 
