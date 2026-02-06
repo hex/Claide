@@ -1,10 +1,11 @@
-// ABOUTME: Scrollable list showing recent file modifications from changes.md.
-// ABOUTME: Each row displays timestamp, tool type, filename, and directory path.
+// ABOUTME: Scrollable list showing file operations from transcript and git working tree.
+// ABOUTME: Groups changes by source with accent bars, badges, and hover states.
 
 import SwiftUI
 
 struct FileLogPanel: View {
     @Bindable var viewModel: FileLogViewModel
+    @State private var hoveredId: UUID?
 
     private static let timeFormatter: DateFormatter = {
         let f = DateFormatter()
@@ -12,9 +13,26 @@ struct FileLogPanel: View {
         return f
     }()
 
+    private static let fullDateFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateStyle = .medium
+        f.timeStyle = .medium
+        return f
+    }()
+
+    private var activityChanges: [FileChange] {
+        viewModel.changes.filter { $0.source == .transcript }
+    }
+
+    private var workingTreeChanges: [FileChange] {
+        viewModel.changes
+            .filter { $0.source == .git }
+            .sorted { $0.fileName.localizedCompare($1.fileName) == .orderedAscending }
+    }
+
     var body: some View {
         PanelView {
-            SectionHeader(title: "File Changes", trailing: "\(viewModel.changes.count) entries")
+            SectionHeader(title: "Files", trailing: "\(viewModel.changes.count)")
 
             if let error = viewModel.error {
                 Text(error)
@@ -31,40 +49,97 @@ struct FileLogPanel: View {
         }
     }
 
+    // MARK: - List
+
     private var changeList: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 1) {
-                ForEach(viewModel.changes) { change in
-                    changeRow(change)
+                if !activityChanges.isEmpty {
+                    sectionLabel("ACTIVITY", count: activityChanges.count)
+                    ForEach(activityChanges) { change in
+                        changeRow(change, showTimestamp: true)
+                    }
+                }
+
+                if !workingTreeChanges.isEmpty {
+                    sectionLabel("WORKING TREE", count: workingTreeChanges.count)
+                    ForEach(workingTreeChanges) { change in
+                        changeRow(change, showTimestamp: false)
+                    }
                 }
             }
         }
     }
 
-    private func changeRow(_ change: FileChange) -> some View {
-        HStack(spacing: 8) {
-            // Timestamp
-            Text(Self.timeFormatter.string(from: change.timestamp))
-                .font(Theme.bodyFontSmall)
-                .foregroundStyle(Theme.textMuted)
-                .frame(width: 55, alignment: .leading)
-
-            // Tool badge
-            Text(change.tool.uppercased())
+    private func sectionLabel(_ title: String, count: Int) -> some View {
+        HStack {
+            Text(title)
                 .font(.system(size: 9, weight: .medium))
-                .foregroundStyle(toolColor(change.tool))
-                .padding(.horizontal, 4)
-                .padding(.vertical, 1)
-                .background(toolColor(change.tool).opacity(0.15))
-                .clipShape(RoundedRectangle(cornerRadius: 2))
-                .frame(width: 50, alignment: .leading)
+                .foregroundStyle(Theme.textMuted)
+                .tracking(1.5)
+            Spacer()
+            Text("\(count)")
+                .font(.system(size: 9))
+                .foregroundStyle(Theme.textMuted)
+        }
+        .padding(.horizontal, 6)
+        .padding(.top, 8)
+        .padding(.bottom, 2)
+    }
 
-            // Filename
-            VStack(alignment: .leading, spacing: 0) {
-                Text(change.fileName)
-                    .font(Theme.bodyFontSmall)
-                    .foregroundStyle(Theme.textPrimary)
-                    .lineLimit(1)
+    // MARK: - Row
+
+    private func changeRow(_ change: FileChange, showTimestamp: Bool) -> some View {
+        HStack(spacing: 0) {
+            // Left accent stripe
+            RoundedRectangle(cornerRadius: 1)
+                .fill(toolColor(change.tool))
+                .frame(width: 2)
+                .padding(.vertical, 2)
+
+            HStack(spacing: 4) {
+                badge(change)
+                fileInfo(change)
+                Spacer(minLength: 4)
+
+                if showTimestamp {
+                    Text(Self.timeFormatter.string(from: change.timestamp))
+                        .font(.system(size: 9).monospacedDigit())
+                        .foregroundStyle(Theme.textMuted)
+                }
+            }
+            .padding(.leading, 6)
+            .padding(.trailing, 6)
+        }
+        .padding(.vertical, 3)
+        .background(hoveredId == change.id ? Theme.backgroundHover : .clear)
+        .clipShape(RoundedRectangle(cornerRadius: 2))
+        .overlay(Tooltip(rowTooltip(change)).allowsHitTesting(false))
+        .onHover { hovering in hoveredId = hovering ? change.id : nil }
+    }
+
+    private func badge(_ change: FileChange) -> some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 3)
+                .fill(toolColor(change.tool).opacity(0.15))
+            Text(badgeLabel(change.tool))
+                .font(.system(size: 8, weight: .heavy))
+                .foregroundStyle(toolColor(change.tool))
+        }
+        .frame(width: 14, height: 14)
+    }
+
+    private func fileInfo(_ change: FileChange) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text(change.fileName)
+                .font(Theme.bodyFontSmall)
+                .foregroundStyle(Theme.textPrimary)
+                .lineLimit(1)
+
+            HStack(spacing: 2) {
+                Image(systemName: change.source == .transcript ? "sparkles" : "person")
+                    .font(.system(size: 7))
+                    .foregroundStyle(change.source == .transcript ? Theme.statusOpen : Theme.textMuted)
 
                 Text(change.directory)
                     .font(.system(size: 9))
@@ -72,19 +147,49 @@ struct FileLogPanel: View {
                     .lineLimit(1)
                     .truncationMode(.head)
             }
-
-            Spacer()
         }
-        .padding(.horizontal, 6)
-        .padding(.vertical, 4)
-        .background(Theme.backgroundPanel)
+    }
+
+    // MARK: - Tooltip
+
+    private func rowTooltip(_ change: FileChange) -> String {
+        let source = change.source == .transcript ? "Claude Code" : "Local"
+        let date = Self.fullDateFormatter.string(from: change.timestamp)
+        return "\(change.tool) — \(source)\n\(date)\n\(change.filePath)"
+    }
+
+    // MARK: - Badge Helpers
+
+    private func badgeLabel(_ tool: String) -> String {
+        switch tool.lowercased() {
+        case "write": "W"
+        case "edit": "E"
+        case "multiedit": "E"
+        case "read": "R"
+        case "modified": "M"
+        case "added": "A"
+        case "deleted": "D"
+        case "untracked": "?"
+        case "renamed": "R"
+        case "copied": "C"
+        case "conflict": "!"
+        default: tool.prefix(1).uppercased()
+        }
     }
 
     private func toolColor(_ tool: String) -> Color {
         switch tool.lowercased() {
+        // Transcript operations
         case "write": Theme.accent
         case "edit", "multiedit": Theme.statusInProgress
         case "read": Theme.statusOpen
+        // Git status
+        case "modified": Theme.priorityHigh
+        case "added": Theme.accent
+        case "deleted": Theme.negative
+        case "untracked": Theme.textMuted
+        case "renamed", "copied": Theme.statusOpen
+        case "conflict": Theme.statusBlocked
         default: Theme.textSecondary
         }
     }

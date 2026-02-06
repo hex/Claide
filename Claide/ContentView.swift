@@ -47,8 +47,8 @@ struct ContentView: View {
             Task { @MainActor in
                 await vm.loadIssues(workingDirectory: sessionDirectory)
             }
-            discoverChangesFile(from: sessionDirectory)
             let shellPid = pid_t(tabManager.activeTab?.terminalView.shellPid ?? 0)
+            fileLogVM.startWatching(sessionDirectory: sessionDirectory, shellPid: shellPid)
             sessionStatusVM.startWatching(sessionDirectory: sessionDirectory, shellPid: shellPid)
         }
         .onChange(of: tabManager.activeViewModel?.currentDirectory) { _, newDir in
@@ -57,8 +57,8 @@ struct ContentView: View {
                 Task { @MainActor in
                     await vm.loadIssues(workingDirectory: dir)
                 }
-                discoverChangesFile(from: dir)
                 let shellPid = pid_t(tabManager.activeTab?.terminalView.shellPid ?? 0)
+                fileLogVM.startWatching(sessionDirectory: dir, shellPid: shellPid)
                 sessionStatusVM.startWatching(sessionDirectory: dir, shellPid: shellPid)
             }
         }
@@ -199,20 +199,4 @@ struct ContentView: View {
         .overlay(Tooltip(tab.rawValue).allowsHitTesting(false))
     }
 
-    // MARK: - Discovery
-
-    /// Try to find changes.md in the session directory hierarchy
-    private func discoverChangesFile(from directory: String) {
-        var dir = directory
-        for _ in 0..<5 {
-            let candidate = (dir as NSString).appendingPathComponent("changes.md")
-            if FileManager.default.fileExists(atPath: candidate) {
-                fileLogVM.startWatching(path: candidate)
-                return
-            }
-            dir = (dir as NSString).deletingLastPathComponent
-        }
-    }
 }
-
-
