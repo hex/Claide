@@ -42,24 +42,24 @@ pub struct ClaideGridSnapshot {
     pub mode_flags: u32,
 }
 
-/// Default ANSI colors for when the terminal hasn't configured them.
+/// Default ANSI colors (Snazzy palette, matches Palette.swift).
 const DEFAULT_ANSI: [Rgb; 16] = [
     Rgb { r: 0x00, g: 0x00, b: 0x00 }, // Black
-    Rgb { r: 0xcc, g: 0x00, b: 0x00 }, // Red
-    Rgb { r: 0x00, g: 0xcc, b: 0x00 }, // Green
-    Rgb { r: 0xcc, g: 0xcc, b: 0x00 }, // Yellow
-    Rgb { r: 0x00, g: 0x00, b: 0xcc }, // Blue
-    Rgb { r: 0xcc, g: 0x00, b: 0xcc }, // Magenta
-    Rgb { r: 0x00, g: 0xcc, b: 0xcc }, // Cyan
-    Rgb { r: 0xcc, g: 0xcc, b: 0xcc }, // White
-    Rgb { r: 0x55, g: 0x55, b: 0x55 }, // Bright Black
-    Rgb { r: 0xff, g: 0x55, b: 0x55 }, // Bright Red
-    Rgb { r: 0x55, g: 0xff, b: 0x55 }, // Bright Green
-    Rgb { r: 0xff, g: 0xff, b: 0x55 }, // Bright Yellow
-    Rgb { r: 0x55, g: 0x55, b: 0xff }, // Bright Blue
-    Rgb { r: 0xff, g: 0x55, b: 0xff }, // Bright Magenta
-    Rgb { r: 0x55, g: 0xff, b: 0xff }, // Bright Cyan
-    Rgb { r: 0xff, g: 0xff, b: 0xff }, // Bright White
+    Rgb { r: 0xff, g: 0x5c, b: 0x57 }, // Red
+    Rgb { r: 0x5a, g: 0xf7, b: 0x8e }, // Green
+    Rgb { r: 0xf3, g: 0xf9, b: 0x9d }, // Yellow
+    Rgb { r: 0x57, g: 0xc7, b: 0xff }, // Blue
+    Rgb { r: 0xff, g: 0x6a, b: 0xc1 }, // Magenta
+    Rgb { r: 0x9a, g: 0xed, b: 0xfe }, // Cyan
+    Rgb { r: 0xf1, g: 0xf1, b: 0xf0 }, // White
+    Rgb { r: 0x68, g: 0x68, b: 0x68 }, // Bright Black
+    Rgb { r: 0xff, g: 0x5c, b: 0x57 }, // Bright Red
+    Rgb { r: 0x5a, g: 0xf7, b: 0x8e }, // Bright Green
+    Rgb { r: 0xf3, g: 0xf9, b: 0x9d }, // Bright Yellow
+    Rgb { r: 0x57, g: 0xc7, b: 0xff }, // Bright Blue
+    Rgb { r: 0xff, g: 0x6a, b: 0xc1 }, // Bright Magenta
+    Rgb { r: 0x9a, g: 0xed, b: 0xfe }, // Bright Cyan
+    Rgb { r: 0xef, g: 0xf0, b: 0xeb }, // Bright White
 ];
 
 /// Default foreground color.

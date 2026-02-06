@@ -12,9 +12,9 @@ struct SidebarSection: View {
     @AppStorage("tasksExpanded") private var tasksExpanded = true
     @AppStorage("filesExpanded") private var filesExpanded = true
 
-    private let sessionDirectory: String = {
-        let home = FileManager.default.homeDirectoryForCurrentUser.path
-        return (home as NSString).appendingPathComponent(".claude-sessions/claide")
+    private static let initialDirectory: String = {
+        ProcessInfo.processInfo.environment["CLAIDE_DIR"]
+            ?? FileManager.default.homeDirectoryForCurrentUser.path
     }()
 
     enum SidebarTab: String, CaseIterable {
@@ -36,10 +36,10 @@ struct SidebarSection: View {
             }
             let vm = graphVM
             Task { @MainActor in
-                await vm.loadIssues(workingDirectory: sessionDirectory)
+                await vm.loadIssues(workingDirectory: Self.initialDirectory)
             }
             let shellPid = pid_t(tabManager.activeTab?.terminalView.shellPid ?? 0)
-            fileLogVM.startWatching(sessionDirectory: sessionDirectory, shellPid: shellPid)
+            fileLogVM.startWatching(sessionDirectory: Self.initialDirectory, shellPid: shellPid)
         }
         .onChange(of: tabManager.activeViewModel?.currentDirectory) { _, newDir in
             if let dir = newDir.flatMap({ $0 }) {

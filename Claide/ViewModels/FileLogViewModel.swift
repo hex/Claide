@@ -35,15 +35,18 @@ final class FileLogViewModel {
            ) {
             path = processPath
             foundViaProcess = true
-        } else if shellPid > 0 {
-            // Shell exists but no Claude session yet — poll until one appears
-            stopTranscriptWatching()
-            watchedSessionDir = sessionDirectory
-            storedShellPid = shellPid
-            startRetryPolling()
-            watchDirectoryForNewFiles(projectDir)
-            return
+        } else if let newestPath = SessionStatusViewModel.findNewestJsonl(in: projectDir) {
+            // Process lookup failed (or no shellPid) — use most recently modified transcript
+            path = newestPath
         } else {
+            // No transcripts found — poll until one appears
+            if shellPid > 0 {
+                stopTranscriptWatching()
+                watchedSessionDir = sessionDirectory
+                storedShellPid = shellPid
+                startRetryPolling()
+                watchDirectoryForNewFiles(projectDir)
+            }
             return
         }
 
@@ -128,17 +131,20 @@ final class FileLogViewModel {
         guard let dir = watchedSessionDir else { return }
         let projectDir = SessionStatusViewModel.projectDirectory(for: dir)
 
-        if storedShellPid > 0 {
-            if let processPath = SessionStatusViewModel.findTranscriptByProcess(
-                shellPid: storedShellPid, projectDir: projectDir
-            ) {
-                guard processPath != watchedPath else {
-                    stopRetryPolling()
-                    return
-                }
-                startWatching(sessionDirectory: dir, shellPid: storedShellPid)
-            }
+        let newest: String?
+        if storedShellPid > 0,
+           let processPath = SessionStatusViewModel.findTranscriptByProcess(
+               shellPid: storedShellPid, projectDir: projectDir
+           ) {
+            newest = processPath
+            stopRetryPolling()
+        } else {
+            newest = SessionStatusViewModel.findNewestJsonl(in: projectDir)
+            if newest == nil { return }
         }
+
+        guard let newest, newest != watchedPath else { return }
+        startWatching(sessionDirectory: dir, shellPid: storedShellPid)
     }
 
     // MARK: - Git Watching
