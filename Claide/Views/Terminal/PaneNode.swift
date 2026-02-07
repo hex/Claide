@@ -1,5 +1,5 @@
-// ABOUTME: Binary tree representing a split-pane layout within a single tab.
-// ABOUTME: Leaves hold pane IDs; branches define split orientation.
+// ABOUTME: N-ary tree representing a split-pane layout within a single tab.
+// ABOUTME: Leaves hold pane IDs; branches define split orientation with N children.
 
 import Foundation
 
@@ -12,11 +12,12 @@ enum SplitAxis: Equatable {
 /// Pane identifier within a tab's split layout.
 typealias PaneID = UUID
 
-/// Binary tree node for a split-pane terminal layout.
-/// Leaves are terminal panes; internal nodes are splits.
+/// N-ary tree node for a split-pane terminal layout.
+/// Leaves are terminal panes; internal nodes are splits with N >= 2 children.
+/// Same-axis splits add siblings (equal distribution); cross-axis splits nest.
 indirect enum PaneNode {
     case terminal(id: PaneID)
-    case split(axis: SplitAxis, first: PaneNode, second: PaneNode)
+    case split(axis: SplitAxis, children: [PaneNode])
 
     // MARK: - Queries
 
@@ -25,8 +26,8 @@ indirect enum PaneNode {
         switch self {
         case .terminal(let id):
             return [id]
-        case .split(_, let first, let second):
-            return first.allPaneIDs + second.allPaneIDs
+        case .split(_, let children):
+            return children.flatMap { $0.allPaneIDs }
         }
     }
 
@@ -35,8 +36,8 @@ indirect enum PaneNode {
         switch self {
         case .terminal:
             return 1
-        case .split(_, let first, let second):
-            return first.paneCount + second.paneCount
+        case .split(_, let children):
+            return children.reduce(0) { $0 + $1.paneCount }
         }
     }
 
@@ -50,51 +51,46 @@ indirect enum PaneNode {
         switch self {
         case .terminal(let paneID):
             return paneID == id ? paneID : nil
-        case .split(_, let first, let second):
-            return first.find(id: id) ?? second.find(id: id)
+        case .split(_, let children):
+            return children.lazy.compactMap { $0.find(id: id) }.first
         }
     }
 
-    /// Find the first leaf ID of the sibling subtree for the given pane.
+    /// Find the first leaf ID of an adjacent sibling for the given pane.
     /// Returns nil if the pane is the root (no sibling).
     func siblingPaneID(of targetID: PaneID) -> PaneID? {
         switch self {
         case .terminal:
             return nil
-        case .split(_, let first, let second):
-            // Direct children: return the other side's first leaf
-            if first.contains(id: targetID) && second.contains(id: targetID) {
-                // Target is deeper — can't determine sibling at this level
+        case .split(_, let children):
+            guard let index = children.firstIndex(where: { $0.contains(id: targetID) }) else {
                 return nil
             }
-            if case .terminal(let id) = first, id == targetID {
-                return second.allPaneIDs.first
+
+            let child = children[index]
+
+            // Target is a direct child terminal — return adjacent child's first leaf
+            if case .terminal(let id) = child, id == targetID {
+                let siblingIndex = index + 1 < children.count ? index + 1 : index - 1
+                guard siblingIndex >= 0 else { return nil }
+                return children[siblingIndex].allPaneIDs.first
             }
-            if case .terminal(let id) = second, id == targetID {
-                return first.allPaneIDs.first
+
+            // Target is deeper — try resolving within the child subtree first
+            if let innerSibling = child.siblingPaneID(of: targetID) {
+                return innerSibling
             }
-            // Target is in one of the subtrees
-            if first.contains(id: targetID) {
-                // Check if the first subtree can resolve it internally
-                if let innerSibling = first.siblingPaneID(of: targetID) {
-                    return innerSibling
-                }
-                // Otherwise the sibling is the second subtree's first leaf
-                return second.allPaneIDs.first
-            }
-            if second.contains(id: targetID) {
-                if let innerSibling = second.siblingPaneID(of: targetID) {
-                    return innerSibling
-                }
-                return first.allPaneIDs.first
-            }
-            return nil
+            // Fall back to adjacent child's first leaf
+            let siblingIndex = index + 1 < children.count ? index + 1 : index - 1
+            guard siblingIndex >= 0 else { return nil }
+            return children[siblingIndex].allPaneIDs.first
         }
     }
 
     // MARK: - Mutations (return new tree)
 
     /// Split the pane with the given ID, creating a new sibling.
+    /// Same-axis splits add a sibling to the parent; cross-axis splits nest.
     /// Returns the updated tree and the new pane's ID, or nil if the target was not found.
     func splitting(_ targetID: PaneID, axis: SplitAxis) -> (tree: PaneNode, newID: PaneID)? {
         switch self {
@@ -102,22 +98,33 @@ indirect enum PaneNode {
             let newID = PaneID()
             let splitNode = PaneNode.split(
                 axis: axis,
-                first: self,
-                second: .terminal(id: newID)
+                children: [self, .terminal(id: newID)]
             )
             return (splitNode, newID)
 
         case .terminal:
             return nil
 
-        case .split(let ax, let first, let second):
-            if let result = first.splitting(targetID, axis: axis) {
-                return (.split(axis: ax, first: result.tree, second: second), result.newID)
+        case .split(let ax, let children):
+            guard let index = children.firstIndex(where: { $0.contains(id: targetID) }) else {
+                return nil
             }
-            if let result = second.splitting(targetID, axis: axis) {
-                return (.split(axis: ax, first: first, second: result.tree), result.newID)
+
+            // Direct child terminal with same axis → add sibling to this split
+            if case .terminal(let id) = children[index], id == targetID, ax == axis {
+                let newID = PaneID()
+                var newChildren = children
+                newChildren.insert(.terminal(id: newID), at: index + 1)
+                return (.split(axis: ax, children: newChildren), newID)
             }
-            return nil
+
+            // Different axis or deeper target → recurse into the child
+            guard let result = children[index].splitting(targetID, axis: axis) else {
+                return nil
+            }
+            var newChildren = children
+            newChildren[index] = result.tree
+            return (.split(axis: ax, children: newChildren), result.newID)
         }
     }
 
@@ -128,36 +135,29 @@ indirect enum PaneNode {
         case .terminal(let id):
             return id == targetID ? nil : self
 
-        case .split(_, let first, let second):
-            // Direct child is the target: return the sibling
-            if case .terminal(let id) = first, id == targetID {
-                return second
+        case .split(let ax, let children):
+            guard let index = children.firstIndex(where: { $0.contains(id: targetID) }) else {
+                return self
             }
-            if case .terminal(let id) = second, id == targetID {
-                return first
-            }
-            // Recurse into whichever subtree contains the target
-            if first.contains(id: targetID) {
-                guard let newFirst = first.closing(targetID) else {
-                    return second
-                }
-                return .split(axis: axis, first: newFirst, second: second)
-            }
-            if second.contains(id: targetID) {
-                guard let newSecond = second.closing(targetID) else {
-                    return first
-                }
-                return .split(axis: axis, first: first, second: newSecond)
-            }
-            return self
-        }
-    }
 
-    /// The axis of this node (only valid for split nodes).
-    private var axis: SplitAxis {
-        guard case .split(let ax, _, _) = self else {
-            fatalError("axis called on terminal node")
+            // Direct child terminal — remove from children
+            if case .terminal(let id) = children[index], id == targetID {
+                var newChildren = children
+                newChildren.remove(at: index)
+                return newChildren.count == 1 ? newChildren[0] : .split(axis: ax, children: newChildren)
+            }
+
+            // Recurse into subtree
+            if let newChild = children[index].closing(targetID) {
+                var newChildren = children
+                newChildren[index] = newChild
+                return .split(axis: ax, children: newChildren)
+            } else {
+                // Child subtree fully collapsed
+                var newChildren = children
+                newChildren.remove(at: index)
+                return newChildren.count == 1 ? newChildren[0] : .split(axis: ax, children: newChildren)
+            }
         }
-        return ax
     }
 }

@@ -39,7 +39,7 @@ struct PaneContainerViewTests {
         let container = PaneContainerView()
         let a = PaneID(), b = PaneID()
         let viewA = testView(), viewB = testView()
-        let tree = PaneNode.split(axis: .horizontal, first: .terminal(id: a), second: .terminal(id: b))
+        let tree = PaneNode.split(axis: .horizontal, children: [.terminal(id: a), .terminal(id: b)])
 
         container.applyTree(tree) { paneID in
             paneID == a ? viewA : viewB
@@ -57,7 +57,7 @@ struct PaneContainerViewTests {
     func verticalSplit() {
         let container = PaneContainerView()
         let a = PaneID(), b = PaneID()
-        let tree = PaneNode.split(axis: .vertical, first: .terminal(id: a), second: .terminal(id: b))
+        let tree = PaneNode.split(axis: .vertical, children: [.terminal(id: a), .terminal(id: b)])
 
         container.applyTree(tree) { _ in testView() }
 
@@ -65,6 +65,25 @@ struct PaneContainerViewTests {
         #expect(splitView != nil)
         // vertical axis = panes stacked = horizontal divider
         #expect(splitView?.isVertical == false)
+    }
+
+    // MARK: - N-ary Split
+
+    @Test("n-ary split creates NSSplitView with N children")
+    func nArySplit() {
+        let container = PaneContainerView()
+        let ids = (0..<4).map { _ in PaneID() }
+        var views: [PaneID: NSView] = [:]
+        for id in ids { views[id] = testView() }
+
+        let tree = PaneNode.split(axis: .horizontal, children: ids.map { .terminal(id: $0) })
+
+        container.applyTree(tree) { views[$0] }
+
+        #expect(container.subviews.count == 1)
+        let splitView = container.subviews.first as? NSSplitView
+        #expect(splitView != nil)
+        #expect(splitView?.arrangedSubviews.count == 4)
     }
 
     // MARK: - Nested Split
@@ -78,9 +97,9 @@ struct PaneContainerViewTests {
         views[b] = testView()
         views[c] = testView()
 
-        // Tree: split(horizontal, a, split(vertical, b, c))
-        let inner = PaneNode.split(axis: .vertical, first: .terminal(id: b), second: .terminal(id: c))
-        let tree = PaneNode.split(axis: .horizontal, first: .terminal(id: a), second: inner)
+        // Tree: split(horizontal, [a, split(vertical, [b, c])])
+        let inner = PaneNode.split(axis: .vertical, children: [.terminal(id: b), .terminal(id: c)])
+        let tree = PaneNode.split(axis: .horizontal, children: [.terminal(id: a), inner])
 
         container.applyTree(tree) { views[$0] }
 
@@ -113,7 +132,7 @@ struct PaneContainerViewTests {
         // Split it
         let b = PaneID()
         let viewB = testView()
-        let tree = PaneNode.split(axis: .horizontal, first: .terminal(id: a), second: .terminal(id: b))
+        let tree = PaneNode.split(axis: .horizontal, children: [.terminal(id: a), .terminal(id: b)])
 
         container.applyTree(tree) { paneID in
             paneID == a ? viewA : viewB
@@ -130,7 +149,7 @@ struct PaneContainerViewTests {
         let container = PaneContainerView()
         let a = PaneID(), b = PaneID()
         let viewA = testView(), viewB = testView()
-        let tree = PaneNode.split(axis: .horizontal, first: .terminal(id: a), second: .terminal(id: b))
+        let tree = PaneNode.split(axis: .horizontal, children: [.terminal(id: a), .terminal(id: b)])
 
         container.applyTree(tree) { paneID in
             paneID == a ? viewA : viewB

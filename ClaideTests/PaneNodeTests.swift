@@ -1,4 +1,4 @@
-// ABOUTME: Tests for PaneNode binary tree operations.
+// ABOUTME: Tests for PaneNode n-ary tree operations.
 // ABOUTME: Verifies find, split, close, sibling lookup, and tree traversal.
 
 import Testing
@@ -48,7 +48,7 @@ struct PaneNodeTests {
     @Test("split tree lists all leaves in order")
     func splitTreeAllPaneIDs() {
         let a = UUID(), b = UUID()
-        let tree = PaneNode.split(axis: .horizontal, first: leaf(a), second: leaf(b))
+        let tree = PaneNode.split(axis: .horizontal, children: [leaf(a), leaf(b)])
 
         #expect(tree.allPaneIDs == [a, b])
     }
@@ -56,18 +56,25 @@ struct PaneNodeTests {
     @Test("nested split tree lists leaves depth-first")
     func nestedSplitAllPaneIDs() {
         let a = UUID(), b = UUID(), c = UUID()
-        // Tree:  split(horizontal, a, split(vertical, b, c))
-        let inner = PaneNode.split(axis: .vertical, first: leaf(b), second: leaf(c))
-        let tree = PaneNode.split(axis: .horizontal, first: leaf(a), second: inner)
+        let inner = PaneNode.split(axis: .vertical, children: [leaf(b), leaf(c)])
+        let tree = PaneNode.split(axis: .horizontal, children: [leaf(a), inner])
 
         #expect(tree.allPaneIDs == [a, b, c])
+    }
+
+    @Test("n-ary split lists all children in order")
+    func nArySplitAllPaneIDs() {
+        let a = UUID(), b = UUID(), c = UUID(), d = UUID()
+        let tree = PaneNode.split(axis: .horizontal, children: [leaf(a), leaf(b), leaf(c), leaf(d)])
+
+        #expect(tree.allPaneIDs == [a, b, c, d])
     }
 
     @Test("find locates pane in nested tree")
     func nestedFind() {
         let a = UUID(), b = UUID(), c = UUID()
-        let inner = PaneNode.split(axis: .vertical, first: leaf(b), second: leaf(c))
-        let tree = PaneNode.split(axis: .horizontal, first: leaf(a), second: inner)
+        let inner = PaneNode.split(axis: .vertical, children: [leaf(b), leaf(c)])
+        let tree = PaneNode.split(axis: .horizontal, children: [leaf(a), inner])
 
         #expect(tree.find(id: a) != nil)
         #expect(tree.find(id: b) != nil)
@@ -88,35 +95,94 @@ struct PaneNodeTests {
         }
 
         // Root should be a split now
-        guard case .split(let axis, _, _) = newTree else {
+        guard case .split(let axis, let children) = newTree else {
             Issue.record("expected split node")
             return
         }
         #expect(axis == .horizontal)
+        #expect(children.count == 2)
 
         // Both original and new should be in the tree
         let ids = newTree.allPaneIDs
         #expect(ids.count == 2)
-        #expect(ids.contains(original))
-        #expect(ids.contains(newID))
-        // Original comes first
         #expect(ids[0] == original)
         #expect(ids[1] == newID)
     }
 
-    @Test("splitting a pane in a nested tree only affects the target")
-    func splitNested() {
+    @Test("same-axis split adds sibling to existing split")
+    func sameAxisSplitAddsSibling() {
         let a = UUID(), b = UUID()
-        let tree = PaneNode.split(axis: .horizontal, first: leaf(a), second: leaf(b))
+        let tree = PaneNode.split(axis: .horizontal, children: [leaf(a), leaf(b)])
+
+        guard let (newTree, newID) = tree.splitting(a, axis: .horizontal) else {
+            Issue.record("splitting returned nil")
+            return
+        }
+
+        // Should still be a single-level split with 3 children
+        guard case .split(let axis, let children) = newTree else {
+            Issue.record("expected split node")
+            return
+        }
+        #expect(axis == .horizontal)
+        #expect(children.count == 3)
+
+        let ids = newTree.allPaneIDs
+        #expect(ids == [a, newID, b])
+    }
+
+    @Test("repeated same-axis splits produce flat n-ary tree")
+    func repeatedSameAxisSplitsProduceFlatTree() {
+        let a = UUID()
+        var tree = PaneNode.terminal(id: a)
+        var allIDs = [a]
+
+        // Split 4 more times along the same axis
+        for _ in 0..<4 {
+            guard let (newTree, newID) = tree.splitting(allIDs.last!, axis: .horizontal) else {
+                Issue.record("splitting returned nil")
+                return
+            }
+            tree = newTree
+            allIDs.append(newID)
+        }
+
+        // Should be split(horizontal, [a, b, c, d, e]) — flat, not nested
+        guard case .split(let axis, let children) = tree else {
+            Issue.record("expected split node")
+            return
+        }
+        #expect(axis == .horizontal)
+        #expect(children.count == 5)
+        #expect(tree.allPaneIDs == allIDs)
+    }
+
+    @Test("different-axis split nests within parent split")
+    func differentAxisSplitNests() {
+        let a = UUID(), b = UUID()
+        let tree = PaneNode.split(axis: .horizontal, children: [leaf(a), leaf(b)])
 
         guard let (newTree, newID) = tree.splitting(b, axis: .vertical) else {
             Issue.record("splitting returned nil")
             return
         }
 
-        let ids = newTree.allPaneIDs
-        #expect(ids.count == 3)
-        #expect(ids == [a, b, newID])
+        // Root should still be horizontal with 2 children
+        guard case .split(let axis, let children) = newTree else {
+            Issue.record("expected split node")
+            return
+        }
+        #expect(axis == .horizontal)
+        #expect(children.count == 2)
+
+        // Second child should now be a vertical split containing b and newID
+        guard case .split(let innerAxis, let innerChildren) = children[1] else {
+            Issue.record("expected nested split")
+            return
+        }
+        #expect(innerAxis == .vertical)
+        #expect(innerChildren.count == 2)
+        #expect(newTree.allPaneIDs == [a, b, newID])
     }
 
     @Test("splitting non-existent ID returns nil")
@@ -135,10 +201,10 @@ struct PaneNodeTests {
         #expect(tree.closing(id) == nil)
     }
 
-    @Test("closing one side of a split returns the other side")
+    @Test("closing one side of a two-child split unwraps to the remaining child")
     func closeOneSideReturnsSibling() {
         let a = UUID(), b = UUID()
-        let tree = PaneNode.split(axis: .horizontal, first: leaf(a), second: leaf(b))
+        let tree = PaneNode.split(axis: .horizontal, children: [leaf(a), leaf(b)])
 
         guard let result = tree.closing(a) else {
             Issue.record("closing returned nil")
@@ -146,15 +212,37 @@ struct PaneNodeTests {
         }
 
         #expect(result.allPaneIDs == [b])
+        // Should unwrap to a terminal, not a split with 1 child
+        if case .terminal = result {} else {
+            Issue.record("expected terminal node after closing to 1 child")
+        }
+    }
+
+    @Test("closing one child from a three-child split leaves two-child split")
+    func closeFromThreeChildSplit() {
+        let a = UUID(), b = UUID(), c = UUID()
+        let tree = PaneNode.split(axis: .horizontal, children: [leaf(a), leaf(b), leaf(c)])
+
+        guard let result = tree.closing(b) else {
+            Issue.record("closing returned nil")
+            return
+        }
+
+        #expect(result.allPaneIDs == [a, c])
+        guard case .split(_, let children) = result else {
+            Issue.record("expected split node")
+            return
+        }
+        #expect(children.count == 2)
     }
 
     @Test("closing in a nested tree collapses the parent split")
     func closeNestedCollapses() {
         let a = UUID(), b = UUID(), c = UUID()
-        let inner = PaneNode.split(axis: .vertical, first: leaf(b), second: leaf(c))
-        let tree = PaneNode.split(axis: .horizontal, first: leaf(a), second: inner)
+        let inner = PaneNode.split(axis: .vertical, children: [leaf(b), leaf(c)])
+        let tree = PaneNode.split(axis: .horizontal, children: [leaf(a), inner])
 
-        // Close b: inner collapses to just c, tree becomes split(a, c)
+        // Close b: inner collapses to just c, tree becomes split(horizontal, [a, c])
         guard let result = tree.closing(b) else {
             Issue.record("closing returned nil")
             return
@@ -166,7 +254,7 @@ struct PaneNodeTests {
     @Test("closing non-existent ID returns the tree unchanged")
     func closeNonExistentReturnsUnchanged() {
         let a = UUID(), b = UUID()
-        let tree = PaneNode.split(axis: .horizontal, first: leaf(a), second: leaf(b))
+        let tree = PaneNode.split(axis: .horizontal, children: [leaf(a), leaf(b)])
 
         guard let result = tree.closing(UUID()) else {
             Issue.record("closing returned nil unexpectedly")
@@ -181,17 +269,30 @@ struct PaneNodeTests {
     @Test("sibling of a pane in a two-pane split is the other pane")
     func siblingInSimpleSplit() {
         let a = UUID(), b = UUID()
-        let tree = PaneNode.split(axis: .horizontal, first: leaf(a), second: leaf(b))
+        let tree = PaneNode.split(axis: .horizontal, children: [leaf(a), leaf(b)])
 
         #expect(tree.siblingPaneID(of: a) == b)
         #expect(tree.siblingPaneID(of: b) == a)
     }
 
+    @Test("sibling in n-ary split returns adjacent child")
+    func siblingInNArySplit() {
+        let a = UUID(), b = UUID(), c = UUID()
+        let tree = PaneNode.split(axis: .horizontal, children: [leaf(a), leaf(b), leaf(c)])
+
+        // Next sibling of a is b
+        #expect(tree.siblingPaneID(of: a) == b)
+        // Next sibling of b is c
+        #expect(tree.siblingPaneID(of: b) == c)
+        // c is last — sibling is previous (b)
+        #expect(tree.siblingPaneID(of: c) == b)
+    }
+
     @Test("sibling of a pane in a nested split returns first leaf of sibling subtree")
     func siblingInNestedSplit() {
         let a = UUID(), b = UUID(), c = UUID()
-        let inner = PaneNode.split(axis: .vertical, first: leaf(b), second: leaf(c))
-        let tree = PaneNode.split(axis: .horizontal, first: leaf(a), second: inner)
+        let inner = PaneNode.split(axis: .vertical, children: [leaf(b), leaf(c)])
+        let tree = PaneNode.split(axis: .horizontal, children: [leaf(a), inner])
 
         // Sibling of a is the inner split's first leaf (b)
         #expect(tree.siblingPaneID(of: a) == b)
@@ -214,11 +315,14 @@ struct PaneNodeTests {
         let a = UUID(), b = UUID(), c = UUID()
         #expect(leaf(a).paneCount == 1)
 
-        let two = PaneNode.split(axis: .horizontal, first: leaf(a), second: leaf(b))
+        let two = PaneNode.split(axis: .horizontal, children: [leaf(a), leaf(b)])
         #expect(two.paneCount == 2)
 
-        let inner = PaneNode.split(axis: .vertical, first: leaf(b), second: leaf(c))
-        let three = PaneNode.split(axis: .horizontal, first: leaf(a), second: inner)
+        let inner = PaneNode.split(axis: .vertical, children: [leaf(b), leaf(c)])
+        let three = PaneNode.split(axis: .horizontal, children: [leaf(a), inner])
         #expect(three.paneCount == 3)
+
+        let four = PaneNode.split(axis: .horizontal, children: [leaf(a), leaf(b), leaf(c), leaf(UUID())])
+        #expect(four.paneCount == 4)
     }
 }
