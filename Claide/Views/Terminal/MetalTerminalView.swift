@@ -95,6 +95,9 @@ final class MetalTerminalView: NSView, CALayerDelegate {
     /// Accumulated fractional scroll delta for smooth trackpad scrolling.
     private var scrollAccumulator: CGFloat = 0
 
+    /// Search bar for find-in-buffer (Cmd+F).
+    private var searchBar: TerminalSearchBar?
+
     /// IME marked text state (for NSTextInputClient).
     private var markedTextStorage = NSMutableAttributedString()
     private var markedRangeStorage = NSRange(location: NSNotFound, length: 0)
@@ -331,6 +334,7 @@ final class MetalTerminalView: NSView, CALayerDelegate {
 
     override func setFrameSize(_ newSize: NSSize) {
         super.setFrameSize(newSize)
+        layoutSearchBar()
 
         let scale = metalLayer?.contentsScale ?? 2.0
         metalLayer?.drawableSize = CGSize(
@@ -468,6 +472,16 @@ final class MetalTerminalView: NSView, CALayerDelegate {
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         guard let chars = event.charactersIgnoringModifiers else {
             return super.performKeyEquivalent(with: event)
+        }
+
+        // Cmd+F: toggle search bar
+        if flags == .command && chars == "f" {
+            if searchBar?.isHidden == false {
+                hideSearchBar()
+            } else {
+                showSearchBar()
+            }
+            return true
         }
 
         // Cmd+key: font size adjustment.
@@ -705,6 +719,63 @@ final class MetalTerminalView: NSView, CALayerDelegate {
         menu.addItem(clearSelItem)
 
         return menu
+    }
+
+    // MARK: - Search
+
+    /// Show the search bar and focus it.
+    func showSearchBar() {
+        if searchBar == nil {
+            let bar = TerminalSearchBar(frame: .zero)
+            bar.onQuery = { [weak self] query in
+                guard let self, let bridge else { return }
+                if query.isEmpty {
+                    bridge.searchClear()
+                } else {
+                    _ = bridge.searchSet(query: query)
+                }
+                self.needsRedraw = true
+            }
+            bar.onNext = { [weak self] in
+                guard let self, let bridge else { return }
+                _ = bridge.searchAdvance(forward: true)
+                self.needsRedraw = true
+            }
+            bar.onPrevious = { [weak self] in
+                guard let self, let bridge else { return }
+                _ = bridge.searchAdvance(forward: false)
+                self.needsRedraw = true
+            }
+            bar.onDismiss = { [weak self] in
+                self?.hideSearchBar()
+            }
+            addSubview(bar)
+            searchBar = bar
+        }
+        searchBar?.isHidden = false
+        layoutSearchBar()
+        window?.makeFirstResponder(searchBar?.searchField)
+    }
+
+    /// Hide the search bar and clear search state.
+    func hideSearchBar() {
+        searchBar?.isHidden = true
+        searchBar?.clear()
+        bridge?.searchClear()
+        needsRedraw = true
+        window?.makeFirstResponder(self)
+    }
+
+    private func layoutSearchBar() {
+        guard let bar = searchBar, !bar.isHidden else { return }
+        let barHeight: CGFloat = 32
+        let margin: CGFloat = 8
+        bar.frame = NSRect(
+            x: bounds.width - 310 - margin,
+            y: bounds.height - barHeight - margin,
+            width: 310,
+            height: barHeight
+        )
     }
 
     // MARK: - Focus

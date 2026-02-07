@@ -5,6 +5,7 @@ use alacritty_terminal::grid::Dimensions;
 use alacritty_terminal::index::{Column, Line, Point};
 use alacritty_terminal::term::cell::{Cell, Flags};
 use alacritty_terminal::term::color::Colors;
+use alacritty_terminal::term::search::Match;
 use alacritty_terminal::term::Term;
 use alacritty_terminal::vte::ansi::{Color, NamedColor, Rgb};
 
@@ -162,7 +163,7 @@ fn map_flags(flags: Flags) -> u16 {
 /// Take a snapshot of the visible terminal grid.
 ///
 /// The caller must free the returned snapshot with `snapshot_free`.
-pub fn take_snapshot(term: &Term<Listener>, palette: &ColorPalette) -> ClaideGridSnapshot {
+pub fn take_snapshot(term: &Term<Listener>, palette: &ColorPalette, search_match: Option<&Match>) -> ClaideGridSnapshot {
     let grid = term.grid();
     let rows = grid.screen_lines();
     let cols = grid.columns();
@@ -212,6 +213,14 @@ pub fn take_snapshot(term: &Term<Listener>, palette: &ColorPalette) -> ClaideGri
                 let point = Point::new(line, Column(col_idx));
                 if range.contains(point) {
                     cell_flags |= 0x200;
+                }
+            }
+
+            // Mark search match cells with bit 0x400
+            if let Some(m) = search_match {
+                let point = Point::new(line, Column(col_idx));
+                if point >= *m.start() && point <= *m.end() {
+                    cell_flags |= 0x400;
                 }
             }
 

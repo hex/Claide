@@ -8,9 +8,10 @@ use std::sync::Arc;
 use std::thread::JoinHandle;
 
 use alacritty_terminal::grid::{Dimensions, Scroll};
-use alacritty_terminal::index::{Column, Line, Point, Side};
+use alacritty_terminal::index::{Column, Direction, Line, Point, Side};
 use alacritty_terminal::selection::{Selection, SelectionType};
 use alacritty_terminal::sync::FairMutex;
+use alacritty_terminal::term::search::{Match, RegexSearch};
 use alacritty_terminal::term::{Config, Term};
 use alacritty_terminal::vte::ansi::Rgb;
 
@@ -65,6 +66,12 @@ pub struct ClaideColorPalette {
     pub bg_b: u8,
 }
 
+/// Search state for terminal find-in-buffer.
+struct SearchState {
+    regex: Option<RegexSearch>,
+    current_match: Option<Match>,
+}
+
 /// Opaque handle owning all terminal state.
 pub struct TerminalHandle {
     term: Arc<FairMutex<Term<Listener>>>,
@@ -73,6 +80,7 @@ pub struct TerminalHandle {
     reader_thread: Option<JoinHandle<()>>,
     shutdown: Arc<AtomicBool>,
     palette: FairMutex<ColorPalette>,
+    search: FairMutex<SearchState>,
 }
 
 impl TerminalHandle {
@@ -198,6 +206,10 @@ impl TerminalHandle {
             reader_thread: Some(reader_thread),
             shutdown,
             palette: FairMutex::new(ColorPalette::default()),
+            search: FairMutex::new(SearchState {
+                regex: None,
+                current_match: None,
+            }),
         })
     }
 
@@ -269,7 +281,8 @@ impl TerminalHandle {
     pub fn snapshot(&self) -> Box<ClaideGridSnapshot> {
         let term = self.term.lock();
         let palette = self.palette.lock();
-        Box::new(grid_snapshot::take_snapshot(&term, &palette))
+        let search = self.search.lock();
+        Box::new(grid_snapshot::take_snapshot(&term, &palette, search.current_match.as_ref()))
     }
 
     /// Get the shell process ID.
@@ -310,6 +323,98 @@ impl TerminalHandle {
     pub fn scroll(&self, delta: i32) {
         let mut term = self.term.lock();
         term.scroll_display(Scroll::Delta(delta));
+    }
+
+    // MARK: - Search
+
+    /// Compile a search regex and find the first match forward from the cursor.
+    /// Returns true if a match was found.
+    pub fn search_set(&self, query: &str) -> bool {
+        let mut regex = match RegexSearch::new(query) {
+            Ok(r) => r,
+            Err(_) => {
+                self.search_clear();
+                return false;
+            }
+        };
+
+        let mut term = self.term.lock();
+        let origin = term.grid().cursor.point;
+        let found = term.search_next(&mut regex, origin, Direction::Right, Side::Left, None);
+
+        if let Some(ref m) = found {
+            Self::scroll_to_match(&mut term, m);
+        }
+
+        let mut search = self.search.lock();
+        search.current_match = found;
+        search.regex = Some(regex);
+
+        search.current_match.is_some()
+    }
+
+    /// Navigate to the next or previous match.
+    /// Returns true if a match was found.
+    pub fn search_advance(&self, forward: bool) -> bool {
+        let mut search = self.search.lock();
+
+        // Destructure to allow borrowing regex and current_match independently
+        let SearchState { regex, current_match } = &mut *search;
+        let regex = match regex.as_mut() {
+            Some(r) => r,
+            None => return false,
+        };
+        let current = match current_match.as_ref() {
+            Some(m) => m.clone(),
+            None => return false,
+        };
+
+        let mut term = self.term.lock();
+
+        let (origin, direction) = if forward {
+            (*current.end(), Direction::Right)
+        } else {
+            (*current.start(), Direction::Left)
+        };
+
+        let found = term.search_next(regex, origin, direction, Side::Left, None);
+
+        if let Some(ref m) = found {
+            Self::scroll_to_match(&mut term, m);
+        }
+
+        *current_match = found;
+        current_match.is_some()
+    }
+
+    /// Clear search state and remove highlights.
+    pub fn search_clear(&self) {
+        let mut search = self.search.lock();
+        search.regex = None;
+        search.current_match = None;
+    }
+
+    /// Scroll the viewport so the match is visible, centering it if needed.
+    fn scroll_to_match(term: &mut Term<Listener>, m: &Match) {
+        let grid = term.grid();
+        let display_offset = grid.display_offset() as i32;
+        let screen_lines = grid.screen_lines() as i32;
+        let match_line = m.start().line.0;
+
+        // Visible line range: top = -display_offset, bottom = top + screen_lines - 1
+        let top_visible = -display_offset;
+        let bottom_visible = top_visible + screen_lines - 1;
+
+        if match_line >= top_visible && match_line <= bottom_visible {
+            return; // Already visible
+        }
+
+        // Scroll so the match line is roughly centered
+        let target_offset = (-match_line + screen_lines / 2).max(0);
+        let delta = target_offset - display_offset;
+        if delta != 0 {
+            term.scroll_display(Scroll::Delta(delta));
+        }
     }
 }
 
