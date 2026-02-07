@@ -246,6 +246,7 @@ final class MetalTerminalView: NSView, CALayerDelegate {
     // MARK: - Cursor Blink
 
     private func startCursorBlink() {
+        guard cursorBlinkTimer == nil else { return }
         cursorBlinkOn = true
         cursorBlinkTimer = Timer.scheduledTimer(withTimeInterval: 0.53, repeats: true) { [weak self] _ in
             self?.cursorBlinkOn.toggle()
@@ -392,7 +393,16 @@ final class MetalTerminalView: NSView, CALayerDelegate {
     override var acceptsFirstResponder: Bool { true }
 
     override func becomeFirstResponder() -> Bool {
-        true
+        if cursorBlinking { startCursorBlink() }
+        needsRedraw = true
+        return true
+    }
+
+    override func resignFirstResponder() -> Bool {
+        stopCursorBlink()
+        cursorBlinkOn = true
+        needsRedraw = true
+        return true
     }
 
     override func keyDown(with event: NSEvent) {
