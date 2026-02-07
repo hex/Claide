@@ -83,6 +83,7 @@ final class PaneTreeController {
     func focusPane(_ paneID: PaneID) {
         guard paneTree.contains(id: paneID) else { return }
         activePaneID = paneID
+        containerView.setActivePaneID(activePaneID)
     }
 
     /// Toggle zoom: when zoomed, only the active pane fills the container.
@@ -101,6 +102,7 @@ final class PaneTreeController {
             return false
         }
         activePaneID = targetID
+        containerView.setActivePaneID(activePaneID)
         return true
     }
 
@@ -121,5 +123,6 @@ final class PaneTreeController {
         containerView.applyTree(displayTree) { [paneViews] id in
             paneViews[id]
         }
+        containerView.setActivePaneID(activePaneID)
     }
 }

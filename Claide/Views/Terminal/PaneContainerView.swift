@@ -52,6 +52,13 @@ final class PaneContainerView: NSView {
         titleBars[paneID]?.title = title
     }
 
+    /// Highlight the active pane's title bar and dim others.
+    func setActivePaneID(_ id: PaneID) {
+        for (paneID, titleBar) in titleBars {
+            titleBar.isActive = (paneID == id)
+        }
+    }
+
     // MARK: - Private
 
     private func buildView(
@@ -123,8 +130,13 @@ final class PaneTitleBar: NSView {
         didSet { titleField.stringValue = title }
     }
 
+    var isActive: Bool = false {
+        didSet { updateActiveAppearance() }
+    }
+
     private let titleField: NSTextField
     private let closeButton: NSButton
+    private let accentStripe = NSView()
     private let paneID: PaneID
     private let onClose: (PaneID) -> Void
 
@@ -197,12 +209,30 @@ final class PaneTitleBar: NSView {
         border.layer?.backgroundColor = NSColor(Theme.border).cgColor
         addSubview(border)
 
+        accentStripe.translatesAutoresizingMaskIntoConstraints = false
+        accentStripe.wantsLayer = true
+        accentStripe.layer?.backgroundColor = NSColor.controlAccentColor.cgColor
+        accentStripe.isHidden = true
+        addSubview(accentStripe)
+
         NSLayoutConstraint.activate([
             border.leadingAnchor.constraint(equalTo: leadingAnchor),
             border.trailingAnchor.constraint(equalTo: trailingAnchor),
             border.bottomAnchor.constraint(equalTo: bottomAnchor),
             border.heightAnchor.constraint(equalToConstant: Theme.borderWidth),
+
+            accentStripe.leadingAnchor.constraint(equalTo: leadingAnchor),
+            accentStripe.trailingAnchor.constraint(equalTo: trailingAnchor),
+            accentStripe.topAnchor.constraint(equalTo: topAnchor),
+            accentStripe.heightAnchor.constraint(equalToConstant: 2),
         ])
+    }
+
+    private func updateActiveAppearance() {
+        accentStripe.isHidden = !isActive
+        titleField.textColor = isActive
+            ? NSColor(Theme.textMuted).withAlphaComponent(1.0)
+            : NSColor(Theme.textMuted).withAlphaComponent(0.5)
     }
 
     override func mouseEntered(with event: NSEvent) {
