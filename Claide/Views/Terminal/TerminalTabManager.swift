@@ -99,6 +99,37 @@ final class TerminalTabManager {
         }
     }
 
+    /// Restore a tab from saved session state.
+    ///
+    /// Creates the full pane tree and starts a shell in each pane's saved directory.
+    func restoreTab(state: TabState) {
+        let environment = Self.buildEnvironment()
+
+        let controller = PaneTreeController(
+            restoredTree: state.paneTree,
+            activePaneID: state.activePaneID
+        ) { _ in
+            MetalTerminalView(frame: .zero)
+        }
+        controller.onPaneCloseRequested = { [weak self] paneID in
+            self?.closePane(paneID)
+        }
+
+        var viewModels: [PaneID: TerminalViewModel] = [:]
+        for paneID in state.paneTree.allPaneIDs {
+            guard let view = controller.paneView(for: paneID) as? MetalTerminalView else { continue }
+            let vm = TerminalViewModel()
+            viewModels[paneID] = vm
+
+            let dir = state.paneDirectories[paneID.uuidString] ?? NSHomeDirectory()
+            setupPane(paneID: paneID, controller: controller, view: view, viewModel: vm, directory: dir, environment: environment)
+        }
+
+        let tab = Tab(id: UUID(), paneController: controller, paneViewModels: viewModels)
+        tabs.append(tab)
+        activeTabID = tab.id
+    }
+
     func moveTab(from sourceIndex: Int, to destinationIndex: Int) {
         guard sourceIndex != destinationIndex,
               tabs.indices.contains(sourceIndex),

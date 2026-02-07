@@ -24,13 +24,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        createNewWindow()
+        if !restoreSession() {
+            createNewWindow()
+        }
 
         // SwiftUI builds the main menu asynchronously after launch.
         // Delay so our Terminal menu is appended after SwiftUI's menu is in place.
         DispatchQueue.main.async { self.installTerminalMenu() }
 
         installKeyMonitor()
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        saveSession()
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
@@ -74,6 +80,59 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         return controller
+    }
+
+    // MARK: - Session Persistence
+
+    private func saveSession() {
+        let windowStates = windowControllers.compactMap { controller -> WindowState? in
+            guard let window = controller.window else { return nil }
+            let tabStates = controller.tabManager.captureTabStates()
+            let activeIndex = controller.tabManager.tabs.firstIndex(where: {
+                $0.id == controller.tabManager.activeTabID
+            }) ?? 0
+            return WindowState(
+                frame: CodableRect(window.frame),
+                tabs: tabStates,
+                activeTabIndex: activeIndex
+            )
+        }
+        SessionPersistence.save(SessionState(windows: windowStates))
+    }
+
+    /// Restore windows from saved session state.
+    /// Returns true if at least one window was restored.
+    @discardableResult
+    private func restoreSession() -> Bool {
+        guard let state = SessionPersistence.load(), !state.windows.isEmpty else {
+            return false
+        }
+
+        for windowState in state.windows {
+            let tabManager = TerminalTabManager()
+            for tabState in windowState.tabs {
+                tabManager.restoreTab(state: tabState)
+            }
+            if windowState.activeTabIndex < tabManager.tabs.count {
+                tabManager.activeTabID = tabManager.tabs[windowState.activeTabIndex].id
+            }
+
+            let controller = MainWindowController(tabManager: tabManager)
+            windowControllers.append(controller)
+            controller.window?.setFrame(windowState.frame.cgRect, display: false)
+            controller.showWindow(nil)
+
+            if let window = controller.window {
+                NotificationCenter.default.addObserver(
+                    self,
+                    selector: #selector(windowDidClose(_:)),
+                    name: NSWindow.willCloseNotification,
+                    object: window
+                )
+            }
+        }
+
+        return true
     }
 
     // MARK: - Terminal Menu
