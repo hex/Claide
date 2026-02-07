@@ -101,7 +101,7 @@ final class TerminalTabManager {
 
     /// Restore a tab from saved session state.
     ///
-    /// Creates the full pane tree and starts a shell in each pane's saved directory.
+    /// Creates the full pane tree and starts a shell in each pane's saved directory and profile.
     func restoreTab(state: TabState) {
         let environment = Self.buildEnvironment()
 
@@ -122,7 +122,8 @@ final class TerminalTabManager {
             viewModels[paneID] = vm
 
             let dir = state.paneDirectories[paneID.uuidString] ?? NSHomeDirectory()
-            setupPane(paneID: paneID, controller: controller, view: view, viewModel: vm, directory: dir, environment: environment)
+            let profile = state.paneProfiles?[paneID.uuidString] ?? .default
+            setupPane(paneID: paneID, controller: controller, view: view, viewModel: vm, directory: dir, environment: environment, profile: profile)
         }
 
         let tab = Tab(id: UUID(), paneController: controller, paneViewModels: viewModels)
@@ -242,21 +243,24 @@ final class TerminalTabManager {
         view: MetalTerminalView,
         viewModel: TerminalViewModel,
         directory: String,
-        environment: [(String, String)]
+        environment: [(String, String)],
+        profile: TerminalProfile = .default
     ) {
-        let termSize = UserDefaults.standard.double(forKey: "terminalFontSize")
+        viewModel.profile = profile
+        let shell = profile.resolvedShell
+
         view.terminalFont = FontSelection.terminalFont(
-            family: lastFontFamily,
-            size: termSize > 0 ? termSize : 14
+            family: profile.resolvedFontFamily.isEmpty ? lastFontFamily : profile.resolvedFontFamily,
+            size: profile.resolvedFontSize
         )
 
         view.startShell(
-            executable: loginShell,
+            executable: shell,
             args: ["-l"],
             environment: environment,
             directory: directory
         )
-        viewModel.processStarted(executable: loginShell, args: ["-l"])
+        viewModel.processStarted(executable: shell, args: ["-l"])
 
         view.bridge?.onTitle = { [weak viewModel, weak controller] title in
             viewModel?.titleChanged(title)
@@ -280,15 +284,15 @@ final class TerminalTabManager {
             viewModel.startTrackingForeground(shellPid: shellPid)
         }
 
-        applyCursorStyle(to: view)
-        applyColorScheme(to: view)
+        applyCursorStyle(to: view, profile: profile)
+        applyColorScheme(to: view, profile: profile)
     }
 
     // MARK: - Cursor Style
 
-    func applyCursorStyle(to view: MetalTerminalView) {
-        let pref = UserDefaults.standard.string(forKey: "cursorStyle") ?? "bar"
-        let blink = UserDefaults.standard.object(forKey: "cursorBlink") as? Bool ?? true
+    func applyCursorStyle(to view: MetalTerminalView, profile: TerminalProfile = .default) {
+        let pref = profile.resolvedCursorStyle
+        let blink = profile.resolvedCursorBlink
 
         let shape: MetalTerminalView.CursorShape = switch pref {
         case "block": .block
@@ -301,24 +305,26 @@ final class TerminalTabManager {
 
     func applyCursorStyleToAll() {
         for tab in tabs {
-            for view in tab.allTerminalViews {
-                applyCursorStyle(to: view)
+            for (paneID, vm) in tab.paneViewModels {
+                guard let view = tab.paneController.paneView(for: paneID) as? MetalTerminalView else { continue }
+                applyCursorStyle(to: view, profile: vm.profile)
             }
         }
     }
 
     // MARK: - Color Scheme
 
-    func applyColorScheme(to view: MetalTerminalView) {
-        let schemeName = UserDefaults.standard.string(forKey: "terminalColorScheme") ?? "snazzy"
+    func applyColorScheme(to view: MetalTerminalView, profile: TerminalProfile = .default) {
+        let schemeName = profile.resolvedColorScheme
         let scheme = TerminalColorScheme.named(schemeName)
         view.applyColorScheme(scheme)
     }
 
     func applyColorSchemeToAll() {
         for tab in tabs {
-            for view in tab.allTerminalViews {
-                applyColorScheme(to: view)
+            for (paneID, vm) in tab.paneViewModels {
+                guard let view = tab.paneController.paneView(for: paneID) as? MetalTerminalView else { continue }
+                applyColorScheme(to: view, profile: vm.profile)
             }
         }
     }

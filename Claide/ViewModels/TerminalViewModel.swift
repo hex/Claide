@@ -63,6 +63,7 @@ final class TerminalViewModel {
     var customTitle: String?
     var tabColor: TabColor?
     var isRunning: Bool = false
+    var profile: TerminalProfile = .default
 
     var displayTitle: String {
         if let custom = customTitle, !custom.isEmpty { return custom }
