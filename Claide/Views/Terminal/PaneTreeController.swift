@@ -10,6 +10,15 @@ final class PaneTreeController {
     let containerView = PaneContainerView()
     nonisolated(unsafe) private(set) var activePaneID: PaneID
 
+    /// Called when a pane's close button is clicked. Set by the tab manager.
+    var onPaneCloseRequested: ((PaneID) -> Void)? {
+        didSet {
+            containerView.onClosePane = { [weak self] id in
+                self?.onPaneCloseRequested?(id)
+            }
+        }
+    }
+
     nonisolated(unsafe) private var paneViews: [PaneID: NSView] = [:]
     private let viewFactory: (PaneID) -> NSView
 
