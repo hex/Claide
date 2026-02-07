@@ -9,6 +9,26 @@ enum SplitAxis: Equatable {
     case vertical    // panes stacked (top / bottom), divider is horizontal
 }
 
+/// Directional focus movement between split panes.
+enum PaneDirection {
+    case left, right, up, down
+
+    var axis: SplitAxis {
+        switch self {
+        case .left, .right: return .horizontal
+        case .up, .down: return .vertical
+        }
+    }
+
+    /// -1 for left/up (toward first child), +1 for right/down (toward last child).
+    var offset: Int {
+        switch self {
+        case .left, .up: return -1
+        case .right, .down: return 1
+        }
+    }
+}
+
 /// Pane identifier within a tab's split layout.
 typealias PaneID = UUID
 
@@ -84,6 +104,42 @@ indirect enum PaneNode {
             let siblingIndex = index + 1 < children.count ? index + 1 : index - 1
             guard siblingIndex >= 0 else { return nil }
             return children[siblingIndex].allPaneIDs.first
+        }
+    }
+
+    /// Find the pane adjacent to the target in the given direction.
+    /// Returns nil if the target is at the boundary (e.g., leftmost pane going left).
+    func adjacentPaneID(of targetID: PaneID, direction: PaneDirection) -> PaneID? {
+        adjacentPaneID(of: targetID, axis: direction.axis, offset: direction.offset)
+    }
+
+    private func adjacentPaneID(of targetID: PaneID, axis: SplitAxis, offset: Int) -> PaneID? {
+        switch self {
+        case .terminal:
+            return nil
+
+        case .split(let ax, let children):
+            guard let index = children.firstIndex(where: { $0.contains(id: targetID) }) else {
+                return nil
+            }
+
+            if ax == axis {
+                // Try resolving within the child first (nested same-axis splits)
+                if let inner = children[index].adjacentPaneID(of: targetID, axis: axis, offset: offset) {
+                    return inner
+                }
+
+                // Move to adjacent sibling at this level
+                let newIndex = index + offset
+                guard newIndex >= 0, newIndex < children.count else { return nil }
+
+                // Pick the nearest leaf: going forward → first leaf, going backward → last leaf
+                let ids = children[newIndex].allPaneIDs
+                return offset > 0 ? ids.first : ids.last
+            }
+
+            // Wrong axis — recurse into the child that contains the target
+            return children[index].adjacentPaneID(of: targetID, axis: axis, offset: offset)
         }
     }
 
