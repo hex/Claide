@@ -162,7 +162,7 @@ private struct CmdKeyMonitor: NSViewRepresentable {
 }
 
 /// Title bar drag region. Allows window dragging and double-click to zoom.
-private struct WindowDragArea: NSViewRepresentable {
+struct WindowDragArea: NSViewRepresentable {
     func makeNSView(context: Context) -> DragAreaView { DragAreaView() }
     func updateNSView(_ nsView: DragAreaView, context: Context) {}
 

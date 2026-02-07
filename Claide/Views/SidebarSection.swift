@@ -29,6 +29,11 @@ struct SidebarSection: View {
             Spacer(minLength: 0)
         }
         .padding(.top, 28)
+        .overlay(alignment: .top) {
+            WindowDragArea()
+                .frame(height: 28)
+                .frame(maxWidth: .infinity)
+        }
         .background(Theme.backgroundPrimary)
         .onAppear {
             if BeadsService.findBinary() == nil && ClaudeTaskService.isAvailable {
