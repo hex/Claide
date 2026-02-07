@@ -280,6 +280,10 @@ final class TerminalTabManager {
             }
         }
 
+        view.onFocused = { [weak controller] in
+            controller?.focusPane(paneID)
+        }
+
         if let shellPid = view.bridge.map({ pid_t($0.shellPid) }), shellPid > 0 {
             viewModel.startTrackingForeground(shellPid: shellPid)
         }

@@ -44,6 +44,9 @@ final class MetalTerminalView: NSView, CALayerDelegate {
     /// Terminal bridge (set when startShell is called).
     private(set) var bridge: TerminalBridge?
 
+    /// Called when this view becomes the first responder (e.g. user clicked it).
+    var onFocused: (() -> Void)?
+
     /// Current font. Changing this re-rasterizes glyphs immediately for visual
     /// feedback, then schedules a debounced grid resize to match.
     var terminalFont: NSFont = NSFont.monospacedSystemFont(ofSize: 14, weight: .regular) {
@@ -419,6 +422,7 @@ final class MetalTerminalView: NSView, CALayerDelegate {
         if cursorBlinking { startCursorBlink() }
         alphaValue = 1.0
         needsRedraw = true
+        onFocused?()
         return true
     }
 
