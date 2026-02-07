@@ -177,6 +177,18 @@ final class TerminalTabManager {
         }
     }
 
+    /// Toggle zoom on the active pane (maximize / restore).
+    func toggleZoom() {
+        guard let tab = activeTab else { return }
+        tab.paneController.toggleZoom()
+        focusActiveTab()
+    }
+
+    /// Whether the active tab's pane layout is zoomed.
+    var isZoomed: Bool {
+        activeTab?.paneController.isZoomed ?? false
+    }
+
     /// Move focus to the adjacent pane in the given direction.
     func focusAdjacentPane(direction: PaneDirection) {
         guard let tab = activeTab else { return }

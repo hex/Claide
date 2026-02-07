@@ -135,6 +135,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 }
             }
 
+            if flags == [.command, .shift] {
+                // Cmd+Shift+Enter: toggle pane zoom
+                if event.keyCode == 36 {
+                    self.tabManager.toggleZoom()
+                    return nil
+                }
+            }
+
             if flags == [.command, .shift], let chars = event.charactersIgnoringModifiers {
                 switch chars {
                 case "D":

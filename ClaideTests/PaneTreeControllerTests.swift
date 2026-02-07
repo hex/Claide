@@ -168,6 +168,47 @@ struct PaneTreeControllerTests {
         #expect(ids.contains(third))
     }
 
+    // MARK: - Zoom
+
+    @Test("toggleZoom shows only the active pane")
+    func toggleZoomShowsActivePane() {
+        let (controller, originalID) = makeController()
+        let newID = controller.splitActivePane(axis: .horizontal)!
+
+        controller.toggleZoom()
+
+        #expect(controller.isZoomed)
+        // Container should show only the active pane (newID), not a split
+        #expect(controller.containerView.paneView(for: newID) != nil)
+        // The tree is still intact
+        #expect(controller.paneTree.paneCount == 2)
+    }
+
+    @Test("toggleZoom again restores the full layout")
+    func toggleZoomRestoresLayout() {
+        let (controller, originalID) = makeController()
+        _ = controller.splitActivePane(axis: .horizontal)!
+
+        controller.toggleZoom()
+        controller.toggleZoom()
+
+        #expect(!controller.isZoomed)
+        // Back to split view
+        #expect(controller.containerView.subviews.first is NSSplitView)
+    }
+
+    @Test("zoom preserves active pane across toggle")
+    func zoomPreservesActivePaneID() {
+        let (controller, _) = makeController()
+        let newID = controller.splitActivePane(axis: .horizontal)!
+
+        let activeBefore = controller.activePaneID
+        controller.toggleZoom()
+        #expect(controller.activePaneID == activeBefore)
+        controller.toggleZoom()
+        #expect(controller.activePaneID == activeBefore)
+    }
+
     // MARK: - N-ary Splits
 
     @Test("same-axis splits through controller produce flat tree")
