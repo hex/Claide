@@ -394,6 +394,7 @@ final class MetalTerminalView: NSView, CALayerDelegate {
 
     override func becomeFirstResponder() -> Bool {
         if cursorBlinking { startCursorBlink() }
+        alphaValue = 1.0
         needsRedraw = true
         return true
     }
@@ -401,6 +402,7 @@ final class MetalTerminalView: NSView, CALayerDelegate {
     override func resignFirstResponder() -> Bool {
         stopCursorBlink()
         cursorBlinkOn = true
+        alphaValue = 0.6
         needsRedraw = true
         return true
     }

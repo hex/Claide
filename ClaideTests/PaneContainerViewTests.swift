@@ -108,8 +108,8 @@ struct PaneContainerViewTests {
         let outer = container.subviews.first as? NSSplitView
         #expect(outer?.arrangedSubviews.count == 2)
 
-        // First child: view A directly
-        #expect(outer?.arrangedSubviews[0] === views[a])
+        // First child: view A (wrapped with close button when paneCount > 1)
+        #expect(container.paneView(for: a) === views[a])
 
         // Second child: inner split view
         let innerSplit = outer?.arrangedSubviews[1] as? NSSplitView

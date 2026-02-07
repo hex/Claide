@@ -70,6 +70,9 @@ final class TerminalTabManager {
         let controller = PaneTreeController { _ in
             MetalTerminalView(frame: .zero)
         }
+        controller.onPaneCloseRequested = { [weak self] paneID in
+            self?.closePane(paneID)
+        }
 
         let initialID = controller.activePaneID
         guard let view = controller.paneView(for: initialID) as? MetalTerminalView else { return }
@@ -157,22 +160,27 @@ final class TerminalTabManager {
         focusActiveTab()
     }
 
-    /// Close the active pane. If it's the last pane in the tab, close the tab instead.
-    func closeActivePane() {
+    /// Close a specific pane by ID. If it's the last pane in the tab, close the tab instead.
+    func closePane(_ paneID: PaneID) {
         guard let index = tabs.firstIndex(where: { $0.id == activeTabID }) else { return }
 
         if tabs[index].paneController.paneTree.paneCount > 1 {
-            let closingID = tabs[index].paneController.activePaneID
-            let closingView = tabs[index].paneController.paneView(for: closingID) as? MetalTerminalView
+            let closingView = tabs[index].paneController.paneView(for: paneID) as? MetalTerminalView
 
-            if tabs[index].paneController.closePane(closingID) {
+            if tabs[index].paneController.closePane(paneID) {
                 closingView?.terminate()
-                tabs[index].paneViewModels.removeValue(forKey: closingID)
+                tabs[index].paneViewModels.removeValue(forKey: paneID)
                 focusActiveTab()
             }
         } else {
             closeTab(id: tabs[index].id)
         }
+    }
+
+    /// Close the active pane. If it's the last pane in the tab, close the tab instead.
+    func closeActivePane() {
+        guard let tab = activeTab else { return }
+        closePane(tab.paneController.activePaneID)
     }
 
     // MARK: - Pane Setup
