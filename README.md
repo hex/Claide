@@ -50,7 +50,7 @@ The window is split horizontally: terminal on the left (~65%), sidebar on the ri
 
 ### Terminal
 
-GPU-accelerated terminal powered by [alacritty_terminal](https://crates.io/crates/alacritty_terminal) (Rust) for VT emulation and Metal for rendering. Launches `/bin/zsh -l` with full environment (homebrew paths, OSC 7 directory tracking). Supports multiple tabs, custom font selection, cursor style configuration, and color schemes (Snazzy, Dracula, Nord, Catppuccin Frappe, One Dark, Gruvbox Dark, Tokyo Night, Solarized Dark/Light).
+GPU-accelerated terminal powered by [alacritty_terminal](https://crates.io/crates/alacritty_terminal) (Rust) for VT emulation and Metal for rendering. Launches `/bin/zsh -l` with full environment (homebrew paths, OSC 7 directory tracking). Supports multiple tabs, custom font selection, cursor style configuration, and color schemes (Hexed, Dracula, Nord, Catppuccin Frappe, One Dark, Gruvbox Dark, Tokyo Night, Solarized Dark/Light).
 
 ### Board
 

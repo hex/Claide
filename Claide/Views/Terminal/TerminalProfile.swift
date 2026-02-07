@@ -34,7 +34,7 @@ struct TerminalProfile: Codable, Equatable {
 
     /// Resolve the effective color scheme name.
     var resolvedColorScheme: String {
-        colorScheme ?? UserDefaults.standard.string(forKey: "terminalColorScheme") ?? "snazzy"
+        colorScheme ?? UserDefaults.standard.string(forKey: "terminalColorScheme") ?? "hexed"
     }
 
     /// Resolve the effective font family.

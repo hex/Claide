@@ -32,6 +32,18 @@ final class TerminalSearchBar: NSView {
         searchField.stringValue = ""
     }
 
+    /// Update colors to match a terminal color scheme.
+    func applyColorScheme(_ scheme: TerminalColorScheme) {
+        let bg = Palette.nsColor(scheme.background)
+        let fg = Palette.nsColor(scheme.foreground)
+        layer?.backgroundColor = (bg.blended(withFraction: 0.1, of: fg) ?? bg).withAlphaComponent(0.95).cgColor
+        layer?.borderColor = fg.withAlphaComponent(0.2).cgColor
+        searchField.textColor = fg
+        for case let button as NSButton in subviews {
+            button.contentTintColor = fg.withAlphaComponent(0.6)
+        }
+    }
+
     // MARK: - Setup
 
     private func setupViews() {

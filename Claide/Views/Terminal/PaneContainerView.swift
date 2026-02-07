@@ -59,6 +59,11 @@ final class PaneContainerView: NSView {
         }
     }
 
+    /// Update a pane title bar's colors to match a terminal color scheme.
+    func applyColorScheme(_ scheme: TerminalColorScheme, for paneID: PaneID) {
+        titleBars[paneID]?.applyColorScheme(scheme)
+    }
+
     // MARK: - Private
 
     private func buildView(
@@ -137,6 +142,8 @@ final class PaneTitleBar: NSView {
     private let titleField: NSTextField
     private let closeButton: NSButton
     private let accentStripe = NSView()
+    private let borderView = NSView()
+    private var foregroundColor: NSColor = NSColor(Theme.textMuted)
     private let paneID: PaneID
     private let onClose: (PaneID) -> Void
 
@@ -148,11 +155,13 @@ final class PaneTitleBar: NSView {
         super.init(frame: .zero)
 
         wantsLayer = true
-        layer?.backgroundColor = NSColor(Theme.backgroundSunken).cgColor
 
         setupCloseButton()
         setupTitleField()
         setupBorder()
+
+        let schemeName = UserDefaults.standard.string(forKey: "terminalColorScheme") ?? "hexed"
+        applyColorScheme(TerminalColorScheme.named(schemeName))
     }
 
     @available(*, unavailable)
@@ -203,11 +212,10 @@ final class PaneTitleBar: NSView {
     }
 
     private func setupBorder() {
-        let border = NSView()
-        border.translatesAutoresizingMaskIntoConstraints = false
-        border.wantsLayer = true
-        border.layer?.backgroundColor = NSColor(Theme.border).cgColor
-        addSubview(border)
+        borderView.translatesAutoresizingMaskIntoConstraints = false
+        borderView.wantsLayer = true
+        borderView.layer?.backgroundColor = NSColor(Theme.border).cgColor
+        addSubview(borderView)
 
         accentStripe.translatesAutoresizingMaskIntoConstraints = false
         accentStripe.wantsLayer = true
@@ -216,10 +224,10 @@ final class PaneTitleBar: NSView {
         addSubview(accentStripe)
 
         NSLayoutConstraint.activate([
-            border.leadingAnchor.constraint(equalTo: leadingAnchor),
-            border.trailingAnchor.constraint(equalTo: trailingAnchor),
-            border.bottomAnchor.constraint(equalTo: bottomAnchor),
-            border.heightAnchor.constraint(equalToConstant: Theme.borderWidth),
+            borderView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            borderView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            borderView.bottomAnchor.constraint(equalTo: bottomAnchor),
+            borderView.heightAnchor.constraint(equalToConstant: Theme.borderWidth),
 
             accentStripe.leadingAnchor.constraint(equalTo: leadingAnchor),
             accentStripe.trailingAnchor.constraint(equalTo: trailingAnchor),
@@ -228,20 +236,28 @@ final class PaneTitleBar: NSView {
         ])
     }
 
+    func applyColorScheme(_ scheme: TerminalColorScheme) {
+        let bg = Palette.nsColor(scheme.background)
+        layer?.backgroundColor = bg.blended(withFraction: 0.15, of: .black)?.cgColor ?? bg.cgColor
+        foregroundColor = Palette.nsColor(scheme.foreground)
+        closeButton.contentTintColor = foregroundColor.withAlphaComponent(0.35)
+        borderView.layer?.backgroundColor = foregroundColor.withAlphaComponent(0.12).cgColor
+        updateActiveAppearance()
+    }
+
     private func updateActiveAppearance() {
-        accentStripe.isHidden = !isActive
-        titleField.textColor = isActive
-            ? NSColor(Theme.textMuted).withAlphaComponent(1.0)
-            : NSColor(Theme.textMuted).withAlphaComponent(0.5)
+        let showIndicator = UserDefaults.standard.bool(forKey: "paneFocusIndicator")
+        accentStripe.isHidden = !isActive || !showIndicator
+        titleField.textColor = foregroundColor.withAlphaComponent(isActive ? 1.0 : 0.5)
     }
 
     override func mouseEntered(with event: NSEvent) {
-        closeButton.contentTintColor = .white.withAlphaComponent(0.9)
-        closeButton.layer?.backgroundColor = NSColor.white.withAlphaComponent(0.15).cgColor
+        closeButton.contentTintColor = foregroundColor.withAlphaComponent(0.9)
+        closeButton.layer?.backgroundColor = foregroundColor.withAlphaComponent(0.15).cgColor
     }
 
     override func mouseExited(with event: NSEvent) {
-        closeButton.contentTintColor = .white.withAlphaComponent(0.35)
+        closeButton.contentTintColor = foregroundColor.withAlphaComponent(0.35)
         closeButton.layer?.backgroundColor = nil
     }
 

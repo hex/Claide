@@ -67,8 +67,8 @@ struct PaletteTests {
         #expect(RGB.bgTerminal == RGB(21, 23, 40))
     }
 
-    @Test("Snazzy ANSI entries hold correct values")
-    func snazzyEntries() {
+    @Test("Hexed ANSI entries hold correct values")
+    func hexedEntries() {
         #expect(RGB.red == RGB(255, 92, 87))
         #expect(RGB.green == RGB(90, 247, 142))
         #expect(RGB.yellow == RGB(243, 249, 157))

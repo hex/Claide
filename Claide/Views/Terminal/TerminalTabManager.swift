@@ -39,6 +39,10 @@ final class TerminalTabManager {
     private(set) var tabs: [Tab] = []
     var activeTabID: UUID?
 
+    /// Called after color scheme is applied to all panes, allowing the window
+    /// controller to update window chrome (e.g. background color).
+    var onColorSchemeApplied: (() -> Void)?
+
     // Remembered from the most recent addTab call, used as defaults for menu-bar Cmd+T
     private var lastDirectory: String?
     private var lastFontFamily: String = ""
@@ -129,6 +133,12 @@ final class TerminalTabManager {
         let tab = Tab(id: UUID(), paneController: controller, paneViewModels: viewModels)
         tabs.append(tab)
         activeTabID = tab.id
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak controller] in
+            guard let controller else { return }
+            guard let view = controller.paneView(for: controller.activePaneID) as? MetalTerminalView else { return }
+            view.window?.makeFirstResponder(view)
+        }
     }
 
     func moveTab(from sourceIndex: Int, to destinationIndex: Int) {
@@ -290,6 +300,8 @@ final class TerminalTabManager {
 
         applyCursorStyle(to: view, profile: profile)
         applyColorScheme(to: view, profile: profile)
+        let scheme = TerminalColorScheme.named(profile.resolvedColorScheme)
+        controller.containerView.applyColorScheme(scheme, for: paneID)
     }
 
     // MARK: - Cursor Style
@@ -328,7 +340,24 @@ final class TerminalTabManager {
         for tab in tabs {
             for (paneID, vm) in tab.paneViewModels {
                 guard let view = tab.paneController.paneView(for: paneID) as? MetalTerminalView else { continue }
+                let scheme = TerminalColorScheme.named(vm.profile.resolvedColorScheme)
                 applyColorScheme(to: view, profile: vm.profile)
+                tab.paneController.containerView.applyColorScheme(scheme, for: paneID)
+            }
+        }
+        onColorSchemeApplied?()
+    }
+
+    // MARK: - Pane Focus
+
+    func applyPaneFocusSettingsToAll() {
+        for tab in tabs {
+            tab.paneController.containerView.setActivePaneID(tab.paneController.activePaneID)
+            for (paneID, _) in tab.paneViewModels {
+                guard let view = tab.paneController.paneView(for: paneID) as? MetalTerminalView else { continue }
+                let isFocused = (view == view.window?.firstResponder as? MetalTerminalView)
+                let dim = UserDefaults.standard.bool(forKey: "dimUnfocusedPanes")
+                view.alphaValue = (isFocused || !dim) ? 1.0 : 0.6
             }
         }
     }

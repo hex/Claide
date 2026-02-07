@@ -1,69 +1,91 @@
-// ABOUTME: Centralized design tokens for the dark terminal-inspired UI.
-// ABOUTME: Colors, fonts, and spacing constants used across all views.
+// ABOUTME: Centralized design tokens derived from the active terminal color scheme.
+// ABOUTME: Chrome colors adapt to the scheme; semantic colors (status, priority) stay fixed.
 
 import SwiftUI
 
 enum Theme {
-    // Background layers (darkest to lightest)
-    static let backgroundPrimary = Palette.color(.bgPrimary)
-    static let backgroundPanel   = Palette.color(.bgPanel)
-    static let backgroundSunken  = Palette.color(.bgSunken)
-    static let backgroundHover   = Palette.color(.bgHover)
+    // Active terminal color scheme for chrome derivation.
+    private static var activeScheme: TerminalColorScheme {
+        let name = UserDefaults.standard.string(forKey: "terminalColorScheme") ?? "hexed"
+        return TerminalColorScheme.named(name)
+    }
+    private static var schemeBG: NSColor { Palette.nsColor(activeScheme.background) }
+    private static var schemeFG: NSColor { Palette.nsColor(activeScheme.foreground) }
+
+    // Background layers (derived from terminal color scheme)
+    static var backgroundPrimary: Color { Color(nsColor: schemeBG) }
+    static var backgroundPanel: Color {
+        Color(nsColor: schemeBG.blended(withFraction: 0.04, of: schemeFG) ?? schemeBG)
+    }
+    static var backgroundSunken: Color {
+        Color(nsColor: schemeBG.blended(withFraction: 0.20, of: .black) ?? schemeBG)
+    }
+    static var backgroundHover: Color {
+        Color(nsColor: schemeBG.blended(withFraction: 0.08, of: schemeFG) ?? schemeBG)
+    }
 
     // Border
-    static let border = Palette.color(.border)
+    static var border: Color {
+        Color(nsColor: schemeBG.blended(withFraction: 0.15, of: schemeFG) ?? schemeFG)
+    }
 
     // Text
-    static let textPrimary   = Palette.color(.fgPrimary)
-    static let textSecondary = Palette.color(.fgSecondary)
-    static let textMuted     = Palette.color(.fgMuted)
+    static var textPrimary: Color { Color(nsColor: schemeFG) }
+    static var textSecondary: Color {
+        Color(nsColor: schemeFG.blended(withFraction: 0.45, of: schemeBG) ?? schemeFG)
+    }
+    static var textMuted: Color {
+        Color(nsColor: schemeFG.blended(withFraction: 0.65, of: schemeBG) ?? schemeFG)
+    }
 
-    // Status
+    // Status (fixed)
     static let statusOpen       = Palette.color(.uiBlue)
     static let statusInProgress = Palette.color(.uiYellow)
     static let statusBlocked    = Palette.color(.uiRed)
     static let statusClosed     = Palette.color(.uiGreen)
 
-    // Priority (P0-P4)
+    // Priority (fixed)
     static let priorityCritical = Palette.color(.priCritical)
     static let priorityHigh     = Palette.color(.uiOrange)
     static let priorityMedium   = Palette.color(.priMedium)
     static let priorityLow      = Palette.color(.priLow)
     static let priorityBacklog  = Palette.color(.priBacklog)
 
-    // Accent
+    // Accent (fixed)
     static let accent   = Palette.color(.uiGreen)
     static let negative = Palette.color(.uiRed)
 
-    // Type colors (base colors for node fill at low zoom and badge derivation)
+    // Type colors (fixed)
     static let typeBug     = Palette.color(.typeBug)
     static let typeTask    = Palette.color(.typeTask)
     static let typeEpic    = Palette.color(.typeEpic)
     static let typeFeature = Palette.color(.typeFeature)
     static let typeChore   = Palette.color(.typeChore)
 
-    // Pre-computed badge color sets
-    static let badgeBug        = BadgeColors(base: typeBug)
-    static let badgeTask       = BadgeColors(base: typeTask)
-    static let badgeEpic       = BadgeColors(base: typeEpic)
-    static let badgeFeature    = BadgeColors(base: typeFeature)
-    static let badgeChore      = BadgeColors(base: typeChore)
-    static let badgeOpen       = BadgeColors(base: statusOpen)
-    static let badgeInProgress = BadgeColors(base: statusInProgress)
-    static let badgeClosed     = BadgeColors(base: statusClosed)
-    static let badgeBlocked    = BadgeColors(base: statusBlocked)
-    static let badgeCritical   = BadgeColors(base: priorityCritical)
-    static let badgeHigh       = BadgeColors(base: priorityHigh)
-    static let badgeMedium     = BadgeColors(base: priorityMedium)
-    static let badgeLow        = BadgeColors(base: priorityLow)
-    static let badgeBacklog    = BadgeColors(base: priorityBacklog)
+    // Badge color sets (recomputed to track dynamic backgroundPanel)
+    static var badgeBug:        BadgeColors { BadgeColors(base: typeBug) }
+    static var badgeTask:       BadgeColors { BadgeColors(base: typeTask) }
+    static var badgeEpic:       BadgeColors { BadgeColors(base: typeEpic) }
+    static var badgeFeature:    BadgeColors { BadgeColors(base: typeFeature) }
+    static var badgeChore:      BadgeColors { BadgeColors(base: typeChore) }
+    static var badgeOpen:       BadgeColors { BadgeColors(base: statusOpen) }
+    static var badgeInProgress: BadgeColors { BadgeColors(base: statusInProgress) }
+    static var badgeClosed:     BadgeColors { BadgeColors(base: statusClosed) }
+    static var badgeBlocked:    BadgeColors { BadgeColors(base: statusBlocked) }
+    static var badgeCritical:   BadgeColors { BadgeColors(base: priorityCritical) }
+    static var badgeHigh:       BadgeColors { BadgeColors(base: priorityHigh) }
+    static var badgeMedium:     BadgeColors { BadgeColors(base: priorityMedium) }
+    static var badgeLow:        BadgeColors { BadgeColors(base: priorityLow) }
+    static var badgeBacklog:    BadgeColors { BadgeColors(base: priorityBacklog) }
 
-    // Selection glow for graph highlighting
+    // Selection glow for graph highlighting (fixed)
     static let selectionGlow = Palette.color(.yellow)
 
     // Edge colors for graph
     static let edgeBlocks  = Palette.color(.uiRed).opacity(0.6)
-    static let edgeDefault = Palette.color(.edgeMuted)
+    static var edgeDefault: Color {
+        Color(nsColor: schemeFG.blended(withFraction: 0.7, of: schemeBG) ?? schemeFG)
+    }
 
     // Typography — sizes derived from the user's "uiFontSize" preference.
     private static var baseFontSize: CGFloat {
@@ -428,9 +450,11 @@ struct SectionHeader: View {
 
 /// Panel container with thin border, dark background
 struct PanelView<Content: View>: View {
+    @AppStorage("terminalColorScheme") private var schemeName: String = "hexed"
     @ViewBuilder let content: () -> Content
 
     var body: some View {
+        let _ = schemeName
         VStack(alignment: .leading, spacing: 8) {
             content()
         }

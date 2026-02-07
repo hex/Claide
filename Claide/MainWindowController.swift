@@ -25,8 +25,11 @@ final class MainWindowController: NSWindowController, NSWindowDelegate {
         window.isMovable = false
         window.isMovableByWindowBackground = false
         window.tabbingMode = .disallowed
-        window.backgroundColor = Palette.nsColor(.bgTerminal)
-        window.appearance = NSAppearance(named: .darkAqua)
+        window.backgroundColor = TerminalTheme.background
+        let initialScheme = UserDefaults.standard.string(forKey: "terminalColorScheme") ?? "hexed"
+        let initialBG = TerminalColorScheme.named(initialScheme).background
+        let initialBrightness = (Int(initialBG.r) * 299 + Int(initialBG.g) * 587 + Int(initialBG.b) * 114) / 1000
+        window.appearance = NSAppearance(named: initialBrightness > 128 ? .aqua : .darkAqua)
         window.minSize = NSSize(width: 900, height: 500)
 
         let splitVC = MainSplitViewController(tabManager: tabManager)
@@ -37,6 +40,15 @@ final class MainWindowController: NSWindowController, NSWindowDelegate {
         window.delegate = self
 
         negateTitleBarSafeArea(window)
+
+        tabManager.onColorSchemeApplied = { [weak self] in
+            guard let window = self?.window else { return }
+            window.backgroundColor = TerminalTheme.background
+            let schemeName = UserDefaults.standard.string(forKey: "terminalColorScheme") ?? "hexed"
+            let bg = TerminalColorScheme.named(schemeName).background
+            let brightness = (Int(bg.r) * 299 + Int(bg.g) * 587 + Int(bg.b) * 114) / 1000
+            window.appearance = NSAppearance(named: brightness > 128 ? .aqua : .darkAqua)
+        }
     }
 
     @available(*, unavailable)

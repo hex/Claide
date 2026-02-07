@@ -15,7 +15,6 @@ final class MainSplitViewController: NSSplitViewController {
 
         let terminalHost = NSHostingController(
             rootView: TerminalSection(tabManager: tabManager)
-                .preferredColorScheme(.dark)
         )
         terminalHost.sizingOptions = []
         let terminalItem = NSSplitViewItem(viewController: terminalHost)
@@ -24,7 +23,6 @@ final class MainSplitViewController: NSSplitViewController {
 
         let sidebarHost = NSHostingController(
             rootView: SidebarSection(tabManager: tabManager)
-                .preferredColorScheme(.dark)
         )
         sidebarHost.sizingOptions = []
         let sidebarItem = NSSplitViewItem(viewController: sidebarHost)

@@ -19,11 +19,7 @@ struct TerminalTabBar: View {
         // .background() modifiers auto-extend into the parent's safe area, causing
         // tab colors to bleed into the title bar area.
         ZStack {
-            LinearGradient(
-                colors: [Theme.backgroundSunken, Theme.backgroundPrimary],
-                startPoint: .top,
-                endPoint: .bottom
-            )
+            Theme.backgroundSunken
 
             HStack(spacing: 0) {
                 WindowDragArea()
@@ -520,7 +516,7 @@ private struct TabButton: View {
 
     private var inactiveColor: Color {
         if let tabColor, tabColor != .base { return tabColor.color.opacity(0.35) }
-        return Theme.textMuted
+        return Theme.textSecondary
     }
 
     private func startEditing() {

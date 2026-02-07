@@ -9,6 +9,7 @@ struct SidebarSection: View {
     @State private var fileLogVM = FileLogViewModel()
     @State private var sidebarTab: SidebarTab = .board
     @AppStorage("fontFamily") private var fontFamily: String = ""
+    @AppStorage("terminalColorScheme") private var schemeName: String = "hexed"
     @AppStorage("tasksExpanded") private var tasksExpanded = true
     @AppStorage("filesExpanded") private var filesExpanded = true
 
@@ -23,6 +24,7 @@ struct SidebarSection: View {
     }
 
     var body: some View {
+        let _ = schemeName // Force SwiftUI to re-evaluate when the terminal scheme changes
         VStack(spacing: 0) {
             tasksSection
             filesSection

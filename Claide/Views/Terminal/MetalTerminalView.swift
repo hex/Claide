@@ -100,6 +100,8 @@ final class MetalTerminalView: NSView, CALayerDelegate {
 
     /// Search bar for find-in-buffer (Cmd+F).
     private var searchBar: TerminalSearchBar?
+    /// Active color scheme, applied to search bar on creation.
+    private var activeColorScheme: TerminalColorScheme?
 
     /// Whether the cursor is currently showing the pointing hand (over a URL).
     private var showingLinkCursor = false
@@ -188,8 +190,6 @@ final class MetalTerminalView: NSView, CALayerDelegate {
         bridge?.onWakeup = { [weak self] in
             self?.needsRedraw = true
         }
-
-        startCursorBlink()
     }
 
     /// Terminate the shell process and clean up.
@@ -250,6 +250,8 @@ final class MetalTerminalView: NSView, CALayerDelegate {
     func applyColorScheme(_ scheme: TerminalColorScheme) {
         bridge?.setColors(scheme)
         gridRenderer?.applyScheme(scheme)
+        activeColorScheme = scheme
+        searchBar?.applyColorScheme(scheme)
         needsRedraw = true
     }
 
@@ -259,7 +261,8 @@ final class MetalTerminalView: NSView, CALayerDelegate {
     func applyCursorPreferences(shape: CursorShape, blinking: Bool) {
         cursorShape = shape
         cursorBlinking = blinking
-        if blinking {
+        let isFocused = (self == window?.firstResponder)
+        if blinking && isFocused {
             if cursorBlinkTimer == nil { startCursorBlink() }
         } else {
             stopCursorBlink()
@@ -429,7 +432,8 @@ final class MetalTerminalView: NSView, CALayerDelegate {
     override func resignFirstResponder() -> Bool {
         stopCursorBlink()
         cursorBlinkOn = true
-        alphaValue = 0.6
+        let dim = UserDefaults.standard.bool(forKey: "dimUnfocusedPanes")
+        alphaValue = dim ? 0.6 : 1.0
         needsRedraw = true
         return true
     }
@@ -890,6 +894,9 @@ final class MetalTerminalView: NSView, CALayerDelegate {
             bar.onDismiss = { [weak self] in
                 self?.hideSearchBar()
             }
+            if let scheme = activeColorScheme {
+                bar.applyColorScheme(scheme)
+            }
             addSubview(bar)
             searchBar = bar
         }
@@ -923,7 +930,10 @@ final class MetalTerminalView: NSView, CALayerDelegate {
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        window?.makeFirstResponder(self)
+        if window == nil {
+            stopCursorBlink()
+            cursorBlinkOn = true
+        }
     }
 
     override func flagsChanged(with event: NSEvent) {
