@@ -15,7 +15,7 @@ struct TerminalColorScheme: Identifiable, Hashable {
     let selection: RGB
 
     static let builtIn: [TerminalColorScheme] = [
-        .snazzy,
+        .hexed,
         .dracula,
         .nord,
         .catppuccinFrappe,
@@ -33,11 +33,11 @@ struct TerminalColorScheme: Identifiable, Hashable {
         builtIn.first { $0.id == id } ?? .default
     }
 
-    // MARK: - Snazzy (current default)
+    // MARK: - Hexed (default)
 
-    static let snazzy = TerminalColorScheme(
-        id: "snazzy",
-        name: "Snazzy",
+    static let hexed = TerminalColorScheme(
+        id: "hexed",
+        name: "Hexed",
         ansi: [
             RGB(0x00, 0x00, 0x00), // Black
             RGB(0xff, 0x5c, 0x57), // Red

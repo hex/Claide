@@ -13,7 +13,9 @@ struct ClaideApp: App {
             "cursorBlink": true,
             "terminalFontSize": 14.0,
             "uiFontSize": 12.0,
-            "terminalColorScheme": "snazzy",
+            "terminalColorScheme": "hexed",
+            "paneFocusIndicator": true,
+            "dimUnfocusedPanes": true,
         ])
     }
 

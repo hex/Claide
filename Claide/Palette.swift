@@ -38,7 +38,7 @@ extension RGB {
     static let cursorText = RGB(52, 55, 68)
     static let selection  = RGB(131, 74, 136)
 
-    // -- Snazzy ANSI (bright/neon, for terminal) --
+    // -- Hexed ANSI (bright/neon, for terminal) --
     static let black       = RGB(0, 0, 0)
     static let red         = RGB(255, 92, 87)
     static let green       = RGB(90, 247, 142)

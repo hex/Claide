@@ -47,7 +47,7 @@ pub struct ClaideGridSnapshot {
     pub padding_bg_b: u8,
 }
 
-/// Snazzy palette ANSI colors (used as initial values for ColorPalette).
+/// Hexed palette ANSI colors (used as initial values for ColorPalette).
 pub const DEFAULT_ANSI: [Rgb; 16] = [
     Rgb { r: 0x00, g: 0x00, b: 0x00 }, // Black
     Rgb { r: 0xff, g: 0x5c, b: 0x57 }, // Red
@@ -67,9 +67,9 @@ pub const DEFAULT_ANSI: [Rgb; 16] = [
     Rgb { r: 0xef, g: 0xf0, b: 0xeb }, // Bright White
 ];
 
-/// Snazzy foreground color (used as initial value for ColorPalette).
+/// Hexed foreground color (used as initial value for ColorPalette).
 pub const DEFAULT_FG: Rgb = Rgb { r: 0xef, g: 0xf0, b: 0xeb };
-/// Snazzy background color (used as initial value for ColorPalette).
+/// Hexed background color (used as initial value for ColorPalette).
 pub const DEFAULT_BG: Rgb = Rgb { r: 0x15, g: 0x17, b: 0x28 };
 
 /// Resolve a Color enum to an RGB triple using the terminal's configured colors
