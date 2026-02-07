@@ -46,6 +46,7 @@ struct TerminalTabBar: View {
                         isRunning: tab.viewModel.isRunning,
                         executablePath: tab.viewModel.executablePath,
                         tabColor: tab.viewModel.tabColor,
+                        paneCount: tab.paneController.paneTree.paneCount,
                         canClose: tabManager.tabs.count > 1,
                         showDivider: !isLast && !isActive && !nextIsActive,
                         index: index + 1,
@@ -346,6 +347,7 @@ private struct TabButton: View {
     let isRunning: Bool
     let executablePath: String?
     let tabColor: TabColor?
+    let paneCount: Int
     let canClose: Bool
     let showDivider: Bool
     let index: Int
@@ -432,6 +434,18 @@ private struct TabButton: View {
                         .foregroundStyle(isActive ? Theme.textPrimary : inactiveColor)
                         .lineLimit(1)
                         .truncationMode(.middle)
+
+                    if paneCount > 1 {
+                        Text("\(paneCount)")
+                            .font(.system(size: 9, weight: .medium))
+                            .foregroundStyle(Theme.textMuted)
+                            .padding(.horizontal, 4)
+                            .padding(.vertical, 1)
+                            .background(
+                                RoundedRectangle(cornerRadius: 3)
+                                    .fill(Theme.backgroundPanel)
+                            )
+                    }
                 }
 
                 Spacer()
