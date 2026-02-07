@@ -45,6 +45,9 @@ final class GridRenderer {
         Float(136) / 255.0
     )
 
+    /// Search match highlight background color (yellow-orange).
+    var searchMatchBg: SIMD3<Float> = SIMD3<Float>(0.8, 0.6, 0.1)
+
     /// Cursor color (RGB, alpha applied per shape).
     var cursorColor: SIMD3<Float> = SIMD3<Float>(0.92, 0.92, 0.92)
 
@@ -121,17 +124,22 @@ final class GridRenderer {
                 let y = Float(row) * cellH - yOffset + origin.y
 
                 let selected = cell.flags & 0x200 != 0
+                let searchMatch = cell.flags & 0x400 != 0
 
                 let fgR = Float(cell.fg_r) / 255.0
                 let fgG = Float(cell.fg_g) / 255.0
                 let fgB = Float(cell.fg_b) / 255.0
 
-                // Selected cells use the selection color as background; text color stays
+                // Search match > selection > normal background
                 let bgR: Float
                 let bgG: Float
                 let bgB: Float
 
-                if selected {
+                if searchMatch {
+                    bgR = searchMatchBg.x
+                    bgG = searchMatchBg.y
+                    bgB = searchMatchBg.z
+                } else if selected {
                     bgR = selectionBg.x
                     bgG = selectionBg.y
                     bgB = selectionBg.z

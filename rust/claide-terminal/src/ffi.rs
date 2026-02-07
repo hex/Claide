@@ -356,6 +356,57 @@ pub unsafe extern "C" fn claide_terminal_scroll(
     (*handle).scroll(delta);
 }
 
+// -- Search --
+
+/// Start a search with the given query string. Searches forward from the cursor.
+/// Returns true if a match was found.
+///
+/// # Safety
+/// `handle` must be valid. `query` must be a valid null-terminated UTF-8 string.
+#[no_mangle]
+pub unsafe extern "C" fn claide_terminal_search_set(
+    handle: ClaideTerminalRef,
+    query: *const c_char,
+) -> bool {
+    if handle.is_null() || query.is_null() {
+        return false;
+    }
+    let query = match CStr::from_ptr(query).to_str() {
+        Ok(s) => s,
+        Err(_) => return false,
+    };
+    (*handle).search_set(query)
+}
+
+/// Navigate to the next or previous search match.
+/// `forward`: true = next match, false = previous match.
+/// Returns true if a match was found.
+///
+/// # Safety
+/// `handle` must be valid.
+#[no_mangle]
+pub unsafe extern "C" fn claide_terminal_search_advance(
+    handle: ClaideTerminalRef,
+    forward: bool,
+) -> bool {
+    if handle.is_null() {
+        return false;
+    }
+    (*handle).search_advance(forward)
+}
+
+/// Clear the current search and remove highlights.
+///
+/// # Safety
+/// `handle` must be valid.
+#[no_mangle]
+pub unsafe extern "C" fn claide_terminal_search_clear(handle: ClaideTerminalRef) {
+    if handle.is_null() {
+        return;
+    }
+    (*handle).search_clear();
+}
+
 // -- Colors --
 
 /// Set the terminal's color palette.

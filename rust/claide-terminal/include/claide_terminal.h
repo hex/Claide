@@ -42,7 +42,7 @@ typedef void (*ClaideEventCallback)(
 ///
 /// Flag bits: BOLD=0x01, ITALIC=0x02, UNDERLINE=0x04, STRIKEOUT=0x08,
 ///            DIM=0x10, INVERSE=0x20, WIDE_CHAR=0x40, WIDE_SPACER=0x80,
-///            HIDDEN=0x100, SELECTED=0x200
+///            HIDDEN=0x100, SELECTED=0x200, SEARCH_MATCH=0x400
 typedef struct {
     uint32_t codepoint;
     uint8_t fg_r, fg_g, fg_b;
@@ -229,6 +229,20 @@ char *claide_terminal_selection_text(ClaideTerminalRef handle);
 
 /// Free a string returned by claide_terminal_selection_text.
 void claide_terminal_selection_text_free(char *ptr);
+
+// -- Search --
+
+/// Start a search with the given query. Searches forward from the cursor.
+/// Returns true if a match was found.
+bool claide_terminal_search_set(ClaideTerminalRef handle, const char *query);
+
+/// Navigate to the next or previous search match.
+/// forward=true for next, forward=false for previous.
+/// Returns true if a match was found.
+bool claide_terminal_search_advance(ClaideTerminalRef handle, bool forward);
+
+/// Clear the current search and remove highlights.
+void claide_terminal_search_clear(ClaideTerminalRef handle);
 
 // -- Colors --
 

@@ -144,6 +144,27 @@ final class TerminalBridge: @unchecked Sendable {
         claide_terminal_scroll(handle, delta)
     }
 
+    // MARK: - Search
+
+    /// Start a search with the given query. Searches forward from the cursor.
+    /// Returns true if a match was found.
+    func searchSet(query: String) -> Bool {
+        query.withCString { cstr in
+            claide_terminal_search_set(handle, cstr)
+        }
+    }
+
+    /// Navigate to the next or previous match.
+    /// Returns true if a match was found.
+    func searchAdvance(forward: Bool) -> Bool {
+        claide_terminal_search_advance(handle, forward)
+    }
+
+    /// Clear the current search and remove highlights.
+    func searchClear() {
+        claide_terminal_search_clear(handle)
+    }
+
     // MARK: - Selection
 
     /// Start a selection at the given grid position.
