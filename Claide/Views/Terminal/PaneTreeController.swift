@@ -6,11 +6,11 @@ import AppKit
 @MainActor
 final class PaneTreeController {
 
-    private(set) var paneTree: PaneNode
+    nonisolated(unsafe) private(set) var paneTree: PaneNode
     let containerView = PaneContainerView()
-    private(set) var activePaneID: PaneID
+    nonisolated(unsafe) private(set) var activePaneID: PaneID
 
-    private var paneViews: [PaneID: NSView] = [:]
+    nonisolated(unsafe) private var paneViews: [PaneID: NSView] = [:]
     private let viewFactory: (PaneID) -> NSView
 
     /// Create a controller with a single initial pane.
@@ -76,7 +76,7 @@ final class PaneTreeController {
     }
 
     /// Look up the view for a given pane ID.
-    func paneView(for paneID: PaneID) -> NSView? {
+    nonisolated func paneView(for paneID: PaneID) -> NSView? {
         paneViews[paneID]
     }
 

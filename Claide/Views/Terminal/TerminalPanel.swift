@@ -1,5 +1,5 @@
-// ABOUTME: NSViewRepresentable host container that displays the active tab's terminal view.
-// ABOUTME: Swaps the active MetalTerminalView in/out as tabs change, without recreating views.
+// ABOUTME: NSViewRepresentable host container that displays the active tab's pane container.
+// ABOUTME: Swaps the active PaneContainerView in/out as tabs change, without recreating views.
 
 import SwiftUI
 
@@ -14,30 +14,31 @@ struct TerminalPanel: NSViewRepresentable {
     }
 
     func updateNSView(_ container: NSView, context: Context) {
-        guard let activeView = tabManager.activeTab?.terminalView else {
-            // No active tab — remove all subviews
+        guard let paneContainer = tabManager.activeTab?.paneController.containerView else {
             container.subviews.forEach { $0.removeFromSuperview() }
             return
         }
 
-        // Only swap if the active view isn't already the sole subview
-        if container.subviews.first !== activeView {
+        // Only swap if the pane container changed (tab switch)
+        if container.subviews.first !== paneContainer {
             container.subviews.forEach { $0.removeFromSuperview() }
-            activeView.translatesAutoresizingMaskIntoConstraints = false
-            container.addSubview(activeView)
+            paneContainer.translatesAutoresizingMaskIntoConstraints = false
+            container.addSubview(paneContainer)
             NSLayoutConstraint.activate([
-                activeView.leadingAnchor.constraint(equalTo: container.leadingAnchor),
-                activeView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-                activeView.topAnchor.constraint(equalTo: container.topAnchor),
-                activeView.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+                paneContainer.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+                paneContainer.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+                paneContainer.topAnchor.constraint(equalTo: container.topAnchor),
+                paneContainer.bottomAnchor.constraint(equalTo: container.bottomAnchor),
             ])
         }
 
-        // Apply font family changes to the active view (preserving the current point size)
-        let currentSize = activeView.terminalFont.pointSize
-        let desired = FontSelection.terminalFont(family: fontFamily, size: currentSize)
-        if activeView.terminalFont != desired {
-            activeView.terminalFont = desired
+        // Apply font family changes to the active pane
+        if let activeView = tabManager.activeTab?.terminalView {
+            let currentSize = activeView.terminalFont.pointSize
+            let desired = FontSelection.terminalFont(family: fontFamily, size: currentSize)
+            if activeView.terminalFont != desired {
+                activeView.terminalFont = desired
+            }
         }
     }
 }
