@@ -338,6 +338,24 @@ pub unsafe extern "C" fn claide_terminal_selection_text_free(ptr: *mut c_char) {
     }
 }
 
+// -- Scrollback --
+
+/// Scroll the terminal viewport. Positive delta = scroll up (into history),
+/// negative = down (toward live output).
+///
+/// # Safety
+/// `handle` must be valid.
+#[no_mangle]
+pub unsafe extern "C" fn claide_terminal_scroll(
+    handle: ClaideTerminalRef,
+    delta: i32,
+) {
+    if handle.is_null() {
+        return;
+    }
+    (*handle).scroll(delta);
+}
+
 // -- Colors --
 
 /// Set the terminal's color palette.

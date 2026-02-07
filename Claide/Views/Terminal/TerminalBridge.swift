@@ -136,6 +136,14 @@ final class TerminalBridge: @unchecked Sendable {
         claide_terminal_snapshot_free(snapshot)
     }
 
+    // MARK: - Scrollback
+
+    /// Scroll the terminal viewport by the given number of lines.
+    /// Positive delta scrolls up (into history), negative scrolls down.
+    func scroll(delta: Int32) {
+        claide_terminal_scroll(handle, delta)
+    }
+
     // MARK: - Selection
 
     /// Start a selection at the given grid position.
