@@ -98,6 +98,9 @@ final class MetalTerminalView: NSView, CALayerDelegate {
     /// Search bar for find-in-buffer (Cmd+F).
     private var searchBar: TerminalSearchBar?
 
+    /// Whether the cursor is currently showing the pointing hand (over a URL).
+    private var showingLinkCursor = false
+
     /// IME marked text state (for NSTextInputClient).
     private var markedTextStorage = NSMutableAttributedString()
     private var markedRangeStorage = NSRange(location: NSNotFound, length: 0)
@@ -622,6 +625,30 @@ final class MetalTerminalView: NSView, CALayerDelegate {
         }
     }
 
+    // MARK: - Mouse Tracking
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        for area in trackingAreas { removeTrackingArea(area) }
+        let area = NSTrackingArea(
+            rect: bounds,
+            options: [.mouseMoved, .mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect],
+            owner: self
+        )
+        addTrackingArea(area)
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        updateLinkCursor(for: event)
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        if showingLinkCursor {
+            NSCursor.iBeam.set()
+            showingLinkCursor = false
+        }
+    }
+
     // MARK: - Mouse / Selection
 
     /// Whether a drag selection is in progress.
@@ -643,6 +670,15 @@ final class MetalTerminalView: NSView, CALayerDelegate {
     override func mouseDown(with event: NSEvent) {
         window?.makeFirstResponder(self)
         resetCursorBlink()
+
+        // Cmd+click: open URL under cursor
+        if event.modifierFlags.contains(.command) {
+            let (row, col, _) = gridPosition(for: event)
+            if let url = urlAtPosition(row: Int(row), col: Int(col)) {
+                NSWorkspace.shared.open(url)
+                return
+            }
+        }
 
         guard let bridge else { return }
         let (row, col, side) = gridPosition(for: event)
@@ -667,6 +703,91 @@ final class MetalTerminalView: NSView, CALayerDelegate {
 
     override func mouseUp(with event: NSEvent) {
         isDragging = false
+    }
+
+    // MARK: - URL Detection
+
+    /// Regex matching http/https/file URLs in terminal output.
+    private static let urlPattern: NSRegularExpression? = {
+        // Match URLs starting with a scheme, stopping at common terminal delimiters.
+        // Trailing punctuation (period, comma, semicolon, closing parens/brackets)
+        // is stripped if it wasn't matched by an opening counterpart.
+        let pattern = #"https?://[^\s<>"'\x{00}-\x{1f}]+"#
+        return try? NSRegularExpression(pattern: pattern)
+    }()
+
+    /// Extract text for a single grid row from a snapshot.
+    private func extractRowText(row: Int, snapshot: UnsafePointer<ClaideGridSnapshot>) -> String {
+        let cols = Int(snapshot.pointee.cols)
+        let cells = snapshot.pointee.cells!
+        var chars: [Character] = []
+        chars.reserveCapacity(cols)
+
+        for col in 0..<cols {
+            let cell = cells[row * cols + col]
+            // Skip wide char spacers
+            if cell.flags & 0x80 != 0 { continue }
+            let cp = cell.codepoint
+            if cp == 0 || cp == 0xFFFF {
+                chars.append(" ")
+            } else if let scalar = Unicode.Scalar(cp) {
+                chars.append(Character(scalar))
+            } else {
+                chars.append(" ")
+            }
+        }
+
+        return String(chars)
+    }
+
+    /// Find the URL at the given grid position, or nil if none.
+    private func urlAtPosition(row: Int, col: Int) -> URL? {
+        guard let bridge, let snapshot = bridge.snapshot() else { return nil }
+        defer { TerminalBridge.freeSnapshot(snapshot) }
+
+        let rows = Int(snapshot.pointee.rows)
+        guard row >= 0, row < rows else { return nil }
+
+        let text = extractRowText(row: row, snapshot: snapshot)
+        let nsText = text as NSString
+
+        guard let regex = Self.urlPattern else { return nil }
+        let matches = regex.matches(in: text, range: NSRange(location: 0, length: nsText.length))
+
+        for match in matches {
+            let range = match.range
+            // Check if the clicked column falls within this match's character range
+            if col >= range.location && col < range.location + range.length {
+                var urlString = nsText.substring(with: range)
+                // Strip trailing punctuation that's unlikely part of the URL
+                while let last = urlString.last, ".,;:!?)>]'\"".contains(last) {
+                    urlString.removeLast()
+                }
+                return URL(string: urlString)
+            }
+        }
+        return nil
+    }
+
+    /// Update the mouse cursor based on whether Cmd is held and the mouse is over a URL.
+    private func updateLinkCursor(for event: NSEvent) {
+        let cmdHeld = event.modifierFlags.contains(.command)
+
+        if cmdHeld {
+            let (row, col, _) = gridPosition(for: event)
+            if urlAtPosition(row: Int(row), col: Int(col)) != nil {
+                if !showingLinkCursor {
+                    NSCursor.pointingHand.set()
+                    showingLinkCursor = true
+                }
+                return
+            }
+        }
+
+        if showingLinkCursor {
+            NSCursor.iBeam.set()
+            showingLinkCursor = false
+        }
     }
 
     // MARK: - Standard Edit Actions
@@ -802,7 +923,7 @@ final class MetalTerminalView: NSView, CALayerDelegate {
     }
 
     override func flagsChanged(with event: NSEvent) {
-        // Could track modifier state if needed
+        updateLinkCursor(for: event)
     }
 }
 
