@@ -1,5 +1,5 @@
-// ABOUTME: Owns N terminal tabs, each with its own shell process and NSView.
-// ABOUTME: Provides add/close/switch operations and exposes the active tab's state.
+// ABOUTME: Owns N terminal tabs, each with a split-pane tree of shell processes.
+// ABOUTME: Provides tab/pane add/close/split operations and exposes the active pane's state.
 
 import SwiftUI
 
@@ -15,8 +15,25 @@ final class TerminalTabManager {
 
     struct Tab: Identifiable {
         let id: UUID
-        let viewModel: TerminalViewModel
-        let terminalView: MetalTerminalView
+        let paneController: PaneTreeController
+        var paneViewModels: [PaneID: TerminalViewModel]
+
+        /// The active pane's view model (used for tab bar title, status, etc.)
+        var viewModel: TerminalViewModel {
+            paneViewModels[paneController.activePaneID]!
+        }
+
+        /// The active pane's terminal view.
+        var terminalView: MetalTerminalView {
+            (paneController.paneView(for: paneController.activePaneID) as? MetalTerminalView)!
+        }
+
+        /// All terminal views across all panes in this tab.
+        var allTerminalViews: [MetalTerminalView] {
+            paneController.paneTree.allPaneIDs.compactMap {
+                paneController.paneView(for: $0) as? MetalTerminalView
+            }
+        }
     }
 
     private(set) var tabs: [Tab] = []
@@ -46,42 +63,21 @@ final class TerminalTabManager {
     func addTab(initialDirectory: String?, fontFamily: String, env: [(String, String)]? = nil) {
         lastDirectory = initialDirectory
         lastFontFamily = fontFamily
-        let vm = TerminalViewModel()
-        let view = MetalTerminalView(frame: .zero)
-
-        let termSize = UserDefaults.standard.double(forKey: "terminalFontSize")
-        view.terminalFont = FontSelection.terminalFont(family: fontFamily, size: termSize > 0 ? termSize : 14)
 
         let environment = env ?? Self.buildEnvironment()
         let directory = initialDirectory ?? NSHomeDirectory()
 
-        view.startShell(
-            executable: loginShell,
-            args: ["-l"],
-            environment: environment,
-            directory: directory
-        )
-        vm.processStarted(executable: loginShell, args: ["-l"])
-
-        // Wire up bridge events to view model
-        view.bridge?.onTitle = { [weak vm] title in
-            vm?.titleChanged(title)
-        }
-        view.bridge?.onDirectoryChange = { [weak vm] dir in
-            vm?.directoryChanged(dir)
-        }
-        view.bridge?.onChildExit = { [weak vm] code in
-            vm?.processTerminated(exitCode: code)
+        let controller = PaneTreeController { _ in
+            MetalTerminalView(frame: .zero)
         }
 
-        if let shellPid = view.bridge.map({ pid_t($0.shellPid) }), shellPid > 0 {
-            vm.startTrackingForeground(shellPid: shellPid)
-        }
+        let initialID = controller.activePaneID
+        guard let view = controller.paneView(for: initialID) as? MetalTerminalView else { return }
 
-        applyCursorStyle(to: view)
-        applyColorScheme(to: view)
+        let vm = TerminalViewModel()
+        setupPane(view: view, viewModel: vm, directory: directory, environment: environment)
 
-        let tab = Tab(id: UUID(), viewModel: vm, terminalView: view)
+        let tab = Tab(id: UUID(), paneController: controller, paneViewModels: [initialID: vm])
         tabs.append(tab)
         activeTabID = tab.id
 
@@ -112,8 +108,9 @@ final class TerminalTabManager {
         guard tabs.count > 1 else { return }
         guard let index = tabs.firstIndex(where: { $0.id == id }) else { return }
 
-        let tab = tabs[index]
-        tab.terminalView.terminate()
+        for view in tabs[index].allTerminalViews {
+            view.terminate()
+        }
         tabs.remove(at: index)
 
         if activeTabID == id {
@@ -140,6 +137,84 @@ final class TerminalTabManager {
         closeTab(id: id)
     }
 
+    // MARK: - Pane Operations
+
+    /// Split the active pane along the given axis, spawning a new shell.
+    func splitActivePane(axis: SplitAxis) {
+        guard let index = tabs.firstIndex(where: { $0.id == activeTabID }) else { return }
+
+        // Read current directory before the split changes the active pane
+        let dir = tabs[index].viewModel.currentDirectory ?? lastDirectory ?? NSHomeDirectory()
+        let environment = Self.buildEnvironment()
+
+        guard let newID = tabs[index].paneController.splitActivePane(axis: axis) else { return }
+        guard let newView = tabs[index].paneController.paneView(for: newID) as? MetalTerminalView else { return }
+
+        let vm = TerminalViewModel()
+        tabs[index].paneViewModels[newID] = vm
+        setupPane(view: newView, viewModel: vm, directory: dir, environment: environment)
+
+        focusActiveTab()
+    }
+
+    /// Close the active pane. If it's the last pane in the tab, close the tab instead.
+    func closeActivePane() {
+        guard let index = tabs.firstIndex(where: { $0.id == activeTabID }) else { return }
+
+        if tabs[index].paneController.paneTree.paneCount > 1 {
+            let closingID = tabs[index].paneController.activePaneID
+            let closingView = tabs[index].paneController.paneView(for: closingID) as? MetalTerminalView
+
+            if tabs[index].paneController.closePane(closingID) {
+                closingView?.terminate()
+                tabs[index].paneViewModels.removeValue(forKey: closingID)
+                focusActiveTab()
+            }
+        } else {
+            closeTab(id: tabs[index].id)
+        }
+    }
+
+    // MARK: - Pane Setup
+
+    private func setupPane(
+        view: MetalTerminalView,
+        viewModel: TerminalViewModel,
+        directory: String,
+        environment: [(String, String)]
+    ) {
+        let termSize = UserDefaults.standard.double(forKey: "terminalFontSize")
+        view.terminalFont = FontSelection.terminalFont(
+            family: lastFontFamily,
+            size: termSize > 0 ? termSize : 14
+        )
+
+        view.startShell(
+            executable: loginShell,
+            args: ["-l"],
+            environment: environment,
+            directory: directory
+        )
+        viewModel.processStarted(executable: loginShell, args: ["-l"])
+
+        view.bridge?.onTitle = { [weak viewModel] title in
+            viewModel?.titleChanged(title)
+        }
+        view.bridge?.onDirectoryChange = { [weak viewModel] dir in
+            viewModel?.directoryChanged(dir)
+        }
+        view.bridge?.onChildExit = { [weak viewModel] code in
+            viewModel?.processTerminated(exitCode: code)
+        }
+
+        if let shellPid = view.bridge.map({ pid_t($0.shellPid) }), shellPid > 0 {
+            viewModel.startTrackingForeground(shellPid: shellPid)
+        }
+
+        applyCursorStyle(to: view)
+        applyColorScheme(to: view)
+    }
+
     // MARK: - Cursor Style
 
     func applyCursorStyle(to view: MetalTerminalView) {
@@ -157,7 +232,9 @@ final class TerminalTabManager {
 
     func applyCursorStyleToAll() {
         for tab in tabs {
-            applyCursorStyle(to: tab.terminalView)
+            for view in tab.allTerminalViews {
+                applyCursorStyle(to: view)
+            }
         }
     }
 
@@ -171,7 +248,9 @@ final class TerminalTabManager {
 
     func applyColorSchemeToAll() {
         for tab in tabs {
-            applyColorScheme(to: tab.terminalView)
+            for view in tab.allTerminalViews {
+                applyColorScheme(to: view)
+            }
         }
     }
 
