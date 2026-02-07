@@ -48,15 +48,15 @@ final class PaneContainerView: NSView {
             }
             return NSView()
 
-        case .split(let axis, let first, let second):
+        case .split(let axis, let children):
             let split = PaneSplitView()
             // horizontal axis = side-by-side panes = vertical divider
             split.isVertical = (axis == .horizontal)
 
-            let firstView = buildView(for: first, viewProvider: viewProvider)
-            let secondView = buildView(for: second, viewProvider: viewProvider)
-            split.addArrangedSubview(firstView)
-            split.addArrangedSubview(secondView)
+            for child in children {
+                let childView = buildView(for: child, viewProvider: viewProvider)
+                split.addArrangedSubview(childView)
+            }
 
             return split
         }

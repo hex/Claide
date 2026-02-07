@@ -167,4 +167,32 @@ struct PaneTreeControllerTests {
         #expect(ids.contains(second))
         #expect(ids.contains(third))
     }
+
+    // MARK: - N-ary Splits
+
+    @Test("same-axis splits through controller produce flat tree")
+    func sameAxisSplitsProduceFlatTree() {
+        let (controller, first) = makeController()
+
+        // All horizontal splits from the newest pane
+        let second = controller.splitActivePane(axis: .horizontal)!
+        let third = controller.splitActivePane(axis: .horizontal)!
+        let fourth = controller.splitActivePane(axis: .horizontal)!
+
+        #expect(controller.paneTree.paneCount == 4)
+
+        // Should be a flat split(horizontal, [first, second, third, fourth])
+        guard case .split(let axis, let children) = controller.paneTree else {
+            Issue.record("expected split node")
+            return
+        }
+        #expect(axis == .horizontal)
+        #expect(children.count == 4)
+
+        let ids = controller.paneTree.allPaneIDs
+        #expect(ids.contains(first))
+        #expect(ids.contains(second))
+        #expect(ids.contains(third))
+        #expect(ids.contains(fourth))
+    }
 }
