@@ -193,6 +193,22 @@ final class MetalTerminalView: NSView, CALayerDelegate {
         needsRedraw = true
     }
 
+    /// Flash the terminal view briefly to indicate a bell character (BEL / 0x07).
+    func flashBell() {
+        let overlay = NSView(frame: bounds)
+        overlay.wantsLayer = true
+        overlay.layer?.backgroundColor = NSColor.white.withAlphaComponent(0.12).cgColor
+        overlay.autoresizingMask = [.width, .height]
+        addSubview(overlay)
+
+        NSAnimationContext.runAnimationGroup({ ctx in
+            ctx.duration = 0.15
+            overlay.animator().alphaValue = 0
+        }, completionHandler: {
+            overlay.removeFromSuperview()
+        })
+    }
+
     // MARK: - Display Link
 
     private func startDisplayLink() {
