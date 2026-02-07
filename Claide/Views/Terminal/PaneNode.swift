@@ -4,7 +4,7 @@
 import Foundation
 
 /// Orientation of a split divider.
-enum SplitAxis: Equatable {
+enum SplitAxis: String, Equatable, Codable {
     case horizontal  // panes side-by-side (left | right), divider is vertical
     case vertical    // panes stacked (top / bottom), divider is horizontal
 }
@@ -35,7 +35,7 @@ typealias PaneID = UUID
 /// N-ary tree node for a split-pane terminal layout.
 /// Leaves are terminal panes; internal nodes are splits with N >= 2 children.
 /// Same-axis splits add siblings (equal distribution); cross-axis splits nest.
-indirect enum PaneNode {
+indirect enum PaneNode: Codable {
     case terminal(id: PaneID)
     case split(axis: SplitAxis, children: [PaneNode])
 

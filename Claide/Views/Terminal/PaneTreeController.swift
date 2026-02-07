@@ -39,6 +39,21 @@ final class PaneTreeController {
         rebuildContainer()
     }
 
+    /// Restore a controller from a saved pane tree.
+    ///
+    /// Creates views for every pane ID in the tree and sets the given pane as active.
+    init(restoredTree: PaneNode, activePaneID: PaneID, viewFactory: @escaping (PaneID) -> NSView) {
+        self.viewFactory = viewFactory
+        self.paneTree = restoredTree
+        self.activePaneID = activePaneID
+
+        for id in restoredTree.allPaneIDs {
+            paneViews[id] = viewFactory(id)
+        }
+
+        rebuildContainer()
+    }
+
     // MARK: - Operations
 
     /// Split the active pane along the given axis.
