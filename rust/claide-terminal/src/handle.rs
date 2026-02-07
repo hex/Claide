@@ -7,7 +7,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread::JoinHandle;
 
-use alacritty_terminal::grid::Dimensions;
+use alacritty_terminal::grid::{Dimensions, Scroll};
 use alacritty_terminal::index::{Column, Line, Point, Side};
 use alacritty_terminal::selection::{Selection, SelectionType};
 use alacritty_terminal::sync::FairMutex;
@@ -303,6 +303,13 @@ impl TerminalHandle {
     pub fn selection_text(&self) -> Option<String> {
         let term = self.term.lock();
         term.selection_to_string()
+    }
+
+    /// Scroll the terminal viewport. Positive delta scrolls up (into history),
+    /// negative scrolls down (toward live output).
+    pub fn scroll(&self, delta: i32) {
+        let mut term = self.term.lock();
+        term.scroll_display(Scroll::Delta(delta));
     }
 }
 

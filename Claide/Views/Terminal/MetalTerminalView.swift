@@ -21,6 +21,12 @@ private func displayLinkFired(
     return kCVReturnSuccess
 }
 
+/// macOS virtual key codes used by keyDown interception.
+private enum KeyCode: UInt16 {
+    case pageUp   = 0x74
+    case pageDown = 0x79
+}
+
 /// GPU-accelerated terminal view using Metal for rendering and alacritty_terminal for emulation.
 final class MetalTerminalView: NSView, CALayerDelegate {
 
@@ -85,6 +91,9 @@ final class MetalTerminalView: NSView, CALayerDelegate {
 
     private(set) var cursorShape: CursorShape = .beam
     private(set) var cursorBlinking: Bool = true
+
+    /// Accumulated fractional scroll delta for smooth trackpad scrolling.
+    private var scrollAccumulator: CGFloat = 0
 
     /// IME marked text state (for NSTextInputClient).
     private var markedTextStorage = NSMutableAttributedString()
@@ -391,6 +400,21 @@ final class MetalTerminalView: NSView, CALayerDelegate {
 
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
 
+        // Shift+PageUp/Down: scroll the viewport instead of sending to the shell
+        if flags == .shift, let keyCode = KeyCode(rawValue: event.keyCode) {
+            let halfScreen = max(1, Int32(gridDimensions.rows / 2))
+            switch keyCode {
+            case .pageUp:
+                bridge?.scroll(delta: halfScreen)
+                needsRedraw = true
+                return
+            case .pageDown:
+                bridge?.scroll(delta: -halfScreen)
+                needsRedraw = true
+                return
+            }
+        }
+
         // Option-as-Meta: send ESC + char directly, bypassing the input method
         if optionAsMeta && flags.contains(.option)
             && !flags.contains(.command) && !flags.contains(.control) {
@@ -530,6 +554,30 @@ final class MetalTerminalView: NSView, CALayerDelegate {
         }
         resizeDebounceWork = work
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.2, execute: work)
+    }
+
+    // MARK: - Scroll
+
+    override func scrollWheel(with event: NSEvent) {
+        guard bridge != nil else { return }
+
+        if event.hasPreciseScrollingDeltas {
+            // Trackpad: accumulate sub-line deltas
+            scrollAccumulator += event.scrollingDeltaY
+            let lines = Int32(scrollAccumulator / atlas.cellHeight)
+            if lines != 0 {
+                scrollAccumulator -= CGFloat(lines) * atlas.cellHeight
+                bridge?.scroll(delta: lines)
+                needsRedraw = true
+            }
+        } else {
+            // Mouse wheel: each tick is one line
+            let lines = Int32(event.scrollingDeltaY)
+            if lines != 0 {
+                bridge?.scroll(delta: lines)
+                needsRedraw = true
+            }
+        }
     }
 
     // MARK: - Mouse / Selection

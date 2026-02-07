@@ -175,6 +175,11 @@ void claide_terminal_snapshot_free(ClaideGridSnapshot *snapshot);
 /// Get the shell process ID.
 uint32_t claide_terminal_shell_pid(ClaideTerminalRef handle);
 
+// -- Scrollback --
+
+/// Scroll the terminal viewport. Positive delta = scroll up (into history), negative = down.
+void claide_terminal_scroll(ClaideTerminalRef handle, int32_t delta);
+
 // -- Selection --
 
 /// Selection side constants.
