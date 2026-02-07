@@ -9,6 +9,7 @@ final class PaneTreeController {
     nonisolated(unsafe) private(set) var paneTree: PaneNode
     let containerView = PaneContainerView()
     nonisolated(unsafe) private(set) var activePaneID: PaneID
+    private(set) var isZoomed = false
 
     /// Called when a pane's close button is clicked. Set by the tab manager.
     var onPaneCloseRequested: ((PaneID) -> Void)? {
@@ -84,6 +85,14 @@ final class PaneTreeController {
         activePaneID = paneID
     }
 
+    /// Toggle zoom: when zoomed, only the active pane fills the container.
+    /// The full tree is preserved and restored on un-zoom.
+    func toggleZoom() {
+        guard paneTree.paneCount > 1 else { return }
+        isZoomed.toggle()
+        rebuildContainer()
+    }
+
     /// Move focus to the adjacent pane in the given direction.
     /// Returns true if focus moved, false if already at the boundary.
     @discardableResult
@@ -108,7 +117,8 @@ final class PaneTreeController {
     // MARK: - Private
 
     private func rebuildContainer() {
-        containerView.applyTree(paneTree) { [paneViews] id in
+        let displayTree = isZoomed ? .terminal(id: activePaneID) : paneTree
+        containerView.applyTree(displayTree) { [paneViews] id in
             paneViews[id]
         }
     }
