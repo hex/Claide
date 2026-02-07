@@ -310,6 +310,92 @@ struct PaneNodeTests {
 
     // MARK: - Pane Count
 
+    // MARK: - Adjacent Pane (Directional Navigation)
+
+    @Test("adjacent pane in simple horizontal split")
+    func adjacentInHorizontalSplit() {
+        let a = UUID(), b = UUID()
+        let tree = PaneNode.split(axis: .horizontal, children: [leaf(a), leaf(b)])
+
+        #expect(tree.adjacentPaneID(of: a, direction: .right) == b)
+        #expect(tree.adjacentPaneID(of: b, direction: .left) == a)
+        // No vertical neighbors in a horizontal-only split
+        #expect(tree.adjacentPaneID(of: a, direction: .up) == nil)
+        #expect(tree.adjacentPaneID(of: a, direction: .down) == nil)
+    }
+
+    @Test("adjacent pane in simple vertical split")
+    func adjacentInVerticalSplit() {
+        let a = UUID(), b = UUID()
+        let tree = PaneNode.split(axis: .vertical, children: [leaf(a), leaf(b)])
+
+        #expect(tree.adjacentPaneID(of: a, direction: .down) == b)
+        #expect(tree.adjacentPaneID(of: b, direction: .up) == a)
+        // No horizontal neighbors in a vertical-only split
+        #expect(tree.adjacentPaneID(of: a, direction: .left) == nil)
+        #expect(tree.adjacentPaneID(of: a, direction: .right) == nil)
+    }
+
+    @Test("adjacent pane in nested split crosses axis boundary")
+    func adjacentInNestedSplit() {
+        // Layout: [A | [B / C]]
+        // A is left, B is top-right, C is bottom-right
+        let a = UUID(), b = UUID(), c = UUID()
+        let inner = PaneNode.split(axis: .vertical, children: [leaf(b), leaf(c)])
+        let tree = PaneNode.split(axis: .horizontal, children: [leaf(a), inner])
+
+        // Horizontal movement from B goes to A
+        #expect(tree.adjacentPaneID(of: b, direction: .left) == a)
+        #expect(tree.adjacentPaneID(of: c, direction: .left) == a)
+        // Horizontal movement from A goes into the inner split's first leaf
+        #expect(tree.adjacentPaneID(of: a, direction: .right) == b)
+        // Vertical movement within inner split
+        #expect(tree.adjacentPaneID(of: b, direction: .down) == c)
+        #expect(tree.adjacentPaneID(of: c, direction: .up) == b)
+        // No vertical movement for A (it's alone on vertical axis)
+        #expect(tree.adjacentPaneID(of: a, direction: .up) == nil)
+        #expect(tree.adjacentPaneID(of: a, direction: .down) == nil)
+    }
+
+    @Test("adjacent pane in n-ary split navigates through all siblings")
+    func adjacentInNArySplit() {
+        let a = UUID(), b = UUID(), c = UUID(), d = UUID()
+        let tree = PaneNode.split(axis: .horizontal, children: [leaf(a), leaf(b), leaf(c), leaf(d)])
+
+        #expect(tree.adjacentPaneID(of: a, direction: .right) == b)
+        #expect(tree.adjacentPaneID(of: b, direction: .right) == c)
+        #expect(tree.adjacentPaneID(of: c, direction: .right) == d)
+        #expect(tree.adjacentPaneID(of: d, direction: .right) == nil) // boundary
+        #expect(tree.adjacentPaneID(of: d, direction: .left) == c)
+        #expect(tree.adjacentPaneID(of: a, direction: .left) == nil) // boundary
+    }
+
+    @Test("adjacent pane returns nil for single terminal")
+    func adjacentInSingleTerminal() {
+        let id = UUID()
+        let tree = leaf(id)
+
+        #expect(tree.adjacentPaneID(of: id, direction: .left) == nil)
+        #expect(tree.adjacentPaneID(of: id, direction: .right) == nil)
+        #expect(tree.adjacentPaneID(of: id, direction: .up) == nil)
+        #expect(tree.adjacentPaneID(of: id, direction: .down) == nil)
+    }
+
+    @Test("adjacent picks nearest leaf when crossing into subtree")
+    func adjacentPicksNearestLeaf() {
+        // Layout: [[A / B] | C]
+        // Going left from C should reach B (last leaf of left subtree), not A
+        let a = UUID(), b = UUID(), c = UUID()
+        let inner = PaneNode.split(axis: .vertical, children: [leaf(a), leaf(b)])
+        let tree = PaneNode.split(axis: .horizontal, children: [inner, leaf(c)])
+
+        #expect(tree.adjacentPaneID(of: c, direction: .left) == b)
+        // Going right from A enters C (first/only leaf of right subtree)
+        #expect(tree.adjacentPaneID(of: a, direction: .right) == c)
+    }
+
+    // MARK: - Pane Count
+
     @Test("paneCount returns correct count")
     func paneCount() {
         let a = UUID(), b = UUID(), c = UUID()

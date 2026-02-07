@@ -116,6 +116,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 }
             }
 
+            if flags == [.command, .option] {
+                switch event.keyCode {
+                case 123: // Left arrow
+                    self.tabManager.focusAdjacentPane(direction: .left)
+                    return nil
+                case 124: // Right arrow
+                    self.tabManager.focusAdjacentPane(direction: .right)
+                    return nil
+                case 126: // Up arrow
+                    self.tabManager.focusAdjacentPane(direction: .up)
+                    return nil
+                case 125: // Down arrow
+                    self.tabManager.focusAdjacentPane(direction: .down)
+                    return nil
+                default:
+                    break
+                }
+            }
+
             if flags == [.command, .shift], let chars = event.charactersIgnoringModifiers {
                 switch chars {
                 case "D":

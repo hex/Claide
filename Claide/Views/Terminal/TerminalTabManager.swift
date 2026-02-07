@@ -177,6 +177,14 @@ final class TerminalTabManager {
         }
     }
 
+    /// Move focus to the adjacent pane in the given direction.
+    func focusAdjacentPane(direction: PaneDirection) {
+        guard let tab = activeTab else { return }
+        if tab.paneController.focusAdjacentPane(direction: direction) {
+            focusActiveTab()
+        }
+    }
+
     /// Close the active pane. If it's the last pane in the tab, close the tab instead.
     func closeActivePane() {
         guard let tab = activeTab else { return }

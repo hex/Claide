@@ -84,6 +84,17 @@ final class PaneTreeController {
         activePaneID = paneID
     }
 
+    /// Move focus to the adjacent pane in the given direction.
+    /// Returns true if focus moved, false if already at the boundary.
+    @discardableResult
+    func focusAdjacentPane(direction: PaneDirection) -> Bool {
+        guard let targetID = paneTree.adjacentPaneID(of: activePaneID, direction: direction) else {
+            return false
+        }
+        activePaneID = targetID
+        return true
+    }
+
     /// Look up the view for a given pane ID.
     nonisolated func paneView(for paneID: PaneID) -> NSView? {
         paneViews[paneID]
