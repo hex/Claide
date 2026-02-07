@@ -237,6 +237,13 @@ final class TerminalTabManager {
         view.bridge?.onChildExit = { [weak viewModel] code in
             viewModel?.processTerminated(exitCode: code)
         }
+        view.bridge?.onBell = { [weak view] in
+            view?.flashBell()
+            NSSound.beep()
+            if !NSApp.isActive {
+                NSApp.requestUserAttention(.informationalRequest)
+            }
+        }
 
         if let shellPid = view.bridge.map({ pid_t($0.shellPid) }), shellPid > 0 {
             viewModel.startTrackingForeground(shellPid: shellPid)
