@@ -20,6 +20,7 @@ final class PaneContainerView: NSView {
     /// Views are detached (not destroyed) before rebuilding, so MetalTerminalView
     /// instances survive across tree changes.
     func applyTree(_ tree: PaneNode, viewProvider: (PaneID) -> NSView?) {
+        let preservedTitles = titleBars.mapValues { $0.title }
         subviews.forEach { $0.removeFromSuperview() }
         paneViews.removeAll()
         titleBars.removeAll()
@@ -35,6 +36,10 @@ final class PaneContainerView: NSView {
             root.topAnchor.constraint(equalTo: topAnchor),
             root.bottomAnchor.constraint(equalTo: bottomAnchor),
         ])
+
+        for (id, title) in preservedTitles {
+            titleBars[id]?.title = title
+        }
     }
 
     /// Look up the view for a given pane ID.
