@@ -48,9 +48,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         newTab.target = self
         menu.addItem(newTab)
 
-        let closeTab = NSMenuItem(title: "Close Tab", action: #selector(closeTab), keyEquivalent: "w")
-        closeTab.target = self
-        menu.addItem(closeTab)
+        let closePane = NSMenuItem(title: "Close Pane", action: #selector(closeActivePane), keyEquivalent: "w")
+        closePane.target = self
+        menu.addItem(closePane)
+
+        menu.addItem(.separator())
+
+        let splitH = NSMenuItem(title: "Split Horizontally", action: #selector(splitHorizontal), keyEquivalent: "d")
+        splitH.target = self
+        menu.addItem(splitH)
+
+        let splitV = NSMenuItem(title: "Split Vertically", action: #selector(splitVertical), keyEquivalent: "D")
+        splitV.keyEquivalentModifierMask = [.command, .shift]
+        splitV.target = self
+        menu.addItem(splitV)
 
         menu.addItem(.separator())
 
@@ -92,7 +103,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     self.newTab()
                     return nil
                 case "w":
-                    self.closeTab()
+                    self.closeActivePane()
+                    return nil
+                case "d":
+                    self.splitHorizontal()
                     return nil
                 case "b":
                     self.toggleSidebar()
@@ -102,7 +116,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 }
             }
 
-            if flags == [.command, .shift] {
+            if flags == [.command, .shift], let chars = event.charactersIgnoringModifiers {
+                switch chars {
+                case "D":
+                    self.splitVertical()
+                    return nil
+                default:
+                    break
+                }
+
                 switch event.keyCode {
                 case 123: // Left arrow
                     self.moveActiveTabLeft()
@@ -125,8 +147,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         tabManager.addTab()
     }
 
-    @objc private func closeTab() {
-        tabManager.closeActiveTab()
+    @objc private func closeActivePane() {
+        tabManager.closeActivePane()
+    }
+
+    @objc private func splitHorizontal() {
+        tabManager.splitActivePane(axis: .horizontal)
+    }
+
+    @objc private func splitVertical() {
+        tabManager.splitActivePane(axis: .vertical)
     }
 
     @objc private func toggleSidebar() {
@@ -157,8 +187,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 extension AppDelegate: NSMenuItemValidation {
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
         switch menuItem.action {
-        case #selector(closeTab):
-            return tabManager.tabs.count > 1
+        case #selector(closeActivePane):
+            let hasManyTabs = tabManager.tabs.count > 1
+            let hasManyPanes = tabManager.activeTab.map { $0.paneController.paneTree.paneCount > 1 } ?? false
+            return hasManyTabs || hasManyPanes
         case #selector(switchToTab(_:)):
             return menuItem.tag < tabManager.tabs.count
         default:
