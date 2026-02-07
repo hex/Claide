@@ -1,20 +1,30 @@
-// ABOUTME: Application delegate that owns the main window and terminal menu.
-// ABOUTME: Creates TerminalTabManager and MainWindowController at launch.
+// ABOUTME: Application delegate that owns terminal windows and the terminal menu.
+// ABOUTME: Creates new windows with Cmd+N, each with its own tab manager.
 
 import AppKit
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
 
-    private var tabManager: TerminalTabManager!
-    private var windowController: MainWindowController!
+    private var windowControllers: [MainWindowController] = []
 
     private var keyMonitor: Any?
 
+    /// The tab manager for the currently active (key) window.
+    private var activeTabManager: TerminalTabManager? {
+        activeWindowController?.tabManager
+    }
+
+    /// The window controller for the currently active (key) window.
+    private var activeWindowController: MainWindowController? {
+        guard let keyWindow = NSApp.keyWindow else {
+            return windowControllers.first
+        }
+        return windowControllers.first { $0.window === keyWindow }
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
-        tabManager = TerminalTabManager()
-        windowController = MainWindowController(tabManager: tabManager)
-        windowController.showWindow(nil)
+        createNewWindow()
 
         // SwiftUI builds the main menu asynchronously after launch.
         // Delay so our Terminal menu is appended after SwiftUI's menu is in place.
@@ -29,9 +39,41 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         if !flag {
-            windowController?.showWindow(self)
+            createNewWindow()
         }
         return true
+    }
+
+    // MARK: - Window Management
+
+    @discardableResult
+    private func createNewWindow() -> MainWindowController {
+        let tabManager = TerminalTabManager()
+        let controller = MainWindowController(tabManager: tabManager)
+        windowControllers.append(controller)
+
+        // Cascade new windows from the most recent existing window
+        if let existingWindow = windowControllers.dropLast().last?.window,
+           let newWindow = controller.window {
+            let cascaded = newWindow.cascadeTopLeft(from: existingWindow.frame.origin)
+            newWindow.setFrameTopLeftPoint(cascaded)
+        }
+
+        controller.showWindow(nil)
+
+        // Track window close to remove from our array.
+        // MainWindowController is its own NSWindowDelegate (for fullscreen),
+        // so we observe the notification instead of setting the delegate.
+        if let window = controller.window {
+            NotificationCenter.default.addObserver(
+                self,
+                selector: #selector(windowDidClose(_:)),
+                name: NSWindow.willCloseNotification,
+                object: window
+            )
+        }
+
+        return controller
     }
 
     // MARK: - Terminal Menu
@@ -43,6 +85,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         terminalMenuInstalled = true
 
         let menu = NSMenu(title: "Terminal")
+
+        let newWindow = NSMenuItem(title: "New Window", action: #selector(newWindow), keyEquivalent: "n")
+        newWindow.target = self
+        menu.addItem(newWindow)
 
         let newTab = NSMenuItem(title: "New Tab", action: #selector(newTab), keyEquivalent: "t")
         newTab.target = self
@@ -99,6 +145,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
             if flags == .command, let chars = event.charactersIgnoringModifiers {
                 switch chars {
+                case "n":
+                    self.newWindow()
+                    return nil
                 case "t":
                     self.newTab()
                     return nil
@@ -119,16 +168,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             if flags == [.command, .option] {
                 switch event.keyCode {
                 case 123: // Left arrow
-                    self.tabManager.focusAdjacentPane(direction: .left)
+                    self.activeTabManager?.focusAdjacentPane(direction: .left)
                     return nil
                 case 124: // Right arrow
-                    self.tabManager.focusAdjacentPane(direction: .right)
+                    self.activeTabManager?.focusAdjacentPane(direction: .right)
                     return nil
                 case 126: // Up arrow
-                    self.tabManager.focusAdjacentPane(direction: .up)
+                    self.activeTabManager?.focusAdjacentPane(direction: .up)
                     return nil
                 case 125: // Down arrow
-                    self.tabManager.focusAdjacentPane(direction: .down)
+                    self.activeTabManager?.focusAdjacentPane(direction: .down)
                     return nil
                 default:
                     break
@@ -138,7 +187,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             if flags == [.command, .shift] {
                 // Cmd+Shift+Enter: toggle pane zoom
                 if event.keyCode == 36 {
-                    self.tabManager.toggleZoom()
+                    self.activeTabManager?.toggleZoom()
                     return nil
                 }
             }
@@ -170,42 +219,60 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     // MARK: - Actions
 
+    @objc private func newWindow() {
+        createNewWindow()
+    }
+
     @objc private func newTab() {
-        tabManager.addTab()
+        activeTabManager?.addTab()
     }
 
     @objc private func closeActivePane() {
+        guard let tabManager = activeTabManager else { return }
+        // If there's only one tab with one pane, close the window instead
+        if tabManager.tabs.count == 1,
+           tabManager.activeTab?.paneController.paneTree.paneCount == 1 {
+            activeWindowController?.window?.close()
+            return
+        }
         tabManager.closeActivePane()
     }
 
     @objc private func splitHorizontal() {
-        tabManager.splitActivePane(axis: .horizontal)
+        activeTabManager?.splitActivePane(axis: .horizontal)
     }
 
     @objc private func splitVertical() {
-        tabManager.splitActivePane(axis: .vertical)
+        activeTabManager?.splitActivePane(axis: .vertical)
     }
 
     @objc private func toggleSidebar() {
-        windowController.splitViewController.toggleSidebarPanel()
+        activeWindowController?.splitViewController.toggleSidebarPanel()
     }
 
     @objc private func switchToTab(_ sender: NSMenuItem) {
-        tabManager.switchToTab(at: sender.tag)
+        activeTabManager?.switchToTab(at: sender.tag)
     }
 
     private func moveActiveTabLeft() {
-        guard let id = tabManager.activeTabID,
+        guard let tabManager = activeTabManager,
+              let id = tabManager.activeTabID,
               let index = tabManager.tabs.firstIndex(where: { $0.id == id }),
               index > 0 else { return }
         tabManager.moveTab(from: index, to: index - 1)
     }
 
     private func moveActiveTabRight() {
-        guard let id = tabManager.activeTabID,
+        guard let tabManager = activeTabManager,
+              let id = tabManager.activeTabID,
               let index = tabManager.tabs.firstIndex(where: { $0.id == id }),
               index < tabManager.tabs.count - 1 else { return }
         tabManager.moveTab(from: index, to: index + 1)
+    }
+
+    @objc private func windowDidClose(_ notification: Notification) {
+        guard let closingWindow = notification.object as? NSWindow else { return }
+        windowControllers.removeAll { $0.window === closingWindow }
     }
 }
 
@@ -215,10 +282,9 @@ extension AppDelegate: NSMenuItemValidation {
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
         switch menuItem.action {
         case #selector(closeActivePane):
-            let hasManyTabs = tabManager.tabs.count > 1
-            let hasManyPanes = tabManager.activeTab.map { $0.paneController.paneTree.paneCount > 1 } ?? false
-            return hasManyTabs || hasManyPanes
+            return activeTabManager != nil
         case #selector(switchToTab(_:)):
+            guard let tabManager = activeTabManager else { return false }
             return menuItem.tag < tabManager.tabs.count
         default:
             return true

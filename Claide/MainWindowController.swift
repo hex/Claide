@@ -7,9 +7,11 @@ import SwiftUI
 @MainActor
 final class MainWindowController: NSWindowController, NSWindowDelegate {
 
+    let tabManager: TerminalTabManager
     let splitViewController: MainSplitViewController
 
     init(tabManager: TerminalTabManager) {
+        self.tabManager = tabManager
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 1200, height: 700),
             styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
@@ -26,7 +28,6 @@ final class MainWindowController: NSWindowController, NSWindowDelegate {
         window.backgroundColor = Palette.nsColor(.bgTerminal)
         window.appearance = NSAppearance(named: .darkAqua)
         window.minSize = NSSize(width: 900, height: 500)
-        window.setFrameAutosaveName("ClaideMainWindow")
 
         let splitVC = MainSplitViewController(tabManager: tabManager)
         self.splitViewController = splitVC
