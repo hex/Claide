@@ -11,6 +11,9 @@ final class PaneContainerView: NSView {
     /// Current pane-to-view mapping, populated during applyTree.
     private var paneViews: [PaneID: NSView] = [:]
 
+    /// Title bars keyed by pane ID, for dynamic title updates.
+    private var titleBars: [PaneID: PaneTitleBar] = [:]
+
     /// Rebuild the view hierarchy to match the given pane tree.
     ///
     /// The `viewProvider` closure supplies the NSView for each terminal pane ID.
@@ -19,9 +22,10 @@ final class PaneContainerView: NSView {
     func applyTree(_ tree: PaneNode, viewProvider: (PaneID) -> NSView?) {
         subviews.forEach { $0.removeFromSuperview() }
         paneViews.removeAll()
+        titleBars.removeAll()
 
-        let showClose = tree.paneCount > 1
-        let root = buildView(for: tree, viewProvider: viewProvider, showClose: showClose)
+        let showTitleBar = tree.paneCount > 1
+        let root = buildView(for: tree, viewProvider: viewProvider, showTitleBar: showTitleBar)
         root.translatesAutoresizingMaskIntoConstraints = false
         addSubview(root)
 
@@ -38,44 +42,51 @@ final class PaneContainerView: NSView {
         paneViews[id]
     }
 
+    /// Update the title displayed in a pane's title bar.
+    func setTitle(_ title: String, for paneID: PaneID) {
+        titleBars[paneID]?.title = title
+    }
+
     // MARK: - Private
 
     private func buildView(
         for node: PaneNode,
         viewProvider: (PaneID) -> NSView?,
-        showClose: Bool
+        showTitleBar: Bool
     ) -> NSView {
         switch node {
         case .terminal(let id):
             if let view = viewProvider(id) {
                 paneViews[id] = view
 
-                guard showClose else {
+                guard showTitleBar else {
                     view.translatesAutoresizingMaskIntoConstraints = true
                     return view
                 }
 
-                // Wrap in a container with a close button overlay
+                let titleBar = PaneTitleBar(paneID: id) { [weak self] id in
+                    self?.onClosePane?(id)
+                }
+                titleBars[id] = titleBar
+
                 let wrapper = NSView()
                 wrapper.translatesAutoresizingMaskIntoConstraints = true
 
+                titleBar.translatesAutoresizingMaskIntoConstraints = false
                 view.translatesAutoresizingMaskIntoConstraints = false
+                wrapper.addSubview(titleBar)
                 wrapper.addSubview(view)
 
-                let button = PaneCloseButton(paneID: id) { [weak self] id in
-                    self?.onClosePane?(id)
-                }
-                button.translatesAutoresizingMaskIntoConstraints = false
-                wrapper.addSubview(button)
-
                 NSLayoutConstraint.activate([
+                    titleBar.leadingAnchor.constraint(equalTo: wrapper.leadingAnchor),
+                    titleBar.trailingAnchor.constraint(equalTo: wrapper.trailingAnchor),
+                    titleBar.topAnchor.constraint(equalTo: wrapper.topAnchor),
+                    titleBar.heightAnchor.constraint(equalToConstant: PaneTitleBar.height),
+
                     view.leadingAnchor.constraint(equalTo: wrapper.leadingAnchor),
                     view.trailingAnchor.constraint(equalTo: wrapper.trailingAnchor),
-                    view.topAnchor.constraint(equalTo: wrapper.topAnchor),
+                    view.topAnchor.constraint(equalTo: titleBar.bottomAnchor),
                     view.bottomAnchor.constraint(equalTo: wrapper.bottomAnchor),
-
-                    button.topAnchor.constraint(equalTo: wrapper.topAnchor, constant: 4),
-                    button.trailingAnchor.constraint(equalTo: wrapper.trailingAnchor, constant: -4),
                 ])
 
                 return wrapper
@@ -88,7 +99,7 @@ final class PaneContainerView: NSView {
             split.isVertical = (axis == .horizontal)
 
             for child in children {
-                let childView = buildView(for: child, viewProvider: viewProvider, showClose: showClose)
+                let childView = buildView(for: child, viewProvider: viewProvider, showTitleBar: showTitleBar)
                 split.addArrangedSubview(childView)
             }
 
@@ -97,54 +108,107 @@ final class PaneContainerView: NSView {
     }
 }
 
-// MARK: - Close Button
+// MARK: - Pane Title Bar
 
-private final class PaneCloseButton: NSButton {
+final class PaneTitleBar: NSView {
 
+    static let height: CGFloat = 22
+
+    var title: String = "" {
+        didSet { titleField.stringValue = title }
+    }
+
+    private let titleField: NSTextField
+    private let closeButton: NSButton
     private let paneID: PaneID
     private let onClose: (PaneID) -> Void
 
     init(paneID: PaneID, onClose: @escaping (PaneID) -> Void) {
         self.paneID = paneID
         self.onClose = onClose
-        super.init(frame: NSRect(x: 0, y: 0, width: 16, height: 16))
-
-        isBordered = false
-        image = NSImage(systemSymbolName: "xmark", accessibilityDescription: "Close pane")
-        symbolConfiguration = .init(pointSize: 8, weight: .bold)
-        contentTintColor = .white.withAlphaComponent(0.4)
-        setButtonType(.momentaryChange)
-        target = self
-        action = #selector(closeTapped)
+        self.titleField = NSTextField(labelWithString: "")
+        self.closeButton = NSButton(frame: NSRect(x: 0, y: 0, width: 16, height: 16))
+        super.init(frame: .zero)
 
         wantsLayer = true
-        layer?.cornerRadius = 8
+        layer?.backgroundColor = NSColor(Theme.backgroundSunken).cgColor
+
+        setupCloseButton()
+        setupTitleField()
+        setupBorder()
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError() }
 
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        for area in trackingAreas { removeTrackingArea(area) }
-        addTrackingArea(NSTrackingArea(
-            rect: bounds,
-            options: [.mouseEnteredAndExited, .activeInActiveApp],
+    private func setupCloseButton() {
+        closeButton.translatesAutoresizingMaskIntoConstraints = false
+        closeButton.isBordered = false
+        closeButton.image = NSImage(systemSymbolName: "xmark", accessibilityDescription: "Close pane")
+        closeButton.symbolConfiguration = .init(pointSize: 8, weight: .bold)
+        closeButton.contentTintColor = .white.withAlphaComponent(0.35)
+        closeButton.setButtonType(.momentaryChange)
+        closeButton.target = self
+        closeButton.action = #selector(closeTapped)
+        addSubview(closeButton)
+
+        NSLayoutConstraint.activate([
+            closeButton.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 4),
+            closeButton.centerYAnchor.constraint(equalTo: centerYAnchor),
+            closeButton.widthAnchor.constraint(equalToConstant: 16),
+            closeButton.heightAnchor.constraint(equalToConstant: 16),
+        ])
+
+        // Hover tracking
+        closeButton.wantsLayer = true
+        closeButton.layer?.cornerRadius = 8
+        let area = NSTrackingArea(
+            rect: .zero,
+            options: [.mouseEnteredAndExited, .activeInActiveApp, .inVisibleRect],
             owner: self
-        ))
+        )
+        closeButton.addTrackingArea(area)
+    }
+
+    private func setupTitleField() {
+        titleField.translatesAutoresizingMaskIntoConstraints = false
+        titleField.font = .systemFont(ofSize: 10, weight: .medium)
+        titleField.textColor = NSColor(Theme.textMuted)
+        titleField.lineBreakMode = .byTruncatingMiddle
+        titleField.cell?.truncatesLastVisibleLine = true
+        addSubview(titleField)
+
+        NSLayoutConstraint.activate([
+            titleField.leadingAnchor.constraint(equalTo: closeButton.trailingAnchor, constant: 4),
+            titleField.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -6),
+            titleField.centerYAnchor.constraint(equalTo: centerYAnchor),
+        ])
+    }
+
+    private func setupBorder() {
+        let border = NSView()
+        border.translatesAutoresizingMaskIntoConstraints = false
+        border.wantsLayer = true
+        border.layer?.backgroundColor = NSColor(Theme.border).cgColor
+        addSubview(border)
+
+        NSLayoutConstraint.activate([
+            border.leadingAnchor.constraint(equalTo: leadingAnchor),
+            border.trailingAnchor.constraint(equalTo: trailingAnchor),
+            border.bottomAnchor.constraint(equalTo: bottomAnchor),
+            border.heightAnchor.constraint(equalToConstant: Theme.borderWidth),
+        ])
     }
 
     override func mouseEntered(with event: NSEvent) {
-        contentTintColor = .white.withAlphaComponent(0.9)
-        layer?.backgroundColor = NSColor.white.withAlphaComponent(0.15).cgColor
+        closeButton.contentTintColor = .white.withAlphaComponent(0.9)
+        closeButton.layer?.backgroundColor = NSColor.white.withAlphaComponent(0.15).cgColor
     }
 
     override func mouseExited(with event: NSEvent) {
-        contentTintColor = .white.withAlphaComponent(0.4)
-        layer?.backgroundColor = nil
+        closeButton.contentTintColor = .white.withAlphaComponent(0.35)
+        closeButton.layer?.backgroundColor = nil
     }
-
-    override var intrinsicContentSize: NSSize { NSSize(width: 16, height: 16) }
 
     @objc private func closeTapped() {
         onClose(paneID)

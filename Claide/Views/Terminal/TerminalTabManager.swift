@@ -78,7 +78,7 @@ final class TerminalTabManager {
         guard let view = controller.paneView(for: initialID) as? MetalTerminalView else { return }
 
         let vm = TerminalViewModel()
-        setupPane(view: view, viewModel: vm, directory: directory, environment: environment)
+        setupPane(paneID: initialID, controller: controller, view: view, viewModel: vm, directory: directory, environment: environment)
 
         let tab = Tab(id: UUID(), paneController: controller, paneViewModels: [initialID: vm])
         tabs.append(tab)
@@ -155,7 +155,7 @@ final class TerminalTabManager {
 
         let vm = TerminalViewModel()
         tabs[index].paneViewModels[newID] = vm
-        setupPane(view: newView, viewModel: vm, directory: dir, environment: environment)
+        setupPane(paneID: newID, controller: tabs[index].paneController, view: newView, viewModel: vm, directory: dir, environment: environment)
 
         focusActiveTab()
     }
@@ -186,6 +186,8 @@ final class TerminalTabManager {
     // MARK: - Pane Setup
 
     private func setupPane(
+        paneID: PaneID,
+        controller: PaneTreeController,
         view: MetalTerminalView,
         viewModel: TerminalViewModel,
         directory: String,
@@ -205,8 +207,9 @@ final class TerminalTabManager {
         )
         viewModel.processStarted(executable: loginShell, args: ["-l"])
 
-        view.bridge?.onTitle = { [weak viewModel] title in
+        view.bridge?.onTitle = { [weak viewModel, weak controller] title in
             viewModel?.titleChanged(title)
+            controller?.setPaneTitle(title, for: paneID)
         }
         view.bridge?.onDirectoryChange = { [weak viewModel] dir in
             viewModel?.directoryChanged(dir)

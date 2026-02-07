@@ -89,6 +89,11 @@ final class PaneTreeController {
         paneViews[paneID]
     }
 
+    /// Update the title shown in a pane's title bar.
+    func setPaneTitle(_ title: String, for paneID: PaneID) {
+        containerView.setTitle(title, for: paneID)
+    }
+
     // MARK: - Private
 
     private func rebuildContainer() {
