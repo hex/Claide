@@ -18,12 +18,34 @@ final class PaneSplitView: NSSplitView, NSSplitViewDelegate {
         commonInit()
     }
 
+    private var needsEqualDividers = true
+
     private func commonInit() {
         delegate = self
         dividerStyle = .thin
     }
 
+    /// Equalize the divider position once after the split view gets a real frame.
+    /// Called from the delegate's resizeSubviews callback on the first non-zero layout.
+    func equalizeIfNeeded() {
+        guard needsEqualDividers, arrangedSubviews.count >= 2 else { return }
+        let dimension = isVertical ? bounds.width : bounds.height
+        guard dimension > 0 else { return }
+        needsEqualDividers = false
+        setPosition(dimension / 2, ofDividerAt: 0)
+    }
+
     // MARK: - NSSplitViewDelegate
+
+    func splitView(
+        _ splitView: NSSplitView,
+        resizeSubviewsWithOldSize oldSize: NSSize
+    ) {
+        // Let the default behavior run first
+        splitView.adjustSubviews()
+        // Then equalize on first real layout
+        equalizeIfNeeded()
+    }
 
     func splitView(
         _ splitView: NSSplitView,

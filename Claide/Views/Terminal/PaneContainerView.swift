@@ -40,6 +40,9 @@ final class PaneContainerView: NSView {
         switch node {
         case .terminal(let id):
             if let view = viewProvider(id) {
+                // Reset so NSSplitView can manage this view's frame directly.
+                // Previous layout cycles may have set this to false.
+                view.translatesAutoresizingMaskIntoConstraints = true
                 paneViews[id] = view
                 return view
             }
