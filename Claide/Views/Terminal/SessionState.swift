@@ -20,6 +20,7 @@ struct TabState: Codable {
     let paneTree: PaneNode
     let activePaneID: PaneID
     let paneDirectories: [String: String]  // PaneID.uuidString -> directory path
+    var paneProfiles: [String: TerminalProfile]?  // PaneID.uuidString -> profile (nil = all default)
 }
 
 /// CGRect wrapper for Codable conformance.
@@ -48,15 +49,20 @@ extension TerminalTabManager {
     func captureTabStates() -> [TabState] {
         tabs.map { tab in
             var dirs: [String: String] = [:]
+            var profiles: [String: TerminalProfile] = [:]
             for (paneID, vm) in tab.paneViewModels {
                 if let dir = vm.currentDirectory {
                     dirs[paneID.uuidString] = dir
+                }
+                if vm.profile != .default {
+                    profiles[paneID.uuidString] = vm.profile
                 }
             }
             return TabState(
                 paneTree: tab.paneController.paneTree,
                 activePaneID: tab.paneController.activePaneID,
-                paneDirectories: dirs
+                paneDirectories: dirs,
+                paneProfiles: profiles.isEmpty ? nil : profiles
             )
         }
     }
