@@ -10,6 +10,15 @@ A macOS companion app for [Claude Code](https://docs.anthropic.com/en/docs/claud
   <img src="docs/screenshot.png" width="720" alt="Claide screenshot">
 </p>
 
+## Install
+
+```bash
+brew tap hex/claide
+brew install --cask claide
+```
+
+Or download the latest DMG from [GitHub Releases](https://github.com/hex/Claide/releases).
+
 ## Requirements
 
 - macOS 14.0+
