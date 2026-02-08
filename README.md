@@ -4,6 +4,8 @@
 
 # Claide
 
+[claide.hexul.com](https://claide.hexul.com)
+
 A macOS companion app for [Claude Code](https://docs.anthropic.com/en/docs/claude-code) sessions. Provides a terminal, issue tracker visualization, and live file change monitoring in a single window.
 
 <p align="center">
