@@ -2,6 +2,7 @@
 // ABOUTME: Manages lifecycle, event dispatch, and grid snapshots.
 
 import Foundation
+import os
 
 /// Wraps a Rust-backed terminal emulator with PTY and event callbacks.
 ///
@@ -241,10 +242,32 @@ enum SelectionKind: UInt8 {
 /// before init completes.
 private final class TerminalBridgeContext: @unchecked Sendable {
     weak var bridge: TerminalBridge?
+
+    /// Coalesces Wakeup events so at most one GCD dispatch is in flight at a time.
+    /// Set to true on the reader thread before dispatch, cleared on main thread after delivery.
+    private var _wakeupPending = false
+    private var _lock = os_unfair_lock()
+
+    /// Attempt to set the wakeup flag. Returns true if it was previously unset.
+    func trySetWakeup() -> Bool {
+        os_unfair_lock_lock(&_lock)
+        let was = _wakeupPending
+        _wakeupPending = true
+        os_unfair_lock_unlock(&_lock)
+        return !was
+    }
+
+    /// Clear the wakeup flag after the main-thread dispatch has delivered.
+    func clearWakeup() {
+        os_unfair_lock_lock(&_lock)
+        _wakeupPending = false
+        os_unfair_lock_unlock(&_lock)
+    }
 }
 
 /// C-compatible callback function invoked by the Rust reader thread.
 /// Dispatches to the main thread before touching any bridge state.
+/// Wakeup events are coalesced so only one GCD dispatch is in flight at a time.
 private let terminalEventCallback: ClaideEventCallback = {
     (context: UnsafeMutableRawPointer?,
      eventType: UInt32,
@@ -257,13 +280,21 @@ private let terminalEventCallback: ClaideEventCallback = {
     let ctx = Unmanaged<TerminalBridgeContext>.fromOpaque(context).takeUnretainedValue()
     guard let bridge = ctx.bridge else { return }
 
+    // Wakeup events are coalesced: skip the GCD dispatch if one is already queued
+    if eventType == UInt32(ClaideEventWakeup) {
+        guard ctx.trySetWakeup() else { return }
+        DispatchQueue.main.async {
+            ctx.clearWakeup()
+            bridge.onWakeup?()
+        }
+        return
+    }
+
     // Extract string value on this thread (it may be freed after callback returns)
     let string: String? = stringValue.map { String(cString: $0) }
 
     DispatchQueue.main.async {
         switch eventType {
-        case UInt32(ClaideEventWakeup):
-            bridge.onWakeup?()
         case UInt32(ClaideEventTitle):
             if let title = string {
                 bridge.onTitle?(title)

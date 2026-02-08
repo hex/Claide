@@ -25,9 +25,11 @@ final class GridRenderer {
     private let backgroundPipeline: MTLRenderPipelineState
     private let glyphPipeline: MTLRenderPipelineState
 
-    // Instance buffers (double-buffered for frame overlap)
+    // Instance buffers — pre-allocated and grown as needed to avoid per-frame allocation
     private var backgroundBuffer: MTLBuffer?
     private var glyphBuffer: MTLBuffer?
+    private var backgroundBufferCapacity: Int = 0
+    private var glyphBufferCapacity: Int = 0
     private var backgroundCount: Int = 0
     private var glyphCount: Int = 0
 
@@ -222,15 +224,8 @@ final class GridRenderer {
         backgroundCount = bgInstances.count
         glyphCount = glyphInstances.count
 
-        if !bgInstances.isEmpty {
-            let size = bgInstances.count * MemoryLayout<CellInstance>.stride
-            backgroundBuffer = device.makeBuffer(bytes: &bgInstances, length: size, options: .storageModeShared)
-        }
-
-        if !glyphInstances.isEmpty {
-            let size = glyphInstances.count * MemoryLayout<CellInstance>.stride
-            glyphBuffer = device.makeBuffer(bytes: &glyphInstances, length: size, options: .storageModeShared)
-        }
+        backgroundBuffer = ensureBuffer(backgroundBuffer, capacity: &backgroundBufferCapacity, data: bgInstances)
+        glyphBuffer = ensureBuffer(glyphBuffer, capacity: &glyphBufferCapacity, data: glyphInstances)
     }
 
     /// Encode draw calls into a render command encoder.
@@ -253,5 +248,25 @@ final class GridRenderer {
             encoder.setFragmentTexture(atlas.texture, index: 0)
             encoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 6, instanceCount: glyphCount)
         }
+    }
+
+    /// Reuse an existing Metal buffer if it has enough capacity, otherwise allocate a new one.
+    /// Copies instance data into the buffer via memcpy (avoids per-frame GPU allocation).
+    private func ensureBuffer(_ existing: MTLBuffer?, capacity: inout Int, data: [CellInstance]) -> MTLBuffer? {
+        guard !data.isEmpty else { return existing }
+        let needed = data.count * MemoryLayout<CellInstance>.stride
+        var buffer = existing
+        if buffer == nil || capacity < needed {
+            // Round up to next power of two to reduce reallocation frequency
+            let allocSize = max(needed, 4096)
+            buffer = device.makeBuffer(length: allocSize, options: .storageModeShared)
+            capacity = allocSize
+        }
+        if let buf = buffer {
+            data.withUnsafeBytes { src in
+                buf.contents().copyMemory(from: src.baseAddress!, byteCount: needed)
+            }
+        }
+        return buffer
     }
 }
