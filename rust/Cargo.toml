@@ -5,5 +5,10 @@ resolver = "2"
 [profile.dev]
 opt-level = 2
 
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+
 [patch.crates-io]
 alacritty_terminal = { path = "patches/alacritty_terminal" }
