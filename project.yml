@@ -30,7 +30,7 @@ targets:
         CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
         LSUIElement: false
         SUFeedURL: "https://hex.github.io/homebrew-claide/appcast.xml"
-        SUPublicEDKey: "GENERATE_WITH_sparkle_generate_keys"
+        SUPublicEDKey: "VJR0Igvi956+S07119jBXK+/rt1QjpUB//YJYx7ZAHs="
     preBuildScripts:
       - name: Build Rust Library
         script: '"${PROJECT_DIR}/rust/build-universal.sh"'
