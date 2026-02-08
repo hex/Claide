@@ -16,4 +16,13 @@ DerivedData/
 
 # Rust
 rust/target/
+
+# Local build/release
 scripts/release.sh
+ExportOptions.plist
+
+# Beads (local issue data)
+.beads/issues.jsonl
+.beads/interactions.jsonl
+.beads/export-state/
+.beads/.jsonl.lock
