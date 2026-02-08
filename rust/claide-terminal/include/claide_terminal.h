@@ -43,6 +43,9 @@ typedef void (*ClaideEventCallback)(
 /// Flag bits: BOLD=0x01, ITALIC=0x02, UNDERLINE=0x04, STRIKEOUT=0x08,
 ///            DIM=0x10, INVERSE=0x20, WIDE_CHAR=0x40, WIDE_SPACER=0x80,
 ///            HIDDEN=0x100, SELECTED=0x200, SEARCH_MATCH=0x400
+///
+/// For multi-codepoint glyphs (emoji ZWJ sequences), extra_count > 0 and
+/// extra_offset indexes into the snapshot's extra_chars array.
 typedef struct {
     uint16_t row;
     uint16_t col;
@@ -50,6 +53,8 @@ typedef struct {
     uint8_t fg_r, fg_g, fg_b;
     uint8_t bg_r, bg_g, bg_b;
     uint16_t flags;
+    uint32_t extra_offset;
+    uint8_t extra_count;
 } ClaideCellData;
 
 /// Cursor state within the grid.
@@ -62,8 +67,10 @@ typedef struct {
 
 /// Complete snapshot of the visible terminal grid.
 typedef struct {
-    ClaideCellData *cells;  // sparse: cell_count non-trivial elements
-    uint32_t cell_count;    // actual number of cells in the array
+    ClaideCellData *cells;      // sparse: cell_count non-trivial elements
+    uint32_t cell_count;        // actual number of cells in the array
+    uint32_t *extra_chars;      // additional codepoints for multi-codepoint cells
+    uint32_t extra_chars_count; // number of elements in extra_chars
     uint32_t rows;
     uint32_t cols;
     ClaideCursorInfo cursor;

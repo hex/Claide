@@ -15,6 +15,8 @@ use crate::listener::Listener;
 
 /// Per-cell data exposed to Swift via C FFI.
 /// Sparse: only non-trivial cells are emitted, with explicit position.
+/// For multi-codepoint glyphs (emoji ZWJ sequences), `extra_count` > 0 and
+/// `extra_offset` indexes into the snapshot's `extra_chars` array.
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct ClaideCellData {
@@ -28,6 +30,8 @@ pub struct ClaideCellData {
     pub bg_g: u8,
     pub bg_b: u8,
     pub flags: u16,
+    pub extra_offset: u32,
+    pub extra_count: u8,
 }
 
 /// Cursor information exposed to Swift.
@@ -41,10 +45,13 @@ pub struct ClaideCursorInfo {
 
 /// Complete snapshot of the visible terminal grid.
 /// `cells` contains only non-trivial cells (sparse); `cell_count` is the actual length.
+/// `extra_chars` holds additional codepoints for multi-codepoint cells (emoji ZWJ sequences).
 #[repr(C)]
 pub struct ClaideGridSnapshot {
     pub cells: *mut ClaideCellData,
     pub cell_count: u32,
+    pub extra_chars: *mut u32,
+    pub extra_chars_count: u32,
     pub rows: u32,
     pub cols: u32,
     pub cursor: ClaideCursorInfo,
@@ -58,7 +65,9 @@ pub struct ClaideGridSnapshot {
 /// Rows are only rebuilt when damage tracking reports them as changed.
 pub struct PersistentGrid {
     row_cells: Vec<Vec<ClaideCellData>>,
+    row_extras: Vec<Vec<u32>>,
     total_cells: usize,
+    total_extras: usize,
     grid_rows: usize,
     grid_cols: usize,
 }
@@ -67,7 +76,9 @@ impl PersistentGrid {
     pub fn new() -> Self {
         Self {
             row_cells: Vec::new(),
+            row_extras: Vec::new(),
             total_cells: 0,
+            total_extras: 0,
             grid_rows: 0,
             grid_cols: 0,
         }
@@ -198,9 +209,10 @@ fn has_default_bg(cell: &Cell) -> bool {
     matches!(bg_color, Color::Named(NamedColor::Background))
 }
 
-/// Process a single grid row into sparse ClaideCellData entries.
+/// Process a single grid row into sparse ClaideCellData entries and extra codepoints.
 /// Only non-trivial cells (visible content, non-default background, selection,
 /// search match, or wide chars) are included.
+/// Returns (cells, extras) where extras holds zerowidth codepoints for multi-char glyphs.
 fn process_row(
     grid_row: &alacritty_terminal::grid::Row<Cell>,
     row_idx: usize,
@@ -210,8 +222,9 @@ fn process_row(
     palette: &ColorPalette,
     selection_range: &Option<SelectionRange>,
     search_match: Option<&Match>,
-) -> Vec<ClaideCellData> {
+) -> (Vec<ClaideCellData>, Vec<u32>) {
     let mut cells = Vec::new();
+    let mut extras = Vec::new();
 
     for col_idx in 0..cols {
         let cell: &Cell = &grid_row[Column(col_idx)];
@@ -255,6 +268,17 @@ fn process_row(
             cell_flags |= 0x400;
         }
 
+        // Collect zerowidth characters (ZWJ sequences, variation selectors, skin tones)
+        let extra_offset = extras.len() as u32;
+        let extra_count = if let Some(zw) = cell.zerowidth() {
+            for &ch in zw {
+                extras.push(ch as u32);
+            }
+            zw.len() as u8
+        } else {
+            0
+        };
+
         cells.push(ClaideCellData {
             row: row_idx as u16,
             col: col_idx as u16,
@@ -266,10 +290,12 @@ fn process_row(
             bg_g: bg.g,
             bg_b: bg.b,
             flags: cell_flags,
+            extra_offset,
+            extra_count,
         });
     }
 
-    cells
+    (cells, extras)
 }
 
 /// Take an incremental sparse snapshot of the visible terminal grid.
@@ -328,6 +354,8 @@ pub fn take_snapshot_incremental(
     if dimensions_changed {
         grid.row_cells.resize_with(rows, Vec::new);
         grid.row_cells.truncate(rows);
+        grid.row_extras.resize_with(rows, Vec::new);
+        grid.row_extras.truncate(rows);
         grid.grid_rows = rows;
         grid.grid_cols = cols;
     }
@@ -335,12 +363,15 @@ pub fn take_snapshot_incremental(
     if full_rebuild {
         // Rebuild all rows
         grid.total_cells = 0;
+        grid.total_extras = 0;
         for row_idx in 0..rows {
             let line = Line((row_idx as i32) - (display_offset as i32));
             let grid_row = &term_grid[line];
-            let new_row = process_row(grid_row, row_idx, cols, line, colors, palette, &selection_range, search_match);
-            grid.total_cells += new_row.len();
-            grid.row_cells[row_idx] = new_row;
+            let (new_cells, new_extras) = process_row(grid_row, row_idx, cols, line, colors, palette, &selection_range, search_match);
+            grid.total_cells += new_cells.len();
+            grid.total_extras += new_extras.len();
+            grid.row_cells[row_idx] = new_cells;
+            grid.row_extras[row_idx] = new_extras;
         }
     } else if let Some(ref damaged) = damaged_rows {
         // Rebuild only damaged rows
@@ -353,21 +384,43 @@ pub fn take_snapshot_incremental(
             let grid_row = &term_grid[line];
 
             grid.total_cells -= grid.row_cells[row_idx].len();
-            let new_row = process_row(grid_row, row_idx, cols, line, colors, palette, &selection_range, search_match);
-            grid.total_cells += new_row.len();
-            grid.row_cells[row_idx] = new_row;
+            grid.total_extras -= grid.row_extras[row_idx].len();
+            let (new_cells, new_extras) = process_row(grid_row, row_idx, cols, line, colors, palette, &selection_range, search_match);
+            grid.total_cells += new_cells.len();
+            grid.total_extras += new_extras.len();
+            grid.row_cells[row_idx] = new_cells;
+            grid.row_extras[row_idx] = new_extras;
         }
     }
 
-    // Clone persistent buffer into a flat transfer Vec for FFI
+    // Clone persistent buffer into flat transfer Vecs for FFI.
+    // Rebase extra_offset per row since each row's offsets are row-local.
     let mut cells: Vec<ClaideCellData> = Vec::with_capacity(grid.total_cells);
-    for row in &grid.row_cells {
-        cells.extend_from_slice(row);
+    let mut extras: Vec<u32> = Vec::with_capacity(grid.total_extras);
+    for row_idx in 0..grid.row_cells.len() {
+        let base = extras.len() as u32;
+        for cell in &grid.row_cells[row_idx] {
+            let mut c = *cell;
+            if c.extra_count > 0 {
+                c.extra_offset += base;
+            }
+            cells.push(c);
+        }
+        extras.extend_from_slice(&grid.row_extras[row_idx]);
     }
 
     let cell_count = cells.len() as u32;
     let cells_ptr = cells.as_mut_ptr();
     std::mem::forget(cells);
+
+    let extra_chars_count = extras.len() as u32;
+    let extra_chars_ptr = if extras.is_empty() {
+        std::ptr::null_mut()
+    } else {
+        let ptr = extras.as_mut_ptr();
+        std::mem::forget(extras);
+        ptr
+    };
 
     let cursor_shape_id = match cursor_shape {
         CursorShape::Block => 0u8,
@@ -383,6 +436,8 @@ pub fn take_snapshot_incremental(
     ClaideGridSnapshot {
         cells: cells_ptr,
         cell_count,
+        extra_chars: extra_chars_ptr,
+        extra_chars_count,
         rows: rows as u32,
         cols: cols as u32,
         cursor: ClaideCursorInfo {
@@ -407,6 +462,10 @@ pub unsafe fn free_snapshot(snapshot: *mut ClaideGridSnapshot) {
     let count = snap.cell_count as usize;
     if !snap.cells.is_null() && count > 0 {
         drop(Vec::from_raw_parts(snap.cells, count, count));
+    }
+    let extras_count = snap.extra_chars_count as usize;
+    if !snap.extra_chars.is_null() && extras_count > 0 {
+        drop(Vec::from_raw_parts(snap.extra_chars, extras_count, extras_count));
     }
     drop(Box::from_raw(snapshot));
 }
