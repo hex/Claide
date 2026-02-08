@@ -23,7 +23,7 @@ Or download the latest DMG from [GitHub Releases](https://github.com/hex/Claide/
 - macOS 14.0+
 - [XcodeGen](https://github.com/yonaskolb/XcodeGen)
 - [Rust toolchain](https://rustup.rs/) (for the terminal emulation library)
-- [beads](https://github.com/hex/beads) (`bd` CLI) for issue tracking
+- [beads](https://github.com/hex/beads) (`bd` CLI) for issue tracking (optional; falls back to Claude Code tasks)
 
 ## Build
 
@@ -33,7 +33,7 @@ xcodegen generate
 xcodebuild -scheme Claide -destination 'platform=macOS' build
 ```
 
-The Rust library (`claide-terminal`) is built automatically by a Run Script build phase. Or open `Claide.xcodeproj` in Xcode after generating.
+The Rust library (`claide-terminal`) is built automatically by a pre-build script phase. Or open `Claide.xcodeproj` in Xcode after generating.
 
 ## Layout
 
@@ -49,7 +49,7 @@ The Rust library (`claide-terminal`) is built automatically by a Run Script buil
 +---------------------------+----------------+
 ```
 
-The window is split horizontally: terminal on the left (~65%), sidebar on the right (~35%). The sidebar has two sections:
+The window is split horizontally: terminal on the left (~70%), sidebar on the right (~30%). The sidebar has two sections:
 
 - **Top**: Board and Graph tabs (switchable)
 - **Bottom**: File change log (always visible, ~30% height)
