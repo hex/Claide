@@ -68,6 +68,7 @@ jobs:
             -configuration Release \
             -destination 'platform=macOS' \
             -archivePath build/Claide.xcarchive \
+            ARCHS=arm64 \
             DEVELOPMENT_TEAM=7G4UQW35EL \
             CODE_SIGN_STYLE=Manual \
             "CODE_SIGN_IDENTITY=Developer ID Application" \
