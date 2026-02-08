@@ -1,12 +1,13 @@
 // ABOUTME: Copies the visible terminal grid into a flat C-compatible array.
-// ABOUTME: Resolves named/indexed colors to RGB using the terminal's color palette.
+// ABOUTME: Uses damage tracking to only rebuild rows that changed since the last snapshot.
 
 use alacritty_terminal::grid::Dimensions;
 use alacritty_terminal::index::{Column, Line, Point};
+use alacritty_terminal::selection::SelectionRange;
 use alacritty_terminal::term::cell::{Cell, Flags};
 use alacritty_terminal::term::color::Colors;
 use alacritty_terminal::term::search::Match;
-use alacritty_terminal::term::{Term, TermMode};
+use alacritty_terminal::term::{LineDamageBounds, Term, TermMode};
 use alacritty_terminal::vte::ansi::{Color, CursorShape, NamedColor, Rgb};
 
 use crate::handle::ColorPalette;
@@ -15,6 +16,7 @@ use crate::listener::Listener;
 /// Per-cell data exposed to Swift via C FFI.
 /// Sparse: only non-trivial cells are emitted, with explicit position.
 #[repr(C)]
+#[derive(Clone, Copy)]
 pub struct ClaideCellData {
     pub row: u16,
     pub col: u16,
@@ -50,6 +52,26 @@ pub struct ClaideGridSnapshot {
     pub padding_bg_r: u8,
     pub padding_bg_g: u8,
     pub padding_bg_b: u8,
+}
+
+/// Persistent per-row cell storage for incremental snapshots.
+/// Rows are only rebuilt when damage tracking reports them as changed.
+pub struct PersistentGrid {
+    row_cells: Vec<Vec<ClaideCellData>>,
+    total_cells: usize,
+    grid_rows: usize,
+    grid_cols: usize,
+}
+
+impl PersistentGrid {
+    pub fn new() -> Self {
+        Self {
+            row_cells: Vec::new(),
+            total_cells: 0,
+            grid_rows: 0,
+            grid_cols: 0,
+        }
+    }
 }
 
 /// Hexed palette ANSI colors (used as initial values for ColorPalette).
@@ -176,25 +198,107 @@ fn has_default_bg(cell: &Cell) -> bool {
     matches!(bg_color, Color::Named(NamedColor::Background))
 }
 
-/// Take a sparse snapshot of the visible terminal grid.
+/// Process a single grid row into sparse ClaideCellData entries.
 /// Only non-trivial cells (visible content, non-default background, selection,
-/// search match, or wide chars) are included. Each cell carries its row/col position.
+/// search match, or wide chars) are included.
+fn process_row(
+    grid_row: &alacritty_terminal::grid::Row<Cell>,
+    row_idx: usize,
+    cols: usize,
+    line: Line,
+    colors: &Colors,
+    palette: &ColorPalette,
+    selection_range: &Option<SelectionRange>,
+    search_match: Option<&Match>,
+) -> Vec<ClaideCellData> {
+    let mut cells = Vec::new();
+
+    for col_idx in 0..cols {
+        let cell: &Cell = &grid_row[Column(col_idx)];
+        let point = Point::new(line, Column(col_idx));
+
+        let selected = selection_range.as_ref().is_some_and(|r| r.contains(point));
+        let is_search_match = search_match.is_some_and(|m| point >= *m.start() && point <= *m.end());
+
+        let cp = cell.c as u32;
+        let is_blank = cp == 0x20 || cp == 0x00 || cp == 0x7F;
+        let is_wide = cell.flags.intersects(Flags::WIDE_CHAR | Flags::WIDE_CHAR_SPACER);
+
+        if is_blank && has_default_bg(cell) && !selected && !is_search_match && !is_wide {
+            continue;
+        }
+
+        let (mut fg, bg) = if cell.flags.contains(Flags::INVERSE) {
+            (
+                resolve_color(&cell.bg, colors, true, palette),
+                resolve_color(&cell.fg, colors, false, palette),
+            )
+        } else {
+            (
+                resolve_color(&cell.fg, colors, true, palette),
+                resolve_color(&cell.bg, colors, false, palette),
+            )
+        };
+
+        if cell.flags.contains(Flags::DIM) {
+            fg.r = fg.r / 2;
+            fg.g = fg.g / 2;
+            fg.b = fg.b / 2;
+        }
+
+        let mut cell_flags = map_flags(cell.flags);
+
+        if selected {
+            cell_flags |= 0x200;
+        }
+        if is_search_match {
+            cell_flags |= 0x400;
+        }
+
+        cells.push(ClaideCellData {
+            row: row_idx as u16,
+            col: col_idx as u16,
+            codepoint: cp,
+            fg_r: fg.r,
+            fg_g: fg.g,
+            fg_b: fg.b,
+            bg_r: bg.r,
+            bg_g: bg.g,
+            bg_b: bg.b,
+            flags: cell_flags,
+        });
+    }
+
+    cells
+}
+
+/// Take an incremental sparse snapshot of the visible terminal grid.
+/// Only rows reported as damaged are re-processed; undamaged rows reuse
+/// cached data from the persistent grid.
+///
+/// `damaged_rows == None` forces a full rebuild (all rows).
+/// `damaged_rows == Some(vec)` rebuilds only the listed rows.
 ///
 /// The caller must free the returned snapshot with `free_snapshot`.
-pub fn take_snapshot(term: &Term<Listener>, palette: &ColorPalette, search_match: Option<&Match>) -> ClaideGridSnapshot {
-    let grid = term.grid();
-    let rows = grid.screen_lines();
-    let cols = grid.columns();
-    let display_offset = grid.display_offset();
+pub fn take_snapshot_incremental(
+    term: &Term<Listener>,
+    palette: &ColorPalette,
+    search_match: Option<&Match>,
+    grid: &mut PersistentGrid,
+    damaged_rows: Option<Vec<LineDamageBounds>>,
+) -> ClaideGridSnapshot {
+    let term_grid = term.grid();
+    let rows = term_grid.screen_lines();
+    let cols = term_grid.columns();
+    let display_offset = term_grid.display_offset();
 
     let colors = term.colors();
     let mode = *term.mode();
 
-    // Resolve cursor position and shape directly (avoids constructing the full
-    // RenderableContent which also builds an unused GridIterator).
+    // Resolve cursor position and shape
     let vi_mode = mode.contains(TermMode::VI);
-    let mut cursor_point = if vi_mode { term.vi_mode_cursor.point } else { grid.cursor.point };
-    if grid[cursor_point].flags.contains(Flags::WIDE_CHAR_SPACER) {
+    let mut cursor_point = if vi_mode { term.vi_mode_cursor.point } else { term_grid.cursor.point };
+    if term_grid[cursor_point].flags.contains(Flags::WIDE_CHAR_SPACER) {
         cursor_point.column -= 1;
     }
     let cursor_shape = if !vi_mode && !mode.contains(TermMode::SHOW_CURSOR) {
@@ -205,10 +309,9 @@ pub fn take_snapshot(term: &Term<Listener>, palette: &ColorPalette, search_match
 
     let selection_range = term.selection.as_ref().and_then(|s| s.to_range(term));
 
-    // Sample padding background from bottom-left cell before the sparse loop.
-    // This tracks TUI app backgrounds that fill the entire screen.
+    // Sample padding background from bottom-left cell
     let last_line = Line((rows as i32 - 1) - (display_offset as i32));
-    let last_row_cell = &grid[last_line][Column(0)];
+    let last_row_cell = &term_grid[last_line][Column(0)];
     let padding_bg = {
         let bg = if last_row_cell.flags.contains(Flags::INVERSE) {
             resolve_color(&last_row_cell.fg, colors, false, palette)
@@ -218,76 +321,48 @@ pub fn take_snapshot(term: &Term<Listener>, palette: &ColorPalette, search_match
         (bg.r, bg.g, bg.b)
     };
 
-    // Pre-allocate for ~20% non-trivial cells (typical shell session).
-    let mut cells: Vec<ClaideCellData> = Vec::with_capacity(rows * cols / 4);
+    // Detect grid resize — forces full rebuild
+    let dimensions_changed = grid.grid_rows != rows || grid.grid_cols != cols;
+    let full_rebuild = damaged_rows.is_none() || dimensions_changed;
 
-    for row_idx in 0..rows {
-        let line = Line((row_idx as i32) - (display_offset as i32));
-        let grid_row = &grid[line];
+    if dimensions_changed {
+        grid.row_cells.resize_with(rows, Vec::new);
+        grid.row_cells.truncate(rows);
+        grid.grid_rows = rows;
+        grid.grid_cols = cols;
+    }
 
-        for col_idx in 0..cols {
-            let cell: &Cell = &grid_row[Column(col_idx)];
-            let point = Point::new(line, Column(col_idx));
-
-            // Determine selection and search state before the trivial check
-            let selected = selection_range.as_ref().is_some_and(|r| r.contains(point));
-            let is_search_match = search_match.is_some_and(|m| point >= *m.start() && point <= *m.end());
-
-            // A cell is trivial (skip it) if ALL of:
-            // - codepoint is space, NUL, or DEL
-            // - effective background is the terminal default
-            // - not selected
-            // - not a search match
-            // - not a wide char or wide char spacer
-            let cp = cell.c as u32;
-            let is_blank = cp == 0x20 || cp == 0x00 || cp == 0x7F;
-            let is_wide = cell.flags.intersects(Flags::WIDE_CHAR | Flags::WIDE_CHAR_SPACER);
-
-            if is_blank && has_default_bg(cell) && !selected && !is_search_match && !is_wide {
+    if full_rebuild {
+        // Rebuild all rows
+        grid.total_cells = 0;
+        for row_idx in 0..rows {
+            let line = Line((row_idx as i32) - (display_offset as i32));
+            let grid_row = &term_grid[line];
+            let new_row = process_row(grid_row, row_idx, cols, line, colors, palette, &selection_range, search_match);
+            grid.total_cells += new_row.len();
+            grid.row_cells[row_idx] = new_row;
+        }
+    } else if let Some(ref damaged) = damaged_rows {
+        // Rebuild only damaged rows
+        for damage in damaged {
+            let row_idx = damage.line;
+            if row_idx >= rows {
                 continue;
             }
+            let line = Line((row_idx as i32) - (display_offset as i32));
+            let grid_row = &term_grid[line];
 
-            // Non-trivial cell: resolve colors and emit
-            let (mut fg, bg) = if cell.flags.contains(Flags::INVERSE) {
-                (
-                    resolve_color(&cell.bg, colors, true, palette),
-                    resolve_color(&cell.fg, colors, false, palette),
-                )
-            } else {
-                (
-                    resolve_color(&cell.fg, colors, true, palette),
-                    resolve_color(&cell.bg, colors, false, palette),
-                )
-            };
-
-            if cell.flags.contains(Flags::DIM) {
-                fg.r = fg.r / 2;
-                fg.g = fg.g / 2;
-                fg.b = fg.b / 2;
-            }
-
-            let mut cell_flags = map_flags(cell.flags);
-
-            if selected {
-                cell_flags |= 0x200;
-            }
-            if is_search_match {
-                cell_flags |= 0x400;
-            }
-
-            cells.push(ClaideCellData {
-                row: row_idx as u16,
-                col: col_idx as u16,
-                codepoint: cp,
-                fg_r: fg.r,
-                fg_g: fg.g,
-                fg_b: fg.b,
-                bg_r: bg.r,
-                bg_g: bg.g,
-                bg_b: bg.b,
-                flags: cell_flags,
-            });
+            grid.total_cells -= grid.row_cells[row_idx].len();
+            let new_row = process_row(grid_row, row_idx, cols, line, colors, palette, &selection_range, search_match);
+            grid.total_cells += new_row.len();
+            grid.row_cells[row_idx] = new_row;
         }
+    }
+
+    // Clone persistent buffer into a flat transfer Vec for FFI
+    let mut cells: Vec<ClaideCellData> = Vec::with_capacity(grid.total_cells);
+    for row in &grid.row_cells {
+        cells.extend_from_slice(row);
     }
 
     let cell_count = cells.len() as u32;
@@ -323,7 +398,7 @@ pub fn take_snapshot(term: &Term<Listener>, palette: &ColorPalette, search_match
     }
 }
 
-/// Free a grid snapshot allocated by `take_snapshot`.
+/// Free a grid snapshot allocated by `take_snapshot_incremental`.
 pub unsafe fn free_snapshot(snapshot: *mut ClaideGridSnapshot) {
     if snapshot.is_null() {
         return;
