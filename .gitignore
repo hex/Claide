@@ -16,3 +16,4 @@ DerivedData/
 
 # Rust
 rust/target/
+scripts/release.sh
