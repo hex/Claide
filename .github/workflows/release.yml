@@ -139,7 +139,7 @@ jobs:
           SIG_VALUE=$(echo "$EDDSA_SIG" | sed 's/.*edSignature="\([^"]*\)".*/\1/')
 
           # Clone tap repo
-          git clone "https://x-access-token:${HOMEBREW_TAP_TOKEN}@github.com/hex/homebrew-claide.git" /tmp/tap
+          git clone "https://x-access-token:${HOMEBREW_TAP_TOKEN}@github.com/hex/homebrew-tap.git" /tmp/tap
           cd /tmp/tap
 
           # Update cask formula
