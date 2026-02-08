@@ -5,9 +5,11 @@ import SwiftUI
 
 struct KanbanPanel: View {
     @Bindable var viewModel: GraphViewModel
+    @AppStorage("terminalColorScheme") private var schemeName: String = "hexed"
     @State private var selectedIssueID: String?
 
     var body: some View {
+        let _ = schemeName
         Group {
             if viewModel.isLoading {
                 ProgressView()

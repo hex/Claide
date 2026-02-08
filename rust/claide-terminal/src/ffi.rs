@@ -9,7 +9,7 @@ use alacritty_terminal::index::Side;
 use alacritty_terminal::selection::SelectionType;
 
 use crate::grid_snapshot::ClaideGridSnapshot;
-use crate::handle::TerminalHandle;
+use crate::handle::{ClaideColorPalette, TerminalHandle};
 use crate::listener::{ClaideEventCallback, Listener};
 
 /// Opaque pointer type for the terminal handle.
@@ -336,4 +336,126 @@ pub unsafe extern "C" fn claide_terminal_selection_text_free(ptr: *mut c_char) {
     if !ptr.is_null() {
         drop(CString::from_raw(ptr));
     }
+}
+
+// -- Scrollback --
+
+/// Scroll the terminal viewport. Positive delta = scroll up (into history),
+/// negative = down (toward live output).
+///
+/// # Safety
+/// `handle` must be valid.
+#[no_mangle]
+pub unsafe extern "C" fn claide_terminal_scroll(
+    handle: ClaideTerminalRef,
+    delta: i32,
+) {
+    if handle.is_null() {
+        return;
+    }
+    (*handle).scroll(delta);
+}
+
+// -- Search --
+
+/// Start a search with the given query string. Searches forward from the cursor.
+/// Returns true if a match was found.
+///
+/// # Safety
+/// `handle` must be valid. `query` must be a valid null-terminated UTF-8 string.
+#[no_mangle]
+pub unsafe extern "C" fn claide_terminal_search_set(
+    handle: ClaideTerminalRef,
+    query: *const c_char,
+) -> bool {
+    if handle.is_null() || query.is_null() {
+        return false;
+    }
+    let query = match CStr::from_ptr(query).to_str() {
+        Ok(s) => s,
+        Err(_) => return false,
+    };
+    (*handle).search_set(query)
+}
+
+/// Navigate to the next or previous search match.
+/// `forward`: true = next match, false = previous match.
+/// Returns true if a match was found.
+///
+/// # Safety
+/// `handle` must be valid.
+#[no_mangle]
+pub unsafe extern "C" fn claide_terminal_search_advance(
+    handle: ClaideTerminalRef,
+    forward: bool,
+) -> bool {
+    if handle.is_null() {
+        return false;
+    }
+    (*handle).search_advance(forward)
+}
+
+/// Clear the current search and remove highlights.
+///
+/// # Safety
+/// `handle` must be valid.
+#[no_mangle]
+pub unsafe extern "C" fn claide_terminal_search_clear(handle: ClaideTerminalRef) {
+    if handle.is_null() {
+        return;
+    }
+    (*handle).search_clear();
+}
+
+// -- Row text --
+
+/// Extract text for a single visible row as a null-terminated UTF-8 string.
+/// Returns NULL if the row is out of range.
+/// The caller must free the returned string with `claide_terminal_free_string`.
+///
+/// # Safety
+/// `handle` must be valid.
+#[no_mangle]
+pub unsafe extern "C" fn claide_terminal_row_text(
+    handle: ClaideTerminalRef,
+    row: u32,
+) -> *mut c_char {
+    if handle.is_null() {
+        return std::ptr::null_mut();
+    }
+    match (*handle).row_text(row) {
+        Some(text) => match CString::new(text) {
+            Ok(cstr) => cstr.into_raw(),
+            Err(_) => std::ptr::null_mut(),
+        },
+        None => std::ptr::null_mut(),
+    }
+}
+
+/// Free a string returned by `claide_terminal_row_text`.
+///
+/// # Safety
+/// `ptr` must be a pointer returned by `claide_terminal_row_text`, or null.
+#[no_mangle]
+pub unsafe extern "C" fn claide_terminal_free_string(ptr: *mut c_char) {
+    if !ptr.is_null() {
+        drop(CString::from_raw(ptr));
+    }
+}
+
+// -- Colors --
+
+/// Set the terminal's color palette.
+///
+/// # Safety
+/// `handle` and `palette` must be valid pointers.
+#[no_mangle]
+pub unsafe extern "C" fn claide_terminal_set_colors(
+    handle: ClaideTerminalRef,
+    palette: *const ClaideColorPalette,
+) {
+    if handle.is_null() || palette.is_null() {
+        return;
+    }
+    (*handle).set_colors(&*palette);
 }

@@ -5,7 +5,7 @@ import AppKit
 import SwiftUI
 
 /// 8-bit RGB color value. Static members define the app-wide palette.
-struct RGB: Equatable, Sendable {
+struct RGB: Equatable, Hashable, Sendable {
     let r: UInt8, g: UInt8, b: UInt8
     init(_ r: UInt8, _ g: UInt8, _ b: UInt8) {
         self.r = r; self.g = g; self.b = b
@@ -38,7 +38,7 @@ extension RGB {
     static let cursorText = RGB(52, 55, 68)
     static let selection  = RGB(131, 74, 136)
 
-    // -- Snazzy ANSI (bright/neon, for terminal) --
+    // -- Hexed ANSI (bright/neon, for terminal) --
     static let black       = RGB(0, 0, 0)
     static let red         = RGB(255, 92, 87)
     static let green       = RGB(90, 247, 142)

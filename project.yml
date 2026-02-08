@@ -21,6 +21,9 @@ targets:
     platform: macOS
     sources:
       - Claide
+      - path: Claide/Resources/shell-integration
+        buildPhase: resources
+        type: folder
     dependencies:
       - package: Sparkle
     info:
@@ -69,3 +72,13 @@ targets:
       base:
         SWIFT_VERSION: "6.0"
         GENERATE_INFOPLIST_FILE: YES
+
+schemes:
+  Claide:
+    build:
+      targets:
+        Claide: all
+        ClaideTests: [test]
+    test:
+      targets:
+        - ClaideTests

@@ -1,9 +1,8 @@
-// ABOUTME: Tests that Palette RGB entries convert correctly to SwiftUI Color, NSColor, and SwiftTerm.Color.
+// ABOUTME: Tests that Palette RGB entries convert correctly to SwiftUI Color and NSColor.
 // ABOUTME: Verifies round-trip fidelity and that specific palette entries hold expected values.
 
 import Testing
 import AppKit
-import SwiftTerm
 @testable import Claide
 
 @Suite("Palette")
@@ -45,25 +44,6 @@ struct PaletteTests {
         #expect(Int(round(srgb.blueComponent * 255)) == 235)
     }
 
-    // MARK: - SwiftTerm.Color conversion
-
-    @Test("termColor scales 8-bit to 16-bit correctly")
-    func termColorConversion() {
-        let tc = Palette.termColor(.red)
-        // red = (255, 92, 87), 16-bit: 255*257=65535, 92*257=23644, 87*257=22359
-        #expect(tc.red == 65535)
-        #expect(tc.green == 23644)
-        #expect(tc.blue == 22359)
-    }
-
-    @Test("termColor zero produces zero")
-    func termColorZero() {
-        let tc = Palette.termColor(.black)
-        #expect(tc.red == 0)
-        #expect(tc.green == 0)
-        #expect(tc.blue == 0)
-    }
-
     // MARK: - SwiftUI Color conversion
 
     @Test("color produces matching NSColor components")
@@ -87,8 +67,8 @@ struct PaletteTests {
         #expect(RGB.bgTerminal == RGB(21, 23, 40))
     }
 
-    @Test("Snazzy ANSI entries hold correct values")
-    func snazzyEntries() {
+    @Test("Hexed ANSI entries hold correct values")
+    func hexedEntries() {
         #expect(RGB.red == RGB(255, 92, 87))
         #expect(RGB.green == RGB(90, 247, 142))
         #expect(RGB.yellow == RGB(243, 249, 157))

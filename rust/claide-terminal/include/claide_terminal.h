@@ -38,16 +38,23 @@ typedef void (*ClaideEventCallback)(
 
 // -- Grid snapshot types --
 
-/// Per-cell data from the terminal grid.
+/// Per-cell data from the terminal grid (sparse: only non-trivial cells).
 ///
 /// Flag bits: BOLD=0x01, ITALIC=0x02, UNDERLINE=0x04, STRIKEOUT=0x08,
 ///            DIM=0x10, INVERSE=0x20, WIDE_CHAR=0x40, WIDE_SPACER=0x80,
-///            HIDDEN=0x100, SELECTED=0x200
+///            HIDDEN=0x100, SELECTED=0x200, SEARCH_MATCH=0x400
+///
+/// For multi-codepoint glyphs (emoji ZWJ sequences), extra_count > 0 and
+/// extra_offset indexes into the snapshot's extra_chars array.
 typedef struct {
+    uint16_t row;
+    uint16_t col;
     uint32_t codepoint;
     uint8_t fg_r, fg_g, fg_b;
     uint8_t bg_r, bg_g, bg_b;
     uint16_t flags;
+    uint32_t extra_offset;
+    uint8_t extra_count;
 } ClaideCellData;
 
 /// Cursor state within the grid.
@@ -60,12 +67,27 @@ typedef struct {
 
 /// Complete snapshot of the visible terminal grid.
 typedef struct {
-    ClaideCellData *cells;  // rows * cols elements, row-major
+    ClaideCellData *cells;      // sparse: cell_count non-trivial elements
+    uint32_t cell_count;        // actual number of cells in the array
+    uint32_t *extra_chars;      // additional codepoints for multi-codepoint cells
+    uint32_t extra_chars_count; // number of elements in extra_chars
     uint32_t rows;
     uint32_t cols;
     ClaideCursorInfo cursor;
     uint32_t mode_flags;
+    uint8_t padding_bg_r;
+    uint8_t padding_bg_g;
+    uint8_t padding_bg_b;
 } ClaideGridSnapshot;
+
+// -- Color palette --
+
+/// Terminal color palette: 16 ANSI colors + default foreground/background.
+typedef struct {
+    uint8_t ansi[48];   // 16 colors x 3 bytes (r,g,b), in order 0-15
+    uint8_t fg_r, fg_g, fg_b;
+    uint8_t bg_r, bg_g, bg_b;
+} ClaideColorPalette;
 
 // -- Lifecycle --
 
@@ -163,6 +185,21 @@ void claide_terminal_snapshot_free(ClaideGridSnapshot *snapshot);
 /// Get the shell process ID.
 uint32_t claide_terminal_shell_pid(ClaideTerminalRef handle);
 
+// -- Row text --
+
+/// Extract text for a single visible row as a null-terminated UTF-8 string.
+/// Returns NULL if the row is out of range.
+/// The caller must free the returned string with claide_terminal_free_string.
+char *claide_terminal_row_text(ClaideTerminalRef handle, uint32_t row);
+
+/// Free a string returned by claide_terminal_row_text.
+void claide_terminal_free_string(char *ptr);
+
+// -- Scrollback --
+
+/// Scroll the terminal viewport. Positive delta = scroll up (into history), negative = down.
+void claide_terminal_scroll(ClaideTerminalRef handle, int32_t delta);
+
 // -- Selection --
 
 /// Selection side constants.
@@ -212,5 +249,24 @@ char *claide_terminal_selection_text(ClaideTerminalRef handle);
 
 /// Free a string returned by claide_terminal_selection_text.
 void claide_terminal_selection_text_free(char *ptr);
+
+// -- Search --
+
+/// Start a search with the given query. Searches forward from the cursor.
+/// Returns true if a match was found.
+bool claide_terminal_search_set(ClaideTerminalRef handle, const char *query);
+
+/// Navigate to the next or previous search match.
+/// forward=true for next, forward=false for previous.
+/// Returns true if a match was found.
+bool claide_terminal_search_advance(ClaideTerminalRef handle, bool forward);
+
+/// Clear the current search and remove highlights.
+void claide_terminal_search_clear(ClaideTerminalRef handle);
+
+// -- Colors --
+
+/// Set the terminal's color palette.
+void claide_terminal_set_colors(ClaideTerminalRef handle, const ClaideColorPalette *palette);
 
 #endif // CLAIDE_TERMINAL_H

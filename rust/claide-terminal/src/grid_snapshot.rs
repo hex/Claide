@@ -1,18 +1,27 @@
 // ABOUTME: Copies the visible terminal grid into a flat C-compatible array.
-// ABOUTME: Resolves named/indexed colors to RGB using the terminal's color palette.
+// ABOUTME: Uses damage tracking to only rebuild rows that changed since the last snapshot.
 
 use alacritty_terminal::grid::Dimensions;
 use alacritty_terminal::index::{Column, Line, Point};
+use alacritty_terminal::selection::SelectionRange;
 use alacritty_terminal::term::cell::{Cell, Flags};
 use alacritty_terminal::term::color::Colors;
-use alacritty_terminal::term::Term;
-use alacritty_terminal::vte::ansi::{Color, NamedColor, Rgb};
+use alacritty_terminal::term::search::Match;
+use alacritty_terminal::term::{LineDamageBounds, Term, TermMode};
+use alacritty_terminal::vte::ansi::{Color, CursorShape, NamedColor, Rgb};
 
+use crate::handle::ColorPalette;
 use crate::listener::Listener;
 
 /// Per-cell data exposed to Swift via C FFI.
+/// Sparse: only non-trivial cells are emitted, with explicit position.
+/// For multi-codepoint glyphs (emoji ZWJ sequences), `extra_count` > 0 and
+/// `extra_offset` indexes into the snapshot's `extra_chars` array.
 #[repr(C)]
+#[derive(Clone, Copy)]
 pub struct ClaideCellData {
+    pub row: u16,
+    pub col: u16,
     pub codepoint: u32,
     pub fg_r: u8,
     pub fg_g: u8,
@@ -21,6 +30,8 @@ pub struct ClaideCellData {
     pub bg_g: u8,
     pub bg_b: u8,
     pub flags: u16,
+    pub extra_offset: u32,
+    pub extra_count: u8,
 }
 
 /// Cursor information exposed to Swift.
@@ -33,42 +44,80 @@ pub struct ClaideCursorInfo {
 }
 
 /// Complete snapshot of the visible terminal grid.
+/// `cells` contains only non-trivial cells (sparse); `cell_count` is the actual length.
+/// `extra_chars` holds additional codepoints for multi-codepoint cells (emoji ZWJ sequences).
 #[repr(C)]
 pub struct ClaideGridSnapshot {
     pub cells: *mut ClaideCellData,
+    pub cell_count: u32,
+    pub extra_chars: *mut u32,
+    pub extra_chars_count: u32,
     pub rows: u32,
     pub cols: u32,
     pub cursor: ClaideCursorInfo,
     pub mode_flags: u32,
+    pub padding_bg_r: u8,
+    pub padding_bg_g: u8,
+    pub padding_bg_b: u8,
 }
 
-/// Default ANSI colors for when the terminal hasn't configured them.
-const DEFAULT_ANSI: [Rgb; 16] = [
+/// Persistent per-row cell storage for incremental snapshots.
+/// Rows are only rebuilt when damage tracking reports them as changed.
+pub struct PersistentGrid {
+    row_cells: Vec<Vec<ClaideCellData>>,
+    row_extras: Vec<Vec<u32>>,
+    total_cells: usize,
+    total_extras: usize,
+    grid_rows: usize,
+    grid_cols: usize,
+}
+
+impl PersistentGrid {
+    pub fn new() -> Self {
+        Self {
+            row_cells: Vec::new(),
+            row_extras: Vec::new(),
+            total_cells: 0,
+            total_extras: 0,
+            grid_rows: 0,
+            grid_cols: 0,
+        }
+    }
+}
+
+/// Hexed palette ANSI colors (used as initial values for ColorPalette).
+pub const DEFAULT_ANSI: [Rgb; 16] = [
     Rgb { r: 0x00, g: 0x00, b: 0x00 }, // Black
-    Rgb { r: 0xcc, g: 0x00, b: 0x00 }, // Red
-    Rgb { r: 0x00, g: 0xcc, b: 0x00 }, // Green
-    Rgb { r: 0xcc, g: 0xcc, b: 0x00 }, // Yellow
-    Rgb { r: 0x00, g: 0x00, b: 0xcc }, // Blue
-    Rgb { r: 0xcc, g: 0x00, b: 0xcc }, // Magenta
-    Rgb { r: 0x00, g: 0xcc, b: 0xcc }, // Cyan
-    Rgb { r: 0xcc, g: 0xcc, b: 0xcc }, // White
-    Rgb { r: 0x55, g: 0x55, b: 0x55 }, // Bright Black
-    Rgb { r: 0xff, g: 0x55, b: 0x55 }, // Bright Red
-    Rgb { r: 0x55, g: 0xff, b: 0x55 }, // Bright Green
-    Rgb { r: 0xff, g: 0xff, b: 0x55 }, // Bright Yellow
-    Rgb { r: 0x55, g: 0x55, b: 0xff }, // Bright Blue
-    Rgb { r: 0xff, g: 0x55, b: 0xff }, // Bright Magenta
-    Rgb { r: 0x55, g: 0xff, b: 0xff }, // Bright Cyan
-    Rgb { r: 0xff, g: 0xff, b: 0xff }, // Bright White
+    Rgb { r: 0xff, g: 0x5c, b: 0x57 }, // Red
+    Rgb { r: 0x5a, g: 0xf7, b: 0x8e }, // Green
+    Rgb { r: 0xf3, g: 0xf9, b: 0x9d }, // Yellow
+    Rgb { r: 0x57, g: 0xc7, b: 0xff }, // Blue
+    Rgb { r: 0xff, g: 0x6a, b: 0xc1 }, // Magenta
+    Rgb { r: 0x9a, g: 0xed, b: 0xfe }, // Cyan
+    Rgb { r: 0xf1, g: 0xf1, b: 0xf0 }, // White
+    Rgb { r: 0x68, g: 0x68, b: 0x68 }, // Bright Black
+    Rgb { r: 0xff, g: 0x5c, b: 0x57 }, // Bright Red
+    Rgb { r: 0x5a, g: 0xf7, b: 0x8e }, // Bright Green
+    Rgb { r: 0xf3, g: 0xf9, b: 0x9d }, // Bright Yellow
+    Rgb { r: 0x57, g: 0xc7, b: 0xff }, // Bright Blue
+    Rgb { r: 0xff, g: 0x6a, b: 0xc1 }, // Bright Magenta
+    Rgb { r: 0x9a, g: 0xed, b: 0xfe }, // Bright Cyan
+    Rgb { r: 0xef, g: 0xf0, b: 0xeb }, // Bright White
 ];
 
-/// Default foreground color.
-const DEFAULT_FG: Rgb = Rgb { r: 0xef, g: 0xf0, b: 0xeb };
-/// Default background color.
-const DEFAULT_BG: Rgb = Rgb { r: 0x15, g: 0x17, b: 0x28 };
+/// Hexed foreground color (used as initial value for ColorPalette).
+pub const DEFAULT_FG: Rgb = Rgb { r: 0xef, g: 0xf0, b: 0xeb };
+/// Hexed background color (used as initial value for ColorPalette).
+pub const DEFAULT_BG: Rgb = Rgb { r: 0x15, g: 0x17, b: 0x28 };
 
-/// Resolve a Color enum to an RGB triple using the terminal's configured colors.
-fn resolve_color(color: &Color, colors: &Colors, is_foreground: bool) -> Rgb {
+/// Resolve a Color enum to an RGB triple using the terminal's configured colors
+/// and the per-instance palette for fallback values.
+fn resolve_color(
+    color: &Color,
+    colors: &Colors,
+    is_foreground: bool,
+    palette: &ColorPalette,
+) -> Rgb {
     match color {
         Color::Spec(rgb) => *rgb,
         Color::Named(named) => {
@@ -77,14 +126,14 @@ fn resolve_color(color: &Color, colors: &Colors, is_foreground: bool) -> Rgb {
                 rgb
             } else {
                 match named {
-                    NamedColor::Foreground => colors[NamedColor::Foreground].unwrap_or(DEFAULT_FG),
-                    NamedColor::Background => colors[NamedColor::Background].unwrap_or(DEFAULT_BG),
-                    _ if index < 16 => DEFAULT_ANSI[index],
+                    NamedColor::Foreground => colors[NamedColor::Foreground].unwrap_or(palette.fg),
+                    NamedColor::Background => colors[NamedColor::Background].unwrap_or(palette.bg),
+                    _ if index < 16 => palette.ansi[index],
                     _ => {
                         if is_foreground {
-                            DEFAULT_FG
+                            palette.fg
                         } else {
-                            DEFAULT_BG
+                            palette.bg
                         }
                     }
                 }
@@ -95,7 +144,7 @@ fn resolve_color(color: &Color, colors: &Colors, is_foreground: bool) -> Rgb {
             if let Some(rgb) = colors[index] {
                 rgb
             } else if index < 16 {
-                DEFAULT_ANSI[index]
+                palette.ansi[index]
             } else if index < 232 {
                 // 6x6x6 color cube
                 let idx = index - 16;
@@ -149,112 +198,274 @@ fn map_flags(flags: Flags) -> u16 {
     out
 }
 
-/// Take a snapshot of the visible terminal grid.
+/// Check whether a cell's effective background is the terminal default.
+/// Accounts for INVERSE flag which swaps fg/bg visually.
+fn has_default_bg(cell: &Cell) -> bool {
+    let bg_color = if cell.flags.contains(Flags::INVERSE) {
+        &cell.fg
+    } else {
+        &cell.bg
+    };
+    matches!(bg_color, Color::Named(NamedColor::Background))
+}
+
+/// Process a single grid row into sparse ClaideCellData entries and extra codepoints.
+/// Only non-trivial cells (visible content, non-default background, selection,
+/// search match, or wide chars) are included.
+/// Returns (cells, extras) where extras holds zerowidth codepoints for multi-char glyphs.
+fn process_row(
+    grid_row: &alacritty_terminal::grid::Row<Cell>,
+    row_idx: usize,
+    cols: usize,
+    line: Line,
+    colors: &Colors,
+    palette: &ColorPalette,
+    selection_range: &Option<SelectionRange>,
+    search_match: Option<&Match>,
+) -> (Vec<ClaideCellData>, Vec<u32>) {
+    let mut cells = Vec::new();
+    let mut extras = Vec::new();
+
+    for col_idx in 0..cols {
+        let cell: &Cell = &grid_row[Column(col_idx)];
+        let point = Point::new(line, Column(col_idx));
+
+        let selected = selection_range.as_ref().is_some_and(|r| r.contains(point));
+        let is_search_match = search_match.is_some_and(|m| point >= *m.start() && point <= *m.end());
+
+        let cp = cell.c as u32;
+        let is_blank = cp == 0x20 || cp == 0x00 || cp == 0x7F;
+        let is_wide = cell.flags.intersects(Flags::WIDE_CHAR | Flags::WIDE_CHAR_SPACER);
+
+        if is_blank && has_default_bg(cell) && !selected && !is_search_match && !is_wide {
+            continue;
+        }
+
+        let (mut fg, bg) = if cell.flags.contains(Flags::INVERSE) {
+            (
+                resolve_color(&cell.bg, colors, true, palette),
+                resolve_color(&cell.fg, colors, false, palette),
+            )
+        } else {
+            (
+                resolve_color(&cell.fg, colors, true, palette),
+                resolve_color(&cell.bg, colors, false, palette),
+            )
+        };
+
+        if cell.flags.contains(Flags::DIM) {
+            fg.r = fg.r / 2;
+            fg.g = fg.g / 2;
+            fg.b = fg.b / 2;
+        }
+
+        let mut cell_flags = map_flags(cell.flags);
+
+        if selected {
+            cell_flags |= 0x200;
+        }
+        if is_search_match {
+            cell_flags |= 0x400;
+        }
+
+        // Collect zerowidth characters (ZWJ sequences, variation selectors, skin tones)
+        let extra_offset = extras.len() as u32;
+        let extra_count = if let Some(zw) = cell.zerowidth() {
+            for &ch in zw {
+                extras.push(ch as u32);
+            }
+            zw.len() as u8
+        } else {
+            0
+        };
+
+        cells.push(ClaideCellData {
+            row: row_idx as u16,
+            col: col_idx as u16,
+            codepoint: cp,
+            fg_r: fg.r,
+            fg_g: fg.g,
+            fg_b: fg.b,
+            bg_r: bg.r,
+            bg_g: bg.g,
+            bg_b: bg.b,
+            flags: cell_flags,
+            extra_offset,
+            extra_count,
+        });
+    }
+
+    (cells, extras)
+}
+
+/// Take an incremental sparse snapshot of the visible terminal grid.
+/// Only rows reported as damaged are re-processed; undamaged rows reuse
+/// cached data from the persistent grid.
 ///
-/// The caller must free the returned snapshot with `snapshot_free`.
-pub fn take_snapshot(term: &Term<Listener>) -> ClaideGridSnapshot {
-    let grid = term.grid();
-    let rows = grid.screen_lines();
-    let cols = grid.columns();
-    let display_offset = grid.display_offset();
+/// `damaged_rows == None` forces a full rebuild (all rows).
+/// `damaged_rows == Some(vec)` rebuilds only the listed rows.
+///
+/// The caller must free the returned snapshot with `free_snapshot`.
+pub fn take_snapshot_incremental(
+    term: &Term<Listener>,
+    palette: &ColorPalette,
+    search_match: Option<&Match>,
+    grid: &mut PersistentGrid,
+    damaged_rows: Option<Vec<LineDamageBounds>>,
+) -> ClaideGridSnapshot {
+    let term_grid = term.grid();
+    let rows = term_grid.screen_lines();
+    let cols = term_grid.columns();
+    let display_offset = term_grid.display_offset();
 
-    let content = term.renderable_content();
-    let colors = content.colors;
-    let cursor = &content.cursor;
-    let mode = content.mode;
+    let colors = term.colors();
+    let mode = *term.mode();
 
-    // Resolve selection range for per-cell flagging
+    // Resolve cursor position and shape
+    let vi_mode = mode.contains(TermMode::VI);
+    let mut cursor_point = if vi_mode { term.vi_mode_cursor.point } else { term_grid.cursor.point };
+    if term_grid[cursor_point].flags.contains(Flags::WIDE_CHAR_SPACER) {
+        cursor_point.column -= 1;
+    }
+    let cursor_shape = if !vi_mode && !mode.contains(TermMode::SHOW_CURSOR) {
+        CursorShape::Hidden
+    } else {
+        term.cursor_style().shape
+    };
+
     let selection_range = term.selection.as_ref().and_then(|s| s.to_range(term));
 
-    let total_cells = rows * cols;
-    let mut cells: Vec<ClaideCellData> = Vec::with_capacity(total_cells);
+    // Sample padding background from bottom-left cell
+    let last_line = Line((rows as i32 - 1) - (display_offset as i32));
+    let last_row_cell = &term_grid[last_line][Column(0)];
+    let padding_bg = {
+        let bg = if last_row_cell.flags.contains(Flags::INVERSE) {
+            resolve_color(&last_row_cell.fg, colors, false, palette)
+        } else {
+            resolve_color(&last_row_cell.bg, colors, false, palette)
+        };
+        (bg.r, bg.g, bg.b)
+    };
 
-    for row_idx in 0..rows {
-        let line = Line((row_idx as i32) - (display_offset as i32));
-        let grid_row = &grid[line];
+    // Detect grid resize — forces full rebuild
+    let dimensions_changed = grid.grid_rows != rows || grid.grid_cols != cols;
+    let full_rebuild = damaged_rows.is_none() || dimensions_changed;
 
-        for col_idx in 0..cols {
-            let cell: &Cell = &grid_row[Column(col_idx)];
+    if dimensions_changed {
+        grid.row_cells.resize_with(rows, Vec::new);
+        grid.row_cells.truncate(rows);
+        grid.row_extras.resize_with(rows, Vec::new);
+        grid.row_extras.truncate(rows);
+        grid.grid_rows = rows;
+        grid.grid_cols = cols;
+    }
 
-            let (mut fg, bg) = if cell.flags.contains(Flags::INVERSE) {
-                (
-                    resolve_color(&cell.bg, colors, true),
-                    resolve_color(&cell.fg, colors, false),
-                )
-            } else {
-                (
-                    resolve_color(&cell.fg, colors, true),
-                    resolve_color(&cell.bg, colors, false),
-                )
-            };
-
-            // Apply DIM by halving foreground brightness
-            if cell.flags.contains(Flags::DIM) {
-                fg.r = fg.r / 2;
-                fg.g = fg.g / 2;
-                fg.b = fg.b / 2;
+    if full_rebuild {
+        // Rebuild all rows
+        grid.total_cells = 0;
+        grid.total_extras = 0;
+        for row_idx in 0..rows {
+            let line = Line((row_idx as i32) - (display_offset as i32));
+            let grid_row = &term_grid[line];
+            let (new_cells, new_extras) = process_row(grid_row, row_idx, cols, line, colors, palette, &selection_range, search_match);
+            grid.total_cells += new_cells.len();
+            grid.total_extras += new_extras.len();
+            grid.row_cells[row_idx] = new_cells;
+            grid.row_extras[row_idx] = new_extras;
+        }
+    } else if let Some(ref damaged) = damaged_rows {
+        // Rebuild only damaged rows
+        for damage in damaged {
+            let row_idx = damage.line;
+            if row_idx >= rows {
+                continue;
             }
+            let line = Line((row_idx as i32) - (display_offset as i32));
+            let grid_row = &term_grid[line];
 
-            let mut cell_flags = map_flags(cell.flags);
-
-            // Mark selected cells with bit 0x200
-            if let Some(ref range) = selection_range {
-                let point = Point::new(line, Column(col_idx));
-                if range.contains(point) {
-                    cell_flags |= 0x200;
-                }
-            }
-
-            cells.push(ClaideCellData {
-                codepoint: cell.c as u32,
-                fg_r: fg.r,
-                fg_g: fg.g,
-                fg_b: fg.b,
-                bg_r: bg.r,
-                bg_g: bg.g,
-                bg_b: bg.b,
-                flags: cell_flags,
-            });
+            grid.total_cells -= grid.row_cells[row_idx].len();
+            grid.total_extras -= grid.row_extras[row_idx].len();
+            let (new_cells, new_extras) = process_row(grid_row, row_idx, cols, line, colors, palette, &selection_range, search_match);
+            grid.total_cells += new_cells.len();
+            grid.total_extras += new_extras.len();
+            grid.row_cells[row_idx] = new_cells;
+            grid.row_extras[row_idx] = new_extras;
         }
     }
 
+    // Clone persistent buffer into flat transfer Vecs for FFI.
+    // Rebase extra_offset per row since each row's offsets are row-local.
+    let mut cells: Vec<ClaideCellData> = Vec::with_capacity(grid.total_cells);
+    let mut extras: Vec<u32> = Vec::with_capacity(grid.total_extras);
+    for row_idx in 0..grid.row_cells.len() {
+        let base = extras.len() as u32;
+        for cell in &grid.row_cells[row_idx] {
+            let mut c = *cell;
+            if c.extra_count > 0 {
+                c.extra_offset += base;
+            }
+            cells.push(c);
+        }
+        extras.extend_from_slice(&grid.row_extras[row_idx]);
+    }
+
+    let cell_count = cells.len() as u32;
     let cells_ptr = cells.as_mut_ptr();
     std::mem::forget(cells);
 
-    let cursor_shape = match cursor.shape {
-        alacritty_terminal::vte::ansi::CursorShape::Block => 0,
-        alacritty_terminal::vte::ansi::CursorShape::Underline => 1,
-        alacritty_terminal::vte::ansi::CursorShape::Beam => 2,
-        alacritty_terminal::vte::ansi::CursorShape::HollowBlock => 4,
-        alacritty_terminal::vte::ansi::CursorShape::Hidden => 3,
+    let extra_chars_count = extras.len() as u32;
+    let extra_chars_ptr = if extras.is_empty() {
+        std::ptr::null_mut()
+    } else {
+        let ptr = extras.as_mut_ptr();
+        std::mem::forget(extras);
+        ptr
     };
 
-    let cursor_row = (cursor.point.line.0 + display_offset as i32).max(0) as u32;
-    let cursor_col = cursor.point.column.0 as u32;
+    let cursor_shape_id = match cursor_shape {
+        CursorShape::Block => 0u8,
+        CursorShape::Underline => 1,
+        CursorShape::Beam => 2,
+        CursorShape::HollowBlock => 4,
+        CursorShape::Hidden => 3,
+    };
+
+    let cursor_row = (cursor_point.line.0 + display_offset as i32).max(0) as u32;
+    let cursor_col = cursor_point.column.0 as u32;
 
     ClaideGridSnapshot {
         cells: cells_ptr,
+        cell_count,
+        extra_chars: extra_chars_ptr,
+        extra_chars_count,
         rows: rows as u32,
         cols: cols as u32,
         cursor: ClaideCursorInfo {
             row: cursor_row,
             col: cursor_col,
-            shape: cursor_shape,
-            visible: cursor_shape != 3,
+            shape: cursor_shape_id,
+            visible: cursor_shape_id != 3,
         },
         mode_flags: mode.bits(),
+        padding_bg_r: padding_bg.0,
+        padding_bg_g: padding_bg.1,
+        padding_bg_b: padding_bg.2,
     }
 }
 
-/// Free a grid snapshot allocated by `take_snapshot`.
+/// Free a grid snapshot allocated by `take_snapshot_incremental`.
 pub unsafe fn free_snapshot(snapshot: *mut ClaideGridSnapshot) {
     if snapshot.is_null() {
         return;
     }
     let snap = &*snapshot;
-    let total = (snap.rows as usize) * (snap.cols as usize);
-    if !snap.cells.is_null() && total > 0 {
-        drop(Vec::from_raw_parts(snap.cells, total, total));
+    let count = snap.cell_count as usize;
+    if !snap.cells.is_null() && count > 0 {
+        drop(Vec::from_raw_parts(snap.cells, count, count));
+    }
+    let extras_count = snap.extra_chars_count as usize;
+    if !snap.extra_chars.is_null() && extras_count > 0 {
+        drop(Vec::from_raw_parts(snap.extra_chars, extras_count, extras_count));
     }
     drop(Box::from_raw(snapshot));
 }
