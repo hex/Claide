@@ -50,7 +50,7 @@ The window is split horizontally: terminal on the left (~65%), sidebar on the ri
 
 ### Terminal
 
-GPU-accelerated terminal powered by [alacritty_terminal](https://crates.io/crates/alacritty_terminal) (Rust) for VT emulation and Metal for rendering. Launches `/bin/zsh -l` with full environment (homebrew paths, OSC 7 directory tracking). Supports multiple tabs, custom font selection, and cursor style configuration.
+GPU-accelerated terminal powered by a patched [alacritty_terminal](https://crates.io/crates/alacritty_terminal) (Rust) for VT emulation and Metal for rendering. Launches `/bin/zsh -l` with full environment (homebrew paths, OSC 7 directory tracking). Supports multiple tabs, text selection, custom font selection, and cursor style configuration.
 
 ### Board
 
@@ -79,7 +79,7 @@ SwiftUI (TerminalPanel) → NSView (MetalTerminalView + CAMetalLayer)
   → alacritty_terminal (VTE parser, grid buffer, PTY management)
 ```
 
-The Rust library (`rust/claide-terminal/`) handles terminal emulation: PTY fork/exec, byte-level VTE parsing, grid state, and event dispatch. A C ABI exposes ~8 functions to Swift. The Metal renderer takes grid snapshots each frame and draws instanced quads — one pass for cell backgrounds, one for alpha-blended glyph textures.
+The Rust library (`rust/claide-terminal/`) handles terminal emulation: PTY fork/exec, byte-level VTE parsing, grid state, text selection, and event dispatch. A C ABI exposes 17 functions to Swift covering lifecycle, input, resize, state snapshots, and selection. The Metal renderer takes grid snapshots each frame and draws instanced quads — one pass for cell backgrounds, one for alpha-blended glyph textures.
 
 ### View Models
 
@@ -94,13 +94,17 @@ The Rust library (`rust/claide-terminal/`) handles terminal emulation: PTY fork/
 
 ```
 Claide/
-  ClaideApp.swift            # Entry point, window configuration, Sparkle updater
+  ClaideApp.swift            # Entry point, window chrome, Sparkle updater
+  ContentView.swift          # Root HSplitView + sidebar VSplitView
+  Palette.swift              # Color definitions as 8-bit RGB values
+  Theme.swift                # Fonts, spacing tokens, tooltips
+  FontSelection.swift        # Monospaced font enumeration and creation
+  EdgeVisuals.swift          # Graph edge styling (blocks vs parent-child)
+  NodeVisuals.swift          # Graph node sizing and border from status
+  KanbanColumn.swift         # Issue-to-column assignment by status
+  BridgingHeader.h           # Imports Rust C FFI headers
   Updates/
     CheckForUpdatesView.swift  # "Check for Updates..." menu item
-  ContentView.swift          # Root HSplitView + sidebar VSplitView
-  Theme.swift                # Colors, fonts, spacing tokens, tooltips
-  FontSelection.swift        # Monospaced font enumeration and creation
-  BridgingHeader.h           # Imports Rust C FFI headers
   Models/
     Issue.swift              # Shared issue model (beads + claude tasks)
     IssueDependency.swift    # Edge between issues
@@ -112,7 +116,9 @@ Claide/
     TerminalViewModel.swift  # Terminal title, directory, process state
     SessionStatusViewModel.swift
   Views/
-    Graph/GraphPanel.swift   # Canvas-based dependency graph
+    Graph/
+      GraphPanel.swift       # Canvas-based dependency graph
+      IssueNode.swift        # Node appearance reference
     Kanban/KanbanPanel.swift
     FileLog/FileLogPanel.swift
     Terminal/
@@ -126,16 +132,21 @@ Claide/
       TerminalTabManager.swift # Tab lifecycle, shell spawning
       TerminalTheme.swift      # Terminal color palette
       SessionStatusBar.swift   # Context usage indicator
+    SplitDividerSetter.swift # Initial NSSplitView divider position
     EmptyStateView.swift     # Data-source-aware placeholder
     IssueDetailPopover.swift
-    SettingsView.swift       # Font picker, cursor style
+    SettingsView.swift       # Font/cursor/appearance settings
   Services/
     BeadsService.swift       # Runs bd CLI, decodes JSON
     ClaudeTaskService.swift  # Reads ~/.claude/tasks/ files
     FileWatcher.swift        # GCD DispatchSource file monitor
   Assets.xcassets/           # App icon
 rust/
+  build-universal.sh         # Build script (debug/release via CONFIGURATION)
+  Cargo.toml                 # Workspace manifest with patched alacritty_terminal
   claide-terminal/
+    include/
+      claide_terminal.h      # C header declaring FFI types and functions
     src/
       lib.rs               # Crate root
       ffi.rs               # C ABI entry points
@@ -143,7 +154,10 @@ rust/
       pty_reader.rs        # Background thread: PTY → VTE parser
       listener.rs          # Event dispatch to Swift callbacks
       grid_snapshot.rs     # Visible grid → C-compatible struct
-ClaideTests/               # Tests across 16 suites
+  patches/                   # Patched alacritty_terminal crate
+scripts/
+  release.sh               # Signed, notarized DMG build + Sparkle signing
+ClaideTests/               # 165 tests across 17 suites
 project.yml                # XcodeGen spec
 ```
 
@@ -171,7 +185,7 @@ Longer-term:
 xcodebuild -scheme Claide -destination 'platform=macOS' test
 ```
 
-153 tests across 16 suites covering issue parsing, force layout convergence, node/edge visuals, kanban column assignment, font selection, file change parsing, Claude Code task parsing, and zoom-adaptive metrics.
+165 tests across 17 suites covering terminal theme, tab management, text selection, palette conversions, session status parsing, issue parsing, force layout convergence, node/edge visuals, kanban column assignment, font selection, file change parsing, Claude Code task parsing, issue detail popovers, and zoom-adaptive metrics.
 
 ## License
 
