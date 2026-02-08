@@ -8,7 +8,7 @@
 
 A GPU-accelerated macOS terminal emulator built with Swift, Metal, and Rust. Uses [alacritty_terminal](https://crates.io/crates/alacritty_terminal) for VT emulation and a custom Metal pipeline for rendering. Includes a project visualization sidebar for [Claude Code](https://docs.anthropic.com/en/docs/claude-code) sessions.
 
-Version 2026.2.3 | macOS 14.0+ | Swift 6.0 | MIT License
+Version 2026.2.4 | macOS 14.0+ | Swift 6.0 | MIT License
 
 <p align="center">
   <img src="docs/screenshot.png" width="720" alt="Claide screenshot">
@@ -212,9 +212,10 @@ Claide/
       PaneSplitView.swift        # Split divider view
     Settings/
       SettingsView.swift         # Settings window (tabbed)
-      GeneralSettingsTab.swift
-      AppearanceSettingsTab.swift
-      TerminalSettingsTab.swift
+      GeneralSettingsTab.swift   # Shell, scrollback, tabs, window behavior
+      TerminalSettingsTab.swift  # Cursor style, mouse behavior
+      AppearanceSettingsTab.swift # Fonts, color scheme, pane indicators
+      AboutSettingsTab.swift     # Version, website, update check
     EmptyStateView.swift
     IssueDetailPopover.swift
     SplitDividerSetter.swift
