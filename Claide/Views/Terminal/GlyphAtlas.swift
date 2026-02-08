@@ -1,18 +1,18 @@
-// ABOUTME: Rasterizes glyphs to an MTLTexture using Core Text, with shelf-packing layout.
-// ABOUTME: Caches glyph positions for fast lookup during rendering.
+// ABOUTME: Rasterizes glyphs to MTLTextures using Core Text, with shelf-packing layout.
+// ABOUTME: Uses dual atlas: R8 for text (subpixel coverage), RGBA8 for color emoji.
 
 import AppKit
 import Metal
 import CoreText
 
-/// Identifies a glyph variant in the atlas cache.
+/// Identifies a glyph variant in the text atlas cache.
 struct GlyphKey: Hashable {
     let codepoint: UInt32
     let bold: Bool
     let italic: Bool
 }
 
-/// Position and size of a glyph within the atlas texture.
+/// Position and size of a glyph within an atlas texture.
 struct GlyphEntry {
     let u0: Float
     let v0: Float
@@ -24,24 +24,39 @@ struct GlyphEntry {
     /// Offset from cell top-left to glyph origin, in points.
     let bearingX: Float
     let bearingY: Float
+    /// Which atlas this glyph lives in (text R8 vs emoji RGBA8).
+    let isEmoji: Bool
 }
 
-/// Shelf-packed glyph atlas backed by an MTLTexture.
+/// Shelf-packed glyph atlas backed by two MTLTextures.
 ///
-/// Rasterizes glyphs lazily using Core Text. Each glyph is drawn into a small
-/// bitmap, then uploaded to the atlas at the next available position.
-/// Shelves are horizontal rows of uniform height.
+/// Text glyphs are rasterized to a single-channel R8 texture (subpixel coverage).
+/// Color emoji are rasterized to a separate RGBA8 texture (full color).
+/// Both use independent shelf-packing for layout.
 final class GlyphAtlas {
     let device: MTLDevice
-    private(set) var texture: MTLTexture
-    private var cache: [GlyphKey: GlyphEntry] = [:]
 
-    private var shelfY: Int = 0       // Y position of current shelf
-    private var shelfHeight: Int = 0  // Height of current shelf
-    private var cursorX: Int = 0      // X position within current shelf
+    /// Text atlas: single-channel grayscale coverage (R8).
+    private(set) var texture: MTLTexture
+    /// Emoji atlas: full-color RGBA for color glyphs.
+    private(set) var emojiTexture: MTLTexture
+
+    private var cache: [GlyphKey: GlyphEntry] = [:]
+    private var emojiCache: [String: GlyphEntry] = [:]
+
+    // Text atlas shelf-packing state
+    private var shelfY: Int = 0
+    private var shelfHeight: Int = 0
+    private var cursorX: Int = 0
+
+    // Emoji atlas shelf-packing state
+    private var emojiShelfY: Int = 0
+    private var emojiShelfHeight: Int = 0
+    private var emojiCursorX: Int = 0
+
     private let atlasWidth: Int
     private let atlasHeight: Int
-    private let padding: Int = 1      // Pixels between glyphs
+    private let padding: Int = 1
 
     private var regularFont: CTFont
     private var boldFont: CTFont
@@ -98,19 +113,39 @@ final class GlyphAtlas {
         CTFontGetAdvancesForGlyphs(baseFont, .horizontal, &glyph, &advance, 1)
         self.cellWidth = ceil(advance.width)
 
-        // Create the atlas texture (single-channel grayscale coverage)
-        let descriptor = MTLTextureDescriptor.texture2DDescriptor(
+        // Text atlas (single-channel grayscale coverage)
+        let textDesc = MTLTextureDescriptor.texture2DDescriptor(
             pixelFormat: .r8Unorm,
             width: width,
             height: height,
             mipmapped: false
         )
-        descriptor.usage = [.shaderRead]
-        descriptor.storageMode = .managed
-        self.texture = device.makeTexture(descriptor: descriptor)!
+        textDesc.usage = [.shaderRead]
+        textDesc.storageMode = .managed
+        self.texture = device.makeTexture(descriptor: textDesc)!
+
+        // Emoji atlas (RGBA for color glyphs)
+        let emojiDesc = MTLTextureDescriptor.texture2DDescriptor(
+            pixelFormat: .rgba8Unorm,
+            width: width,
+            height: height,
+            mipmapped: false
+        )
+        emojiDesc.usage = [.shaderRead]
+        emojiDesc.storageMode = .managed
+        self.emojiTexture = device.makeTexture(descriptor: emojiDesc)!
+    }
+
+    /// Check if a string resolves to a color emoji font via Core Text fallback.
+    private func isColorEmoji(_ string: String) -> Bool {
+        let cfString = string as CFString
+        let range = CFRangeMake(0, CFStringGetLength(cfString))
+        let resolvedFont = CTFontCreateForString(regularFont, cfString, range)
+        return CTFontGetSymbolicTraits(resolvedFont).contains(.traitColorGlyphs)
     }
 
     /// Look up or rasterize a glyph, returning its atlas entry.
+    /// Automatically detects color emoji and routes to the RGBA atlas.
     func entry(for codepoint: UInt32, bold: Bool, italic: Bool) -> GlyphEntry? {
         let key = GlyphKey(codepoint: codepoint, bold: bold, italic: italic)
         if let existing = cache[key] {
@@ -118,15 +153,23 @@ final class GlyphAtlas {
         }
 
         guard let scalar = Unicode.Scalar(codepoint) else { return nil }
-        let char = Character(scalar)
-        let string = String(char)
+        let string = String(Character(scalar))
 
         // Skip spaces and control characters
         if codepoint <= 0x20 || codepoint == 0x7F {
             return nil
         }
 
-        // Pick the right font variant
+        // Route color emoji to the RGBA atlas
+        if isColorEmoji(string) {
+            if let entry = rasterizeEmoji(string) {
+                cache[key] = entry
+                return entry
+            }
+            return nil
+        }
+
+        // Pick the right font variant for text
         let font: CTFont
         switch (bold, italic) {
         case (true, true): font = boldItalicFont
@@ -135,7 +178,20 @@ final class GlyphAtlas {
         case (false, false): font = regularFont
         }
 
-        // Create attributed string and line
+        return rasterizeText(string, font: font, key: key)
+    }
+
+    /// Look up or rasterize a multi-codepoint emoji (ZWJ sequences, skin tones).
+    func emojiEntry(for string: String) -> GlyphEntry? {
+        if let existing = emojiCache[string] {
+            return existing
+        }
+        return rasterizeEmoji(string)
+    }
+
+    // MARK: - Text rasterization (R8 atlas)
+
+    private func rasterizeText(_ string: String, font: CTFont, key: GlyphKey) -> GlyphEntry? {
         let attrs: [NSAttributedString.Key: Any] = [
             .font: font,
             .foregroundColor: NSColor.white,
@@ -226,7 +282,8 @@ final class GlyphAtlas {
             width: glyphWidth,
             height: glyphHeight,
             bearingX: Float(bounds.origin.x) - 1,
-            bearingY: Float(bounds.origin.y) - 1
+            bearingY: Float(bounds.origin.y) - 1,
+            isEmoji: false
         )
 
         cache[key] = entry
@@ -235,14 +292,125 @@ final class GlyphAtlas {
         return entry
     }
 
-    /// Update the backing scale factor, clearing the atlas cache.
+    // MARK: - Emoji rasterization (RGBA8 atlas)
+
+    private func rasterizeEmoji(_ string: String) -> GlyphEntry? {
+        if let existing = emojiCache[string] {
+            return existing
+        }
+
+        // Resolve the emoji font via Core Text fallback
+        let cfString = string as CFString
+        let range = CFRangeMake(0, CFStringGetLength(cfString))
+        let emojiFont = CTFontCreateForString(regularFont, cfString, range)
+
+        let attrs: [NSAttributedString.Key: Any] = [.font: emojiFont]
+        let attrStr = NSAttributedString(string: string, attributes: attrs)
+        let line = CTLineCreateWithAttributedString(attrStr)
+
+        // Typographic bounds (not glyph path bounds, which return zero for bitmap emoji)
+        let bounds = CTLineGetBoundsWithOptions(line, [])
+
+        let glyphWidth: Int
+        let glyphHeight: Int
+        let bearingX: Float
+        let bearingY: Float
+
+        if bounds.width > 0 && bounds.height > 0 {
+            glyphWidth = max(Int(ceil(bounds.width)) + 2, 1)
+            glyphHeight = max(Int(ceil(bounds.height)) + 2, 1)
+            bearingX = Float(bounds.origin.x) - 1
+            bearingY = Float(bounds.origin.y) - 1
+        } else {
+            // Degenerate bounds fallback: size to 2 cells wide, 1 cell tall
+            glyphWidth = Int(cellWidth * 2)
+            glyphHeight = Int(cellHeight)
+            bearingX = 0
+            bearingY = 0
+        }
+
+        let bitmapWidth = Int(ceil(CGFloat(glyphWidth) * scale))
+        let bitmapHeight = Int(ceil(CGFloat(glyphHeight) * scale))
+
+        // Emoji shelf packing
+        if emojiCursorX + bitmapWidth + padding > atlasWidth {
+            emojiShelfY += emojiShelfHeight + padding
+            emojiShelfHeight = 0
+            emojiCursorX = 0
+        }
+        if emojiShelfY + bitmapHeight > atlasHeight { return nil }
+        emojiShelfHeight = max(emojiShelfHeight, bitmapHeight)
+
+        // Rasterize in RGBA with premultiplied alpha (no opaque black fill)
+        let rgbaBytes = 4
+        var pixels = [UInt8](repeating: 0, count: bitmapWidth * bitmapHeight * rgbaBytes)
+
+        pixels.withUnsafeMutableBufferPointer { buffer in
+            let bitmapInfo = CGImageAlphaInfo.premultipliedLast.rawValue
+            guard let context = CGContext(
+                data: buffer.baseAddress,
+                width: bitmapWidth,
+                height: bitmapHeight,
+                bitsPerComponent: 8,
+                bytesPerRow: bitmapWidth * rgbaBytes,
+                space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                bitmapInfo: bitmapInfo
+            ) else { return }
+
+            context.scaleBy(x: scale, y: scale)
+            context.setAllowsAntialiasing(true)
+            context.setShouldAntialias(true)
+
+            let drawX: CGFloat
+            let drawY: CGFloat
+            if bounds.width > 0 && bounds.height > 0 {
+                drawX = -bounds.origin.x + 1
+                drawY = -bounds.origin.y + 1
+            } else {
+                drawX = 0
+                drawY = descent
+            }
+            context.textPosition = CGPoint(x: drawX, y: drawY)
+            CTLineDraw(line, context)
+        }
+
+        // Upload RGBA to emoji atlas (4 bytes per pixel)
+        let region = MTLRegion(
+            origin: MTLOrigin(x: emojiCursorX, y: emojiShelfY, z: 0),
+            size: MTLSize(width: bitmapWidth, height: bitmapHeight, depth: 1)
+        )
+        emojiTexture.replace(region: region, mipmapLevel: 0, withBytes: &pixels, bytesPerRow: bitmapWidth * rgbaBytes)
+
+        let fw = Float(atlasWidth)
+        let fh = Float(atlasHeight)
+        let entry = GlyphEntry(
+            u0: Float(emojiCursorX) / fw,
+            v0: Float(emojiShelfY) / fh,
+            u1: Float(emojiCursorX + bitmapWidth) / fw,
+            v1: Float(emojiShelfY + bitmapHeight) / fh,
+            width: glyphWidth,
+            height: glyphHeight,
+            bearingX: bearingX,
+            bearingY: bearingY,
+            isEmoji: true
+        )
+
+        emojiCache[string] = entry
+        emojiCursorX += bitmapWidth + padding
+
+        return entry
+    }
+
+    // MARK: - Configuration
+
+    /// Update the backing scale factor, clearing both atlas caches.
     func setScale(_ newScale: CGFloat) {
         guard newScale != scale else { return }
         scale = newScale
         clearAtlas()
     }
 
-    /// Update the font, clearing the atlas cache.
+    /// Update the font, clearing both atlas caches.
     func setFont(_ font: NSFont) {
         let size = font.pointSize
         let baseFont = CTFontCreateWithName(font.fontName as CFString, size, nil)
@@ -282,12 +450,30 @@ final class GlyphAtlas {
 
     private func clearAtlas() {
         cache.removeAll()
+        emojiCache.removeAll()
+
         shelfY = 0
         shelfHeight = 0
         cursorX = 0
 
+        emojiShelfY = 0
+        emojiShelfHeight = 0
+        emojiCursorX = 0
+
+        // Clear text atlas
         let zeros = [UInt8](repeating: 0, count: atlasWidth * atlasHeight)
         let region = MTLRegion(origin: MTLOrigin(), size: MTLSize(width: atlasWidth, height: atlasHeight, depth: 1))
         texture.replace(region: region, mipmapLevel: 0, withBytes: zeros, bytesPerRow: atlasWidth)
+
+        // Recreate emoji texture (avoids allocating a large zeroed buffer)
+        let emojiDesc = MTLTextureDescriptor.texture2DDescriptor(
+            pixelFormat: .rgba8Unorm,
+            width: atlasWidth,
+            height: atlasHeight,
+            mipmapped: false
+        )
+        emojiDesc.usage = [.shaderRead]
+        emojiDesc.storageMode = .managed
+        emojiTexture = device.makeTexture(descriptor: emojiDesc)!
     }
 }
