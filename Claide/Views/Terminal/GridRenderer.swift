@@ -100,20 +100,19 @@ final class GridRenderer {
         glyphPipeline = try device.makeRenderPipelineState(descriptor: glyphDesc)
     }
 
-    /// Build instance buffers from a grid snapshot.
+    /// Build instance buffers from a sparse grid snapshot.
     /// When `yOffset` is non-zero, the grid is shifted up so the bottom rows
     /// remain visible (used for visual-only font zoom).
     func update(snapshot: UnsafePointer<ClaideGridSnapshot>, yOffset: Float = 0, origin: SIMD2<Float> = .zero) {
-        let rows = Int(snapshot.pointee.rows)
-        let cols = Int(snapshot.pointee.cols)
+        let cellCount = Int(snapshot.pointee.cell_count)
         let cellW = Float(atlas.cellWidth)
         let cellH = Float(atlas.cellHeight)
 
         var bgInstances: [CellInstance] = []
         var glyphInstances: [CellInstance] = []
 
-        bgInstances.reserveCapacity(rows * cols)
-        glyphInstances.reserveCapacity(rows * cols)
+        bgInstances.reserveCapacity(cellCount)
+        glyphInstances.reserveCapacity(cellCount)
 
         // Convert defaultBg to UInt8 for fast comparison against cell bg bytes
         let defBgR = UInt8(round(defaultBg.x * 255.0))
@@ -124,80 +123,79 @@ final class GridRenderer {
         let scale = Float(atlas.scale)
         let descent = Float(atlas.descent)
 
-        for row in 0..<rows {
-            for col in 0..<cols {
-                let idx = row * cols + col
-                let cell = cells[idx]
+        for i in 0..<cellCount {
+            let cell = cells[i]
 
-                let x = Float(col) * cellW + origin.x
-                let y = Float(row) * cellH - yOffset + origin.y
+            let x = Float(cell.col) * cellW + origin.x
+            let y = Float(cell.row) * cellH - yOffset + origin.y
 
-                let selected = cell.flags & 0x200 != 0
-                let searchMatch = cell.flags & 0x400 != 0
+            let selected = cell.flags & 0x200 != 0
+            let searchMatch = cell.flags & 0x400 != 0
 
-                let fgR = Float(cell.fg_r) / 255.0
-                let fgG = Float(cell.fg_g) / 255.0
-                let fgB = Float(cell.fg_b) / 255.0
+            let fgR = Float(cell.fg_r) / 255.0
+            let fgG = Float(cell.fg_g) / 255.0
+            let fgB = Float(cell.fg_b) / 255.0
 
-                // Search match > selection > normal background
-                let bgR: Float
-                let bgG: Float
-                let bgB: Float
+            // Search match > selection > normal background
+            let bgR: Float
+            let bgG: Float
+            let bgB: Float
 
-                if searchMatch {
-                    bgR = searchMatchBg.x
-                    bgG = searchMatchBg.y
-                    bgB = searchMatchBg.z
-                } else if selected {
-                    bgR = selectionBg.x
-                    bgG = selectionBg.y
-                    bgB = selectionBg.z
-                } else {
-                    bgR = Float(cell.bg_r) / 255.0
-                    bgG = Float(cell.bg_g) / 255.0
-                    bgB = Float(cell.bg_b) / 255.0
-                }
+            if searchMatch {
+                bgR = searchMatchBg.x
+                bgG = searchMatchBg.y
+                bgB = searchMatchBg.z
+            } else if selected {
+                bgR = selectionBg.x
+                bgG = selectionBg.y
+                bgB = selectionBg.z
+            } else {
+                bgR = Float(cell.bg_r) / 255.0
+                bgG = Float(cell.bg_g) / 255.0
+                bgB = Float(cell.bg_b) / 255.0
+            }
 
-                // Skip background quads that match the clear color (already filled by Metal)
-                let isDefaultBg = !selected && !searchMatch
-                    && cell.bg_r == defBgR && cell.bg_g == defBgG && cell.bg_b == defBgB
-                if !isDefaultBg {
-                    bgInstances.append(CellInstance(
-                        position: SIMD2(x, y),
-                        size: SIMD2(cellW, cellH),
-                        color: SIMD4(bgR, bgG, bgB, 1.0),
-                        texCoords: SIMD4(0, 0, 0, 0)
-                    ))
-                }
-
-                // Skip wide char spacers
-                if cell.flags & 0x80 != 0 { continue }
-
-                // Skip spaces and control chars
-                let cp = cell.codepoint
-                if cp <= 0x20 || cp == 0x7F { continue }
-
-                let bold = cell.flags & 0x01 != 0
-                let italic = cell.flags & 0x02 != 0
-
-                guard let glyph = atlas.entry(for: cp, bold: bold, italic: italic) else { continue }
-
-                // Snap glyph position to pixel boundaries for sharp text at all scales
-                let glyphX = ((x + glyph.bearingX) * scale).rounded() / scale
-                let rawY = y + cellH - descent - Float(glyph.height) - glyph.bearingY
-                let glyphY = (rawY * scale).rounded() / scale
-
-                glyphInstances.append(CellInstance(
-                    position: SIMD2(glyphX, glyphY),
-                    size: SIMD2(Float(glyph.width), Float(glyph.height)),
-                    color: SIMD4(fgR, fgG, fgB, 1.0),
-                    texCoords: SIMD4(glyph.u0, glyph.v0, glyph.u1, glyph.v1)
+            // Skip background quads that match the clear color (already filled by Metal)
+            let isDefaultBg = !selected && !searchMatch
+                && cell.bg_r == defBgR && cell.bg_g == defBgG && cell.bg_b == defBgB
+            if !isDefaultBg {
+                bgInstances.append(CellInstance(
+                    position: SIMD2(x, y),
+                    size: SIMD2(cellW, cellH),
+                    color: SIMD4(bgR, bgG, bgB, 1.0),
+                    texCoords: SIMD4(0, 0, 0, 0)
                 ))
             }
+
+            // Skip wide char spacers
+            if cell.flags & 0x80 != 0 { continue }
+
+            // Skip spaces and control chars
+            let cp = cell.codepoint
+            if cp <= 0x20 || cp == 0x7F { continue }
+
+            let bold = cell.flags & 0x01 != 0
+            let italic = cell.flags & 0x02 != 0
+
+            guard let glyph = atlas.entry(for: cp, bold: bold, italic: italic) else { continue }
+
+            // Snap glyph position to pixel boundaries for sharp text at all scales
+            let glyphX = ((x + glyph.bearingX) * scale).rounded() / scale
+            let rawY = y + cellH - descent - Float(glyph.height) - glyph.bearingY
+            let glyphY = (rawY * scale).rounded() / scale
+
+            glyphInstances.append(CellInstance(
+                position: SIMD2(glyphX, glyphY),
+                size: SIMD2(Float(glyph.width), Float(glyph.height)),
+                color: SIMD4(fgR, fgG, fgB, 1.0),
+                texCoords: SIMD4(glyph.u0, glyph.v0, glyph.u1, glyph.v1)
+            ))
         }
 
         // Cursor overlay
         let cursor = snapshot.pointee.cursor
+        let rows = Int(snapshot.pointee.rows)
+        let cols = Int(snapshot.pointee.cols)
         if cursor.visible && cursor.row < rows && cursor.col < cols {
             let cx = Float(cursor.col) * cellW + origin.x
             let cy = Float(cursor.row) * cellH - yOffset + origin.y

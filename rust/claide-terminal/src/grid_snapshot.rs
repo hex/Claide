@@ -13,8 +13,11 @@ use crate::handle::ColorPalette;
 use crate::listener::Listener;
 
 /// Per-cell data exposed to Swift via C FFI.
+/// Sparse: only non-trivial cells are emitted, with explicit position.
 #[repr(C)]
 pub struct ClaideCellData {
+    pub row: u16,
+    pub col: u16,
     pub codepoint: u32,
     pub fg_r: u8,
     pub fg_g: u8,
@@ -35,9 +38,11 @@ pub struct ClaideCursorInfo {
 }
 
 /// Complete snapshot of the visible terminal grid.
+/// `cells` contains only non-trivial cells (sparse); `cell_count` is the actual length.
 #[repr(C)]
 pub struct ClaideGridSnapshot {
     pub cells: *mut ClaideCellData,
+    pub cell_count: u32,
     pub rows: u32,
     pub cols: u32,
     pub cursor: ClaideCursorInfo,
@@ -160,9 +165,22 @@ fn map_flags(flags: Flags) -> u16 {
     out
 }
 
-/// Take a snapshot of the visible terminal grid.
+/// Check whether a cell's effective background is the terminal default.
+/// Accounts for INVERSE flag which swaps fg/bg visually.
+fn has_default_bg(cell: &Cell) -> bool {
+    let bg_color = if cell.flags.contains(Flags::INVERSE) {
+        &cell.fg
+    } else {
+        &cell.bg
+    };
+    matches!(bg_color, Color::Named(NamedColor::Background))
+}
+
+/// Take a sparse snapshot of the visible terminal grid.
+/// Only non-trivial cells (visible content, non-default background, selection,
+/// search match, or wide chars) are included. Each cell carries its row/col position.
 ///
-/// The caller must free the returned snapshot with `snapshot_free`.
+/// The caller must free the returned snapshot with `free_snapshot`.
 pub fn take_snapshot(term: &Term<Listener>, palette: &ColorPalette, search_match: Option<&Match>) -> ClaideGridSnapshot {
     let grid = term.grid();
     let rows = grid.screen_lines();
@@ -187,8 +205,21 @@ pub fn take_snapshot(term: &Term<Listener>, palette: &ColorPalette, search_match
 
     let selection_range = term.selection.as_ref().and_then(|s| s.to_range(term));
 
-    let total_cells = rows * cols;
-    let mut cells: Vec<ClaideCellData> = Vec::with_capacity(total_cells);
+    // Sample padding background from bottom-left cell before the sparse loop.
+    // This tracks TUI app backgrounds that fill the entire screen.
+    let last_line = Line((rows as i32 - 1) - (display_offset as i32));
+    let last_row_cell = &grid[last_line][Column(0)];
+    let padding_bg = {
+        let bg = if last_row_cell.flags.contains(Flags::INVERSE) {
+            resolve_color(&last_row_cell.fg, colors, false, palette)
+        } else {
+            resolve_color(&last_row_cell.bg, colors, false, palette)
+        };
+        (bg.r, bg.g, bg.b)
+    };
+
+    // Pre-allocate for ~20% non-trivial cells (typical shell session).
+    let mut cells: Vec<ClaideCellData> = Vec::with_capacity(rows * cols / 4);
 
     for row_idx in 0..rows {
         let line = Line((row_idx as i32) - (display_offset as i32));
@@ -196,7 +227,27 @@ pub fn take_snapshot(term: &Term<Listener>, palette: &ColorPalette, search_match
 
         for col_idx in 0..cols {
             let cell: &Cell = &grid_row[Column(col_idx)];
+            let point = Point::new(line, Column(col_idx));
 
+            // Determine selection and search state before the trivial check
+            let selected = selection_range.as_ref().is_some_and(|r| r.contains(point));
+            let is_search_match = search_match.is_some_and(|m| point >= *m.start() && point <= *m.end());
+
+            // A cell is trivial (skip it) if ALL of:
+            // - codepoint is space, NUL, or DEL
+            // - effective background is the terminal default
+            // - not selected
+            // - not a search match
+            // - not a wide char or wide char spacer
+            let cp = cell.c as u32;
+            let is_blank = cp == 0x20 || cp == 0x00 || cp == 0x7F;
+            let is_wide = cell.flags.intersects(Flags::WIDE_CHAR | Flags::WIDE_CHAR_SPACER);
+
+            if is_blank && has_default_bg(cell) && !selected && !is_search_match && !is_wide {
+                continue;
+            }
+
+            // Non-trivial cell: resolve colors and emit
             let (mut fg, bg) = if cell.flags.contains(Flags::INVERSE) {
                 (
                     resolve_color(&cell.bg, colors, true, palette),
@@ -209,7 +260,6 @@ pub fn take_snapshot(term: &Term<Listener>, palette: &ColorPalette, search_match
                 )
             };
 
-            // Apply DIM by halving foreground brightness
             if cell.flags.contains(Flags::DIM) {
                 fg.r = fg.r / 2;
                 fg.g = fg.g / 2;
@@ -218,24 +268,17 @@ pub fn take_snapshot(term: &Term<Listener>, palette: &ColorPalette, search_match
 
             let mut cell_flags = map_flags(cell.flags);
 
-            // Mark selected cells with bit 0x200
-            if let Some(ref range) = selection_range {
-                let point = Point::new(line, Column(col_idx));
-                if range.contains(point) {
-                    cell_flags |= 0x200;
-                }
+            if selected {
+                cell_flags |= 0x200;
             }
-
-            // Mark search match cells with bit 0x400
-            if let Some(m) = search_match {
-                let point = Point::new(line, Column(col_idx));
-                if point >= *m.start() && point <= *m.end() {
-                    cell_flags |= 0x400;
-                }
+            if is_search_match {
+                cell_flags |= 0x400;
             }
 
             cells.push(ClaideCellData {
-                codepoint: cell.c as u32,
+                row: row_idx as u16,
+                col: col_idx as u16,
+                codepoint: cp,
                 fg_r: fg.r,
                 fg_g: fg.g,
                 fg_b: fg.b,
@@ -247,15 +290,7 @@ pub fn take_snapshot(term: &Term<Listener>, palette: &ColorPalette, search_match
         }
     }
 
-    // Sample padding background from bottom-left cell (tracks TUI app backgrounds)
-    let last_row_start = (rows - 1) * cols;
-    let padding_bg = if last_row_start < cells.len() {
-        let c = &cells[last_row_start];
-        (c.bg_r, c.bg_g, c.bg_b)
-    } else {
-        (palette.bg.r, palette.bg.g, palette.bg.b)
-    };
-
+    let cell_count = cells.len() as u32;
     let cells_ptr = cells.as_mut_ptr();
     std::mem::forget(cells);
 
@@ -272,6 +307,7 @@ pub fn take_snapshot(term: &Term<Listener>, palette: &ColorPalette, search_match
 
     ClaideGridSnapshot {
         cells: cells_ptr,
+        cell_count,
         rows: rows as u32,
         cols: cols as u32,
         cursor: ClaideCursorInfo {
@@ -293,9 +329,9 @@ pub unsafe fn free_snapshot(snapshot: *mut ClaideGridSnapshot) {
         return;
     }
     let snap = &*snapshot;
-    let total = (snap.rows as usize) * (snap.cols as usize);
-    if !snap.cells.is_null() && total > 0 {
-        drop(Vec::from_raw_parts(snap.cells, total, total));
+    let count = snap.cell_count as usize;
+    if !snap.cells.is_null() && count > 0 {
+        drop(Vec::from_raw_parts(snap.cells, count, count));
     }
     drop(Box::from_raw(snapshot));
 }
