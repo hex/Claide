@@ -94,7 +94,9 @@ The Rust library (`rust/claide-terminal/`) handles terminal emulation: PTY fork/
 
 ```
 Claide/
-  ClaideApp.swift            # Entry point, window configuration
+  ClaideApp.swift            # Entry point, window configuration, Sparkle updater
+  Updates/
+    CheckForUpdatesView.swift  # "Check for Updates..." menu item
   ContentView.swift          # Root HSplitView + sidebar VSplitView
   Theme.swift                # Colors, fonts, spacing tokens, tooltips
   FontSelection.swift        # Monospaced font enumeration and creation
@@ -144,6 +146,10 @@ rust/
 ClaideTests/               # Tests across 16 suites
 project.yml                # XcodeGen spec
 ```
+
+## Updates
+
+In-app update checking via [Sparkle](https://sparkle-project.org/). The "Check for Updates..." menu item appears in the Claide menu. Updates are distributed as signed DMGs and verified with EdDSA signatures. The appcast is hosted on GitHub Pages alongside the Homebrew cask.
 
 ## Vision
 
