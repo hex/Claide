@@ -55,6 +55,7 @@ Or download the latest DMG from [GitHub Releases](https://github.com/hex/Claide/
 - **Board**: Kanban columns (Open, Active, Blocked, Done). Reads from beads issues or Claude Code tasks.
 - **Graph**: Force-directed dependency graph on SwiftUI Canvas. Pan, zoom, drag, click-to-select with 2-hop neighbor highlighting.
 - **Files**: Live file change monitor via GCD DispatchSource.
+- **Resizable panels**: Draggable divider between Tasks and Files with persisted split ratio.
 
 ## Architecture
 
