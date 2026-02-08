@@ -40,7 +40,7 @@ targets:
         CODE_SIGN_ENTITLEMENTS: Claide/Claide.entitlements
         PRODUCT_BUNDLE_IDENTIFIER: com.hexul.claide
         DEVELOPMENT_TEAM: 7G4UQW35EL
-        MARKETING_VERSION: "2026.2.1"
+        MARKETING_VERSION: "2026.2.2"
         CURRENT_PROJECT_VERSION: "1"
         SWIFT_VERSION: "6.0"
         MACOSX_DEPLOYMENT_TARGET: "14.0"
