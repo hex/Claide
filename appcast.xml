@@ -6,6 +6,18 @@
     <description>Claide release updates</description>
     <language>en</language>
     <item>
+      <title>Version 2026.2.4</title>
+      <pubDate>Sun, 08 Feb 2026 19:31:00 +0000</pubDate>
+      <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+      <enclosure
+        url="https://github.com/hex/Claide/releases/download/v2026.2.4/Claide-2026.2.4.dmg"
+        sparkle:version="2026.2.4"
+        sparkle:shortVersionString="2026.2.4"
+        sparkle:edSignature="9qmxLy4gyk9e4oQezBowdVSf7Or2+lLuLPtyeyP17srP9e+rxtmWE7xd9ihIi+MrdTwY0DCVx0m4y4N/N/jWBQ=="
+        length="5453621"
+        type="application/octet-stream"/>
+    </item>
+    <item>
       <title>Version 2026.2.3</title>
       <pubDate>Sat, 08 Feb 2026 19:05:00 +0000</pubDate>
       <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
