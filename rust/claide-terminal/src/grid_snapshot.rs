@@ -6,8 +6,8 @@ use alacritty_terminal::index::{Column, Line, Point};
 use alacritty_terminal::term::cell::{Cell, Flags};
 use alacritty_terminal::term::color::Colors;
 use alacritty_terminal::term::search::Match;
-use alacritty_terminal::term::Term;
-use alacritty_terminal::vte::ansi::{Color, NamedColor, Rgb};
+use alacritty_terminal::term::{Term, TermMode};
+use alacritty_terminal::vte::ansi::{Color, CursorShape, NamedColor, Rgb};
 
 use crate::handle::ColorPalette;
 use crate::listener::Listener;
@@ -169,12 +169,22 @@ pub fn take_snapshot(term: &Term<Listener>, palette: &ColorPalette, search_match
     let cols = grid.columns();
     let display_offset = grid.display_offset();
 
-    let content = term.renderable_content();
-    let colors = content.colors;
-    let cursor = &content.cursor;
-    let mode = content.mode;
+    let colors = term.colors();
+    let mode = *term.mode();
 
-    // Resolve selection range for per-cell flagging
+    // Resolve cursor position and shape directly (avoids constructing the full
+    // RenderableContent which also builds an unused GridIterator).
+    let vi_mode = mode.contains(TermMode::VI);
+    let mut cursor_point = if vi_mode { term.vi_mode_cursor.point } else { grid.cursor.point };
+    if grid[cursor_point].flags.contains(Flags::WIDE_CHAR_SPACER) {
+        cursor_point.column -= 1;
+    }
+    let cursor_shape = if !vi_mode && !mode.contains(TermMode::SHOW_CURSOR) {
+        CursorShape::Hidden
+    } else {
+        term.cursor_style().shape
+    };
+
     let selection_range = term.selection.as_ref().and_then(|s| s.to_range(term));
 
     let total_cells = rows * cols;
@@ -249,16 +259,16 @@ pub fn take_snapshot(term: &Term<Listener>, palette: &ColorPalette, search_match
     let cells_ptr = cells.as_mut_ptr();
     std::mem::forget(cells);
 
-    let cursor_shape = match cursor.shape {
-        alacritty_terminal::vte::ansi::CursorShape::Block => 0,
-        alacritty_terminal::vte::ansi::CursorShape::Underline => 1,
-        alacritty_terminal::vte::ansi::CursorShape::Beam => 2,
-        alacritty_terminal::vte::ansi::CursorShape::HollowBlock => 4,
-        alacritty_terminal::vte::ansi::CursorShape::Hidden => 3,
+    let cursor_shape_id = match cursor_shape {
+        CursorShape::Block => 0u8,
+        CursorShape::Underline => 1,
+        CursorShape::Beam => 2,
+        CursorShape::HollowBlock => 4,
+        CursorShape::Hidden => 3,
     };
 
-    let cursor_row = (cursor.point.line.0 + display_offset as i32).max(0) as u32;
-    let cursor_col = cursor.point.column.0 as u32;
+    let cursor_row = (cursor_point.line.0 + display_offset as i32).max(0) as u32;
+    let cursor_col = cursor_point.column.0 as u32;
 
     ClaideGridSnapshot {
         cells: cells_ptr,
@@ -267,8 +277,8 @@ pub fn take_snapshot(term: &Term<Listener>, palette: &ColorPalette, search_match
         cursor: ClaideCursorInfo {
             row: cursor_row,
             col: cursor_col,
-            shape: cursor_shape,
-            visible: cursor_shape != 3,
+            shape: cursor_shape_id,
+            visible: cursor_shape_id != 3,
         },
         mode_flags: mode.bits(),
         padding_bg_r: padding_bg.0,

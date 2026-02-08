@@ -115,7 +115,14 @@ final class GridRenderer {
         bgInstances.reserveCapacity(rows * cols)
         glyphInstances.reserveCapacity(rows * cols)
 
+        // Convert defaultBg to UInt8 for fast comparison against cell bg bytes
+        let defBgR = UInt8(round(defaultBg.x * 255.0))
+        let defBgG = UInt8(round(defaultBg.y * 255.0))
+        let defBgB = UInt8(round(defaultBg.z * 255.0))
+
         let cells = snapshot.pointee.cells!
+        let scale = Float(atlas.scale)
+        let descent = Float(atlas.descent)
 
         for row in 0..<rows {
             for col in 0..<cols {
@@ -151,13 +158,17 @@ final class GridRenderer {
                     bgB = Float(cell.bg_b) / 255.0
                 }
 
-                // Background quad
-                bgInstances.append(CellInstance(
-                    position: SIMD2(x, y),
-                    size: SIMD2(cellW, cellH),
-                    color: SIMD4(bgR, bgG, bgB, 1.0),
-                    texCoords: SIMD4(0, 0, 0, 0)
-                ))
+                // Skip background quads that match the clear color (already filled by Metal)
+                let isDefaultBg = !selected && !searchMatch
+                    && cell.bg_r == defBgR && cell.bg_g == defBgG && cell.bg_b == defBgB
+                if !isDefaultBg {
+                    bgInstances.append(CellInstance(
+                        position: SIMD2(x, y),
+                        size: SIMD2(cellW, cellH),
+                        color: SIMD4(bgR, bgG, bgB, 1.0),
+                        texCoords: SIMD4(0, 0, 0, 0)
+                    ))
+                }
 
                 // Skip wide char spacers
                 if cell.flags & 0x80 != 0 { continue }
@@ -172,9 +183,8 @@ final class GridRenderer {
                 guard let glyph = atlas.entry(for: cp, bold: bold, italic: italic) else { continue }
 
                 // Snap glyph position to pixel boundaries for sharp text at all scales
-                let scale = Float(atlas.scale)
                 let glyphX = ((x + glyph.bearingX) * scale).rounded() / scale
-                let rawY = y + cellH - Float(atlas.descent) - Float(glyph.height) - glyph.bearingY
+                let rawY = y + cellH - descent - Float(glyph.height) - glyph.bearingY
                 let glyphY = (rawY * scale).rounded() / scale
 
                 glyphInstances.append(CellInstance(
@@ -257,7 +267,6 @@ final class GridRenderer {
         let needed = data.count * MemoryLayout<CellInstance>.stride
         var buffer = existing
         if buffer == nil || capacity < needed {
-            // Round up to next power of two to reduce reallocation frequency
             let allocSize = max(needed, 4096)
             buffer = device.makeBuffer(length: allocSize, options: .storageModeShared)
             capacity = allocSize
