@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
+  <channel>
+    <title>Claide Updates</title>
+    <link>https://github.com/hex/Claide</link>
+    <description>Claide release updates</description>
+    <language>en</language>
+    <item>
+      <title>Version 2026.2.2</title>
+      <pubDate>Sat, 08 Feb 2026 18:52:00 +0000</pubDate>
+      <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+      <enclosure
+        url="https://github.com/hex/Claide/releases/download/v2026.2.2/Claide-2026.2.2.dmg"
+        sparkle:version="2026.2.2"
+        sparkle:shortVersionString="2026.2.2"
+        sparkle:edSignature="d9fw7i2lF2MvU8xENs/XpYqngTp8TnF6PkevwLu/AF7pFXuxjkAEiuM5NfXCZ2yU+nlBZCKaOcOjLGrylEHVAg=="
+        length="5529332"
+        type="application/octet-stream"/>
+    </item>
+  </channel>
+</rss>

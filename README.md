@@ -171,7 +171,7 @@ project.yml                # XcodeGen spec
 
 ## Updates
 
-In-app update checking via [Sparkle](https://sparkle-project.org/). The "Check for Updates..." menu item appears in the Claide menu. Updates are distributed as signed DMGs and verified with EdDSA signatures. The appcast is hosted on GitHub Pages alongside the Homebrew cask.
+In-app update checking via [Sparkle](https://sparkle-project.org/). The "Check for Updates..." menu item appears in the Claide menu. Updates are distributed as signed DMGs and verified with EdDSA signatures. The appcast is hosted in this repository and served via `raw.githubusercontent.com`.
 
 ## Vision
 
