@@ -724,39 +724,9 @@ final class MetalTerminalView: NSView, CALayerDelegate {
         return try? NSRegularExpression(pattern: pattern)
     }()
 
-    /// Extract text for a single grid row from a snapshot.
-    private func extractRowText(row: Int, snapshot: UnsafePointer<ClaideGridSnapshot>) -> String {
-        let cols = Int(snapshot.pointee.cols)
-        let cells = snapshot.pointee.cells!
-        var chars: [Character] = []
-        chars.reserveCapacity(cols)
-
-        for col in 0..<cols {
-            let cell = cells[row * cols + col]
-            // Skip wide char spacers
-            if cell.flags & 0x80 != 0 { continue }
-            let cp = cell.codepoint
-            if cp == 0 || cp == 0xFFFF {
-                chars.append(" ")
-            } else if let scalar = Unicode.Scalar(cp) {
-                chars.append(Character(scalar))
-            } else {
-                chars.append(" ")
-            }
-        }
-
-        return String(chars)
-    }
-
     /// Find the URL at the given grid position, or nil if none.
     private func urlAtPosition(row: Int, col: Int) -> URL? {
-        guard let bridge, let snapshot = bridge.snapshot() else { return nil }
-        defer { TerminalBridge.freeSnapshot(snapshot) }
-
-        let rows = Int(snapshot.pointee.rows)
-        guard row >= 0, row < rows else { return nil }
-
-        let text = extractRowText(row: row, snapshot: snapshot)
+        guard let bridge, let text = bridge.rowText(row: row) else { return nil }
         let nsText = text as NSString
 
         guard let regex = Self.urlPattern else { return nil }

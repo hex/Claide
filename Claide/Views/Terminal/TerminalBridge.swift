@@ -137,6 +137,15 @@ final class TerminalBridge: @unchecked Sendable {
         claide_terminal_snapshot_free(snapshot)
     }
 
+    // MARK: - Row Text
+
+    /// Extract text for a single visible row directly from the terminal grid.
+    func rowText(row: Int) -> String? {
+        guard let ptr = claide_terminal_row_text(handle, UInt32(row)) else { return nil }
+        defer { claide_terminal_free_string(ptr) }
+        return String(cString: ptr)
+    }
+
     // MARK: - Scrollback
 
     /// Scroll the terminal viewport by the given number of lines.

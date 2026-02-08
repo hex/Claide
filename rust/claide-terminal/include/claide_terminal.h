@@ -38,12 +38,14 @@ typedef void (*ClaideEventCallback)(
 
 // -- Grid snapshot types --
 
-/// Per-cell data from the terminal grid.
+/// Per-cell data from the terminal grid (sparse: only non-trivial cells).
 ///
 /// Flag bits: BOLD=0x01, ITALIC=0x02, UNDERLINE=0x04, STRIKEOUT=0x08,
 ///            DIM=0x10, INVERSE=0x20, WIDE_CHAR=0x40, WIDE_SPACER=0x80,
 ///            HIDDEN=0x100, SELECTED=0x200, SEARCH_MATCH=0x400
 typedef struct {
+    uint16_t row;
+    uint16_t col;
     uint32_t codepoint;
     uint8_t fg_r, fg_g, fg_b;
     uint8_t bg_r, bg_g, bg_b;
@@ -60,7 +62,8 @@ typedef struct {
 
 /// Complete snapshot of the visible terminal grid.
 typedef struct {
-    ClaideCellData *cells;  // rows * cols elements, row-major
+    ClaideCellData *cells;  // sparse: cell_count non-trivial elements
+    uint32_t cell_count;    // actual number of cells in the array
     uint32_t rows;
     uint32_t cols;
     ClaideCursorInfo cursor;
@@ -174,6 +177,16 @@ void claide_terminal_snapshot_free(ClaideGridSnapshot *snapshot);
 
 /// Get the shell process ID.
 uint32_t claide_terminal_shell_pid(ClaideTerminalRef handle);
+
+// -- Row text --
+
+/// Extract text for a single visible row as a null-terminated UTF-8 string.
+/// Returns NULL if the row is out of range.
+/// The caller must free the returned string with claide_terminal_free_string.
+char *claide_terminal_row_text(ClaideTerminalRef handle, uint32_t row);
+
+/// Free a string returned by claide_terminal_row_text.
+void claide_terminal_free_string(char *ptr);
 
 // -- Scrollback --
 

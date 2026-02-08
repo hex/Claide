@@ -10,6 +10,7 @@ use std::thread::JoinHandle;
 use alacritty_terminal::grid::{Dimensions, Scroll};
 use alacritty_terminal::index::{Column, Direction, Line, Point, Side};
 use alacritty_terminal::selection::{Selection, SelectionType};
+use alacritty_terminal::term::cell::Flags;
 use alacritty_terminal::sync::FairMutex;
 use alacritty_terminal::term::search::{Match, RegexSearch};
 use alacritty_terminal::term::{Config, Term};
@@ -283,6 +284,40 @@ impl TerminalHandle {
         let palette = self.palette.lock();
         let search = self.search.lock();
         Box::new(grid_snapshot::take_snapshot(&term, &palette, search.current_match.as_ref()))
+    }
+
+    /// Extract text for a single visible row, reading directly from the grid.
+    pub fn row_text(&self, row: u32) -> Option<String> {
+        let term = self.term.lock();
+        let grid = term.grid();
+        let rows = grid.screen_lines();
+        let cols = grid.columns();
+        let display_offset = grid.display_offset();
+
+        if row as usize >= rows {
+            return None;
+        }
+
+        let line = Line((row as i32) - (display_offset as i32));
+        let grid_row = &grid[line];
+        let mut text = String::with_capacity(cols);
+
+        for col_idx in 0..cols {
+            let cell = &grid_row[Column(col_idx)];
+            if cell.flags.contains(Flags::WIDE_CHAR_SPACER) {
+                continue;
+            }
+            let cp = cell.c as u32;
+            if cp == 0 || cp == 0xFFFF {
+                text.push(' ');
+            } else if let Some(scalar) = char::from_u32(cp) {
+                text.push(scalar);
+            } else {
+                text.push(' ');
+            }
+        }
+
+        Some(text)
     }
 
     /// Get the shell process ID.

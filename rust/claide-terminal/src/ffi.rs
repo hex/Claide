@@ -407,6 +407,42 @@ pub unsafe extern "C" fn claide_terminal_search_clear(handle: ClaideTerminalRef)
     (*handle).search_clear();
 }
 
+// -- Row text --
+
+/// Extract text for a single visible row as a null-terminated UTF-8 string.
+/// Returns NULL if the row is out of range.
+/// The caller must free the returned string with `claide_terminal_free_string`.
+///
+/// # Safety
+/// `handle` must be valid.
+#[no_mangle]
+pub unsafe extern "C" fn claide_terminal_row_text(
+    handle: ClaideTerminalRef,
+    row: u32,
+) -> *mut c_char {
+    if handle.is_null() {
+        return std::ptr::null_mut();
+    }
+    match (*handle).row_text(row) {
+        Some(text) => match CString::new(text) {
+            Ok(cstr) => cstr.into_raw(),
+            Err(_) => std::ptr::null_mut(),
+        },
+        None => std::ptr::null_mut(),
+    }
+}
+
+/// Free a string returned by `claide_terminal_row_text`.
+///
+/// # Safety
+/// `ptr` must be a pointer returned by `claide_terminal_row_text`, or null.
+#[no_mangle]
+pub unsafe extern "C" fn claide_terminal_free_string(ptr: *mut c_char) {
+    if !ptr.is_null() {
+        drop(CString::from_raw(ptr));
+    }
+}
+
 // -- Colors --
 
 /// Set the terminal's color palette.
