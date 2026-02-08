@@ -2,6 +2,7 @@
 // ABOUTME: Each panel has a disclosure header for independent expand/collapse.
 
 import SwiftUI
+import AppKit
 
 struct SidebarSection: View {
     let tabManager: TerminalTabManager
@@ -12,6 +13,8 @@ struct SidebarSection: View {
     @AppStorage("terminalColorScheme") private var schemeName: String = "hexed"
     @AppStorage("tasksExpanded") private var tasksExpanded = true
     @AppStorage("filesExpanded") private var filesExpanded = true
+    @AppStorage("sidebarSplitRatio") private var splitRatio: Double = 0.5
+    @State private var dragStartRatio: Double?
 
     private static let initialDirectory: String = {
         ProcessInfo.processInfo.environment["CLAIDE_DIR"]
@@ -25,10 +28,20 @@ struct SidebarSection: View {
 
     var body: some View {
         let _ = schemeName // Force SwiftUI to re-evaluate when the terminal scheme changes
-        VStack(spacing: 0) {
-            tasksSection
-            filesSection
-            Spacer(minLength: 0)
+        GeometryReader { geometry in
+            VStack(spacing: 0) {
+                if tasksExpanded && filesExpanded {
+                    tasksSection
+                        .frame(height: geometry.size.height * splitRatio)
+                    sidebarDivider(totalHeight: geometry.size.height)
+                    filesSection
+                } else {
+                    tasksSection
+                    filesSection
+                    Spacer(minLength: 0)
+                }
+            }
+            .frame(maxHeight: .infinity)
         }
         .padding(.top, 28)
         .overlay(alignment: .top) {
@@ -98,6 +111,37 @@ struct SidebarSection: View {
         }
         .frame(maxWidth: .infinity)
         .frame(maxHeight: filesExpanded ? .infinity : nil)
+    }
+
+    // MARK: - Draggable Divider
+
+    private func sidebarDivider(totalHeight: CGFloat) -> some View {
+        Rectangle()
+            .fill(Theme.border)
+            .frame(height: Theme.borderWidth)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 3)
+            .contentShape(Rectangle())
+            .gesture(
+                DragGesture()
+                    .onChanged { value in
+                        if dragStartRatio == nil { dragStartRatio = splitRatio }
+                        let minRatio = 24.0 / totalHeight
+                        let maxRatio = 1.0 - (24.0 / totalHeight)
+                        let newRatio = dragStartRatio! + value.translation.height / totalHeight
+                        splitRatio = min(max(newRatio, minRatio), maxRatio)
+                    }
+                    .onEnded { _ in
+                        dragStartRatio = nil
+                    }
+            )
+            .onHover { hovering in
+                if hovering {
+                    NSCursor.resizeUpDown.push()
+                } else {
+                    NSCursor.pop()
+                }
+            }
     }
 
     // MARK: - Section Header
