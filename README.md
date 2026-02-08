@@ -13,8 +13,7 @@ A macOS companion app for [Claude Code](https://docs.anthropic.com/en/docs/claud
 ## Install
 
 ```bash
-brew tap hex/claide
-brew install --cask claide
+brew install --cask hex/tap/claide
 ```
 
 Or download the latest DMG from [GitHub Releases](https://github.com/hex/Claide/releases).
