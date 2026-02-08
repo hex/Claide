@@ -149,11 +149,7 @@ The Rust library is built automatically by a pre-build script phase. Dev builds 
 
 ### Release
 
-```bash
-scripts/release.sh
-```
-
-The release script handles archiving, code signing (Developer ID), notarization, DMG creation, Sparkle EdDSA signing, and GitHub Release publishing. See `scripts/release.sh` for details.
+Release builds are done locally with a private script that handles archiving, code signing (Developer ID), notarization, DMG creation, and Sparkle EdDSA signing.
 
 ## Project Structure
 
@@ -240,8 +236,7 @@ rust/
       listener.rs                # Event dispatch to Swift callbacks
       grid_snapshot.rs           # Damage-based incremental snapshots
   patches/                   # Patched alacritty_terminal crate
-scripts/
-  release.sh                 # Signed, notarized DMG build + Sparkle signing
+scripts/                   # Local build scripts (gitignored)
 tools/
   termbench.sh               # Terminal throughput benchmark
 ClaideTests/                 # Unit and integration tests
