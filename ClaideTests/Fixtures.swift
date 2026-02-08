@@ -1,5 +1,5 @@
-// ABOUTME: Test fixture data for beads JSON parsing and layout tests.
-// ABOUTME: Contains sample bd list --json output captured from a real project.
+// ABOUTME: Test fixture data for beads JSON, changes.md, and JSONL transcript parsing.
+// ABOUTME: Contains sample data captured from real projects and sessions.
 
 import Foundation
 
@@ -91,5 +91,54 @@ enum Fixtures {
     - [2026-01-31 23:33:01] Write: /Users/hex/project/src/main.swift
     - [2026-01-31 23:34:15] Edit: /Users/hex/project/src/utils.swift
     - [2026-01-31 23:36:24] Write: /Users/hex/project/README.md
+    """
+
+    /// JSONL transcript lines with tool_use entries for file operations
+    static let transcriptJSONL: Data = {
+        let lines = [
+            // Write entry
+            """
+            {"type":"assistant","timestamp":"2026-02-06T10:30:01.000Z","message":{"content":[{"type":"tool_use","name":"Write","input":{"file_path":"/Users/hex/project/src/main.swift","content":"import Foundation"}}]}}
+            """,
+            // Edit entry
+            """
+            {"type":"assistant","timestamp":"2026-02-06T10:31:15.000Z","message":{"content":[{"type":"tool_use","name":"Edit","input":{"file_path":"/Users/hex/project/src/utils.swift","old_string":"foo","new_string":"bar"}}]}}
+            """,
+            // Read entry
+            """
+            {"type":"assistant","timestamp":"2026-02-06T10:32:00.000Z","message":{"content":[{"type":"tool_use","name":"Read","input":{"file_path":"/Users/hex/project/README.md"}}]}}
+            """,
+            // Text-only entry (no tool_use)
+            """
+            {"type":"assistant","timestamp":"2026-02-06T10:33:00.000Z","message":{"content":[{"type":"text","text":"Here is the plan."}]}}
+            """,
+            // Bash tool (no file_path)
+            """
+            {"type":"assistant","timestamp":"2026-02-06T10:34:00.000Z","message":{"content":[{"type":"tool_use","name":"Bash","input":{"command":"ls -la"}}]}}
+            """,
+            // User message (not assistant)
+            """
+            {"type":"user","timestamp":"2026-02-06T10:35:00.000Z","message":{"content":[{"type":"text","text":"Fix the bug"}]}}
+            """,
+            // MultiEdit entry
+            """
+            {"type":"assistant","timestamp":"2026-02-06T10:36:00.000Z","message":{"content":[{"type":"tool_use","name":"MultiEdit","input":{"file_path":"/Users/hex/project/src/views.swift","edits":[]}}]}}
+            """,
+            // tool_result (should be skipped)
+            """
+            {"type":"assistant","timestamp":"2026-02-06T10:37:00.000Z","message":{"content":[{"type":"tool_result","content":"OK"}]}}
+            """
+        ]
+        return lines.joined(separator: "\n").data(using: .utf8)!
+    }()
+
+    /// Sample `git status --porcelain` output
+    static let gitStatusPorcelain = """
+     M src/main.swift
+    M  src/staged.swift
+    A  src/new.swift
+    ?? untracked.txt
+     D src/deleted.swift
+    MM src/both.swift
     """
 }

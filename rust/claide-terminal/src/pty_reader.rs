@@ -126,9 +126,25 @@ impl Osc7Scanner {
     }
 }
 
+/// Maximum bytes to accumulate before flushing through VTE.
+const BATCH_LIMIT: usize = 1024 * 1024; // 1 MB
+
+/// Check if a file descriptor has data available for reading without blocking.
+fn poll_readable(fd: i32) -> bool {
+    let mut pfd = libc::pollfd {
+        fd,
+        events: libc::POLLIN,
+        revents: 0,
+    };
+    let ret = unsafe { libc::poll(&mut pfd, 1, 0) };
+    ret > 0 && (pfd.revents & libc::POLLIN) != 0
+}
+
 /// Runs the PTY reader loop. Call from a dedicated thread.
 ///
-/// Reads bytes from the PTY, scans for OSC 7, then feeds through VTE into Term.
+/// Drains all available PTY data before processing through VTE to maximize
+/// throughput. Uses poll() to check for more data without blocking, then
+/// flushes the accumulated batch in a single lock acquisition.
 pub fn run_reader(
     pty_fd: i32,
     term: Arc<FairMutex<Term<Listener>>>,
@@ -136,45 +152,62 @@ pub fn run_reader(
     shutdown: Arc<AtomicBool>,
 ) {
     let file = unsafe { std::fs::File::from_raw_fd(pty_fd) };
-    let mut reader = std::io::BufReader::with_capacity(8192, file);
-    let mut buf = [0u8; 4096];
+    let mut reader = std::io::BufReader::with_capacity(65536, file);
+    let mut buf = [0u8; 65536];
     let mut parser = vte::ansi::Processor::<vte::ansi::StdSyncHandler>::new();
     let mut osc7 = Osc7Scanner::new();
+    let mut pending = Vec::with_capacity(65536);
 
     loop {
         if shutdown.load(Ordering::Relaxed) {
             break;
         }
 
-        match reader.read(&mut buf) {
-            Ok(0) => break, // EOF
-            Ok(n) => {
-                let bytes = &buf[..n];
+        // Blocking read — suspends the thread when no data is available
+        let n = match reader.read(&mut buf) {
+            Ok(0) => break,
+            Ok(n) => n,
+            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(_) => break,
+        };
 
-                // Scan for OSC 7 before VTE parsing
-                for &byte in bytes {
-                    if let Some(dir) = osc7.feed(byte) {
-                        listener.send_directory_change(&dir);
-                    }
-                }
+        pending.extend_from_slice(&buf[..n]);
 
-                // Feed bytes to the terminal
-                {
-                    let mut term = term.lock();
-                    parser.advance(&mut *term, bytes);
-                }
-
-                // Notify Swift that the terminal state changed
-                listener.send_event(Event::Wakeup);
-            }
-            Err(e) => {
-                if e.kind() == std::io::ErrorKind::Interrupted {
-                    continue;
-                }
-                // EIO means the child exited and the PTY slave was closed
-                break;
+        // Drain: keep reading while more data is available and under the batch limit.
+        // poll() with zero timeout returns immediately, so we only accumulate
+        // data that's already in the kernel buffer.
+        while pending.len() < BATCH_LIMIT && poll_readable(pty_fd) {
+            match reader.read(&mut buf) {
+                Ok(0) => break,
+                Ok(n) => pending.extend_from_slice(&buf[..n]),
+                Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+                Err(_) => break,
             }
         }
+
+        // Scan for OSC 7 before VTE parsing
+        for &byte in pending.iter() {
+            if let Some(dir) = osc7.feed(byte) {
+                listener.send_directory_change(&dir);
+            }
+        }
+
+        // Flush the entire batch through VTE in a single lock acquisition
+        {
+            let mut term = term.lock();
+            parser.advance(&mut *term, &pending);
+        }
+        pending.clear();
+
+        listener.send_event(Event::Wakeup);
+    }
+
+    // Flush any remaining buffered bytes
+    if !pending.is_empty() {
+        let mut guard = term.lock();
+        parser.advance(&mut *guard, &pending);
+        drop(guard);
+        listener.send_event(Event::Wakeup);
     }
 
     // Prevent the File from closing the fd — handle.rs owns it via pty_master_fd

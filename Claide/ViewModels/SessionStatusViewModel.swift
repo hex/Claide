@@ -32,16 +32,18 @@ final class SessionStatusViewModel {
            let processPath = Self.findTranscriptByProcess(shellPid: shellPid, projectDir: projectDir) {
             path = processPath
             foundViaProcess = true
-        } else if shellPid > 0 {
-            // Shell exists but no Claude session yet — poll until one appears
-            stopWatching()
-            watchedSessionDir = sessionDirectory
-            storedShellPid = shellPid
-            startRetryPolling()
-            watchDirectoryForNewFiles(projectDir)
-            return
+        } else if let newestPath = Self.findNewestJsonl(in: projectDir) {
+            // Process lookup failed (or no shellPid) — use most recently modified transcript
+            path = newestPath
         } else {
-            // No shell PID — can't identify which session belongs to this terminal
+            // No transcripts found — poll until one appears
+            if shellPid > 0 {
+                stopWatching()
+                watchedSessionDir = sessionDirectory
+                storedShellPid = shellPid
+                startRetryPolling()
+                watchDirectoryForNewFiles(projectDir)
+            }
             return
         }
 
@@ -124,15 +126,13 @@ final class SessionStatusViewModel {
         let projectDir = Self.projectDirectory(for: dir)
 
         let newest: String?
-        if storedShellPid > 0 {
-            if let processPath = Self.findTranscriptByProcess(shellPid: storedShellPid, projectDir: projectDir) {
-                newest = processPath
-                stopRetryPolling()
-            } else {
-                return
-            }
+        if storedShellPid > 0,
+           let processPath = Self.findTranscriptByProcess(shellPid: storedShellPid, projectDir: projectDir) {
+            newest = processPath
+            stopRetryPolling()
         } else {
             newest = Self.findNewestJsonl(in: projectDir)
+            if newest == nil { return }
         }
 
         guard let newest, newest != watchedPath else { return }
@@ -273,8 +273,8 @@ final class SessionStatusViewModel {
         findNewestJsonl(in: projectDirectory(for: sessionDirectory))
     }
 
-    /// Find the most recently created .jsonl in a project directory.
-    nonisolated private static func findNewestJsonl(in projectDir: String) -> String? {
+    /// Find the most recently modified .jsonl in a project directory.
+    nonisolated static func findNewestJsonl(in projectDir: String) -> String? {
         let fm = FileManager.default
         guard let contents = try? fm.contentsOfDirectory(atPath: projectDir) else { return nil }
 
@@ -283,8 +283,8 @@ final class SessionStatusViewModel {
             .compactMap { name -> (String, Date)? in
                 let full = (projectDir as NSString).appendingPathComponent(name)
                 guard let attrs = try? fm.attributesOfItem(atPath: full),
-                      let created = attrs[.creationDate] as? Date else { return nil }
-                return (full, created)
+                      let modified = attrs[.modificationDate] as? Date else { return nil }
+                return (full, modified)
             }
             .max(by: { $0.1 < $1.1 })?
             .0

@@ -21,6 +21,12 @@ private func displayLinkFired(
     return kCVReturnSuccess
 }
 
+/// macOS virtual key codes used by keyDown interception.
+private enum KeyCode: UInt16 {
+    case pageUp   = 0x74
+    case pageDown = 0x79
+}
+
 /// GPU-accelerated terminal view using Metal for rendering and alacritty_terminal for emulation.
 final class MetalTerminalView: NSView, CALayerDelegate {
 
@@ -37,6 +43,9 @@ final class MetalTerminalView: NSView, CALayerDelegate {
 
     /// Terminal bridge (set when startShell is called).
     private(set) var bridge: TerminalBridge?
+
+    /// Called when this view becomes the first responder (e.g. user clicked it).
+    var onFocused: (() -> Void)?
 
     /// Current font. Changing this re-rasterizes glyphs immediately for visual
     /// feedback, then schedules a debounced grid resize to match.
@@ -61,13 +70,20 @@ final class MetalTerminalView: NSView, CALayerDelegate {
     /// Computed grid dimensions from view size and cell metrics.
     var gridDimensions: (cols: Int, rows: Int) {
         guard let atlas else { return (80, 24) }
-        let cols = max(2, Int(bounds.width / atlas.cellWidth))
-        let rows = max(1, Int(bounds.height / atlas.cellHeight))
+        let cols = Int((bounds.width - 2 * contentInset) / atlas.cellWidth)
+        let rows = Int((bounds.height - 2 * contentInset) / atlas.cellHeight)
+        // Before autolayout, bounds are zero → calculated dims are tiny.
+        // Fall back to standard 80x24 so the shell starts with a usable PTY.
+        guard cols >= 2, rows >= 1 else { return (80, 24) }
         return (cols, rows)
     }
 
     /// Whether to treat Option key as Meta (sends ESC prefix).
     var optionAsMeta = true
+
+    /// Inset applied inside the Metal view so the grid has breathing room.
+    /// The Metal clear color fills this area, dynamically matching the content background.
+    private let contentInset: CGFloat = 14
 
     /// Cursor shape rendered by the view (overrides the terminal emulator's shape).
     enum CursorShape: UInt8 {
@@ -78,6 +94,17 @@ final class MetalTerminalView: NSView, CALayerDelegate {
 
     private(set) var cursorShape: CursorShape = .beam
     private(set) var cursorBlinking: Bool = true
+
+    /// Accumulated fractional scroll delta for smooth trackpad scrolling.
+    private var scrollAccumulator: CGFloat = 0
+
+    /// Search bar for find-in-buffer (Cmd+F).
+    private var searchBar: TerminalSearchBar?
+    /// Active color scheme, applied to search bar on creation.
+    private var activeColorScheme: TerminalColorScheme?
+
+    /// Whether the cursor is currently showing the pointing hand (over a URL).
+    private var showingLinkCursor = false
 
     /// IME marked text state (for NSTextInputClient).
     private var markedTextStorage = NSMutableAttributedString()
@@ -163,8 +190,6 @@ final class MetalTerminalView: NSView, CALayerDelegate {
         bridge?.onWakeup = { [weak self] in
             self?.needsRedraw = true
         }
-
-        startCursorBlink()
     }
 
     /// Terminate the shell process and clean up.
@@ -172,6 +197,22 @@ final class MetalTerminalView: NSView, CALayerDelegate {
         stopCursorBlink()
         bridge = nil
         needsRedraw = true
+    }
+
+    /// Flash the terminal view briefly to indicate a bell character (BEL / 0x07).
+    func flashBell() {
+        let overlay = NSView(frame: bounds)
+        overlay.wantsLayer = true
+        overlay.layer?.backgroundColor = NSColor.white.withAlphaComponent(0.12).cgColor
+        overlay.autoresizingMask = [.width, .height]
+        addSubview(overlay)
+
+        NSAnimationContext.runAnimationGroup({ ctx in
+            ctx.duration = 0.15
+            overlay.animator().alphaValue = 0
+        }, completionHandler: {
+            overlay.removeFromSuperview()
+        })
     }
 
     // MARK: - Display Link
@@ -203,13 +244,25 @@ final class MetalTerminalView: NSView, CALayerDelegate {
         }
     }
 
+    // MARK: - Color Scheme
+
+    /// Apply a color scheme to both the Rust terminal and the renderer.
+    func applyColorScheme(_ scheme: TerminalColorScheme) {
+        bridge?.setColors(scheme)
+        gridRenderer?.applyScheme(scheme)
+        activeColorScheme = scheme
+        searchBar?.applyColorScheme(scheme)
+        needsRedraw = true
+    }
+
     // MARK: - Cursor Preferences
 
     /// Apply cursor shape and blink settings from the UI.
     func applyCursorPreferences(shape: CursorShape, blinking: Bool) {
         cursorShape = shape
         cursorBlinking = blinking
-        if blinking {
+        let isFocused = (self == window?.firstResponder)
+        if blinking && isFocused {
             if cursorBlinkTimer == nil { startCursorBlink() }
         } else {
             stopCursorBlink()
@@ -221,6 +274,7 @@ final class MetalTerminalView: NSView, CALayerDelegate {
     // MARK: - Cursor Blink
 
     private func startCursorBlink() {
+        guard cursorBlinkTimer == nil else { return }
         cursorBlinkOn = true
         cursorBlinkTimer = Timer.scheduledTimer(withTimeInterval: 0.53, repeats: true) { [weak self] _ in
             self?.cursorBlinkOn.toggle()
@@ -269,7 +323,16 @@ final class MetalTerminalView: NSView, CALayerDelegate {
             // (at the current font size) extends beyond the view bounds.
             let gridPixelHeight = Float(snapshot.pointee.rows) * Float(atlas.cellHeight)
             let yOffset = max(0, gridPixelHeight - Float(bounds.height))
-            gridRenderer.update(snapshot: snapshot, yOffset: yOffset)
+            let inset = Float(contentInset)
+            gridRenderer.update(snapshot: snapshot, yOffset: yOffset, origin: SIMD2(inset, inset))
+            // Dynamic clear color: match the content background so padding blends
+            let bg = snapshot.pointee
+            renderPassDesc.colorAttachments[0].clearColor = MTLClearColor(
+                red: Double(bg.padding_bg_r) / 255.0,
+                green: Double(bg.padding_bg_g) / 255.0,
+                blue: Double(bg.padding_bg_b) / 255.0,
+                alpha: 1.0
+            )
             TerminalBridge.freeSnapshot(snapshot)
         }
 
@@ -296,6 +359,7 @@ final class MetalTerminalView: NSView, CALayerDelegate {
 
     override func setFrameSize(_ newSize: NSSize) {
         super.setFrameSize(newSize)
+        layoutSearchBar()
 
         let scale = metalLayer?.contentsScale ?? 2.0
         metalLayer?.drawableSize = CGSize(
@@ -358,13 +422,41 @@ final class MetalTerminalView: NSView, CALayerDelegate {
     override var acceptsFirstResponder: Bool { true }
 
     override func becomeFirstResponder() -> Bool {
-        true
+        if cursorBlinking { startCursorBlink() }
+        alphaValue = 1.0
+        needsRedraw = true
+        onFocused?()
+        return true
+    }
+
+    override func resignFirstResponder() -> Bool {
+        stopCursorBlink()
+        cursorBlinkOn = true
+        let dim = UserDefaults.standard.bool(forKey: "dimUnfocusedPanes")
+        alphaValue = dim ? 0.6 : 1.0
+        needsRedraw = true
+        return true
     }
 
     override func keyDown(with event: NSEvent) {
         resetCursorBlink()
 
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+
+        // Shift+PageUp/Down: scroll the viewport instead of sending to the shell
+        if flags == .shift, let keyCode = KeyCode(rawValue: event.keyCode) {
+            let halfScreen = max(1, Int32(gridDimensions.rows / 2))
+            switch keyCode {
+            case .pageUp:
+                bridge?.scroll(delta: halfScreen)
+                needsRedraw = true
+                return
+            case .pageDown:
+                bridge?.scroll(delta: -halfScreen)
+                needsRedraw = true
+                return
+            }
+        }
 
         // Option-as-Meta: send ESC + char directly, bypassing the input method
         if optionAsMeta && flags.contains(.option)
@@ -409,24 +501,32 @@ final class MetalTerminalView: NSView, CALayerDelegate {
             return super.performKeyEquivalent(with: event)
         }
 
-        // Cmd+key: font size adjustment
+        // Cmd+F: toggle search bar
+        if flags == .command && chars == "f" {
+            if searchBar?.isHidden == false {
+                hideSearchBar()
+            } else {
+                showSearchBar()
+            }
+            return true
+        }
+
+        // Cmd+key: font size adjustment.
+        // Unhandled Cmd combinations return false — Cmd+T/W are handled by
+        // AppDelegate's global key monitor which fires before the responder chain.
         if flags == .command || flags == [.command, .shift] {
             switch chars {
             case "=", "+":
                 adjustFontSize(by: 1)
                 return true
-            case "-":
-                if flags == .command {
-                    adjustFontSize(by: -1)
-                    return true
-                }
-            case "0":
-                if flags == .command {
-                    resetFontSize()
-                    return true
-                }
+            case "-" where flags == .command:
+                adjustFontSize(by: -1)
+                return true
+            case "0" where flags == .command:
+                resetFontSize()
+                return true
             default:
-                break
+                return false
             }
         }
 
@@ -509,6 +609,54 @@ final class MetalTerminalView: NSView, CALayerDelegate {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.2, execute: work)
     }
 
+    // MARK: - Scroll
+
+    override func scrollWheel(with event: NSEvent) {
+        guard bridge != nil else { return }
+
+        if event.hasPreciseScrollingDeltas {
+            // Trackpad: accumulate sub-line deltas
+            scrollAccumulator += event.scrollingDeltaY
+            let lines = Int32(scrollAccumulator / atlas.cellHeight)
+            if lines != 0 {
+                scrollAccumulator -= CGFloat(lines) * atlas.cellHeight
+                bridge?.scroll(delta: lines)
+                needsRedraw = true
+            }
+        } else {
+            // Mouse wheel: each tick is one line
+            let lines = Int32(event.scrollingDeltaY)
+            if lines != 0 {
+                bridge?.scroll(delta: lines)
+                needsRedraw = true
+            }
+        }
+    }
+
+    // MARK: - Mouse Tracking
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        for area in trackingAreas { removeTrackingArea(area) }
+        let area = NSTrackingArea(
+            rect: bounds,
+            options: [.mouseMoved, .mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect],
+            owner: self
+        )
+        addTrackingArea(area)
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        updateLinkCursor(for: event)
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        if showingLinkCursor {
+            NSCursor.iBeam.set()
+            showingLinkCursor = false
+        }
+    }
+
     // MARK: - Mouse / Selection
 
     /// Whether a drag selection is in progress.
@@ -519,10 +667,10 @@ final class MetalTerminalView: NSView, CALayerDelegate {
         let loc = convert(event.locationInWindow, from: nil)
         // NSView Y is bottom-up; grid row 0 is at the top
         let flippedY = bounds.height - loc.y
-        let col = max(0, loc.x) / atlas.cellWidth
-        let row = max(0, flippedY) / atlas.cellHeight
+        let col = max(0, loc.x - contentInset) / atlas.cellWidth
+        let row = max(0, flippedY - contentInset) / atlas.cellHeight
         // Side: left half of cell = .left, right half = .right
-        let cellFraction = loc.x - CGFloat(Int(col)) * atlas.cellWidth
+        let cellFraction = (loc.x - contentInset) - CGFloat(Int(col)) * atlas.cellWidth
         let side: SelectionSide = cellFraction < atlas.cellWidth / 2 ? .left : .right
         return (Int32(row), UInt32(col), side)
     }
@@ -530,6 +678,15 @@ final class MetalTerminalView: NSView, CALayerDelegate {
     override func mouseDown(with event: NSEvent) {
         window?.makeFirstResponder(self)
         resetCursorBlink()
+
+        // Cmd+click: open URL under cursor
+        if event.modifierFlags.contains(.command) {
+            let (row, col, _) = gridPosition(for: event)
+            if let url = urlAtPosition(row: Int(row), col: Int(col)) {
+                NSWorkspace.shared.open(url)
+                return
+            }
+        }
 
         guard let bridge else { return }
         let (row, col, side) = gridPosition(for: event)
@@ -554,6 +711,61 @@ final class MetalTerminalView: NSView, CALayerDelegate {
 
     override func mouseUp(with event: NSEvent) {
         isDragging = false
+    }
+
+    // MARK: - URL Detection
+
+    /// Regex matching http/https/file URLs in terminal output.
+    private static let urlPattern: NSRegularExpression? = {
+        // Match URLs starting with a scheme, stopping at common terminal delimiters.
+        // Trailing punctuation (period, comma, semicolon, closing parens/brackets)
+        // is stripped if it wasn't matched by an opening counterpart.
+        let pattern = #"https?://[^\s<>"'\x{00}-\x{1f}]+"#
+        return try? NSRegularExpression(pattern: pattern)
+    }()
+
+    /// Find the URL at the given grid position, or nil if none.
+    private func urlAtPosition(row: Int, col: Int) -> URL? {
+        guard let bridge, let text = bridge.rowText(row: row) else { return nil }
+        let nsText = text as NSString
+
+        guard let regex = Self.urlPattern else { return nil }
+        let matches = regex.matches(in: text, range: NSRange(location: 0, length: nsText.length))
+
+        for match in matches {
+            let range = match.range
+            // Check if the clicked column falls within this match's character range
+            if col >= range.location && col < range.location + range.length {
+                var urlString = nsText.substring(with: range)
+                // Strip trailing punctuation that's unlikely part of the URL
+                while let last = urlString.last, ".,;:!?)>]'\"".contains(last) {
+                    urlString.removeLast()
+                }
+                return URL(string: urlString)
+            }
+        }
+        return nil
+    }
+
+    /// Update the mouse cursor based on whether Cmd is held and the mouse is over a URL.
+    private func updateLinkCursor(for event: NSEvent) {
+        let cmdHeld = event.modifierFlags.contains(.command)
+
+        if cmdHeld {
+            let (row, col, _) = gridPosition(for: event)
+            if urlAtPosition(row: Int(row), col: Int(col)) != nil {
+                if !showingLinkCursor {
+                    NSCursor.pointingHand.set()
+                    showingLinkCursor = true
+                }
+                return
+            }
+        }
+
+        if showingLinkCursor {
+            NSCursor.iBeam.set()
+            showingLinkCursor = false
+        }
     }
 
     // MARK: - Standard Edit Actions
@@ -624,15 +836,78 @@ final class MetalTerminalView: NSView, CALayerDelegate {
         return menu
     }
 
+    // MARK: - Search
+
+    /// Show the search bar and focus it.
+    func showSearchBar() {
+        if searchBar == nil {
+            let bar = TerminalSearchBar(frame: .zero)
+            bar.onQuery = { [weak self] query in
+                guard let self, let bridge else { return }
+                if query.isEmpty {
+                    bridge.searchClear()
+                } else {
+                    _ = bridge.searchSet(query: query)
+                }
+                self.needsRedraw = true
+            }
+            bar.onNext = { [weak self] in
+                guard let self, let bridge else { return }
+                _ = bridge.searchAdvance(forward: true)
+                self.needsRedraw = true
+            }
+            bar.onPrevious = { [weak self] in
+                guard let self, let bridge else { return }
+                _ = bridge.searchAdvance(forward: false)
+                self.needsRedraw = true
+            }
+            bar.onDismiss = { [weak self] in
+                self?.hideSearchBar()
+            }
+            if let scheme = activeColorScheme {
+                bar.applyColorScheme(scheme)
+            }
+            addSubview(bar)
+            searchBar = bar
+        }
+        searchBar?.isHidden = false
+        layoutSearchBar()
+        window?.makeFirstResponder(searchBar?.searchField)
+    }
+
+    /// Hide the search bar and clear search state.
+    func hideSearchBar() {
+        searchBar?.isHidden = true
+        searchBar?.clear()
+        bridge?.searchClear()
+        needsRedraw = true
+        window?.makeFirstResponder(self)
+    }
+
+    private func layoutSearchBar() {
+        guard let bar = searchBar, !bar.isHidden else { return }
+        let barHeight: CGFloat = 32
+        let margin: CGFloat = 8
+        bar.frame = NSRect(
+            x: bounds.width - 310 - margin,
+            y: bounds.height - barHeight - margin,
+            width: 310,
+            height: barHeight
+        )
+    }
+
     // MARK: - Focus
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        window?.makeFirstResponder(self)
+        if window == nil {
+            stopCursorBlink()
+            cursorBlinkOn = true
+        }
     }
 
     override func flagsChanged(with event: NSEvent) {
-        // Could track modifier state if needed
+        updateLinkCursor(for: event)
     }
 }
 
@@ -704,8 +979,8 @@ extension MetalTerminalView: @preconcurrency NSTextInputClient {
         let cursor = snapshot.pointee.cursor
         TerminalBridge.freeSnapshot(snapshot)
 
-        let x = CGFloat(cursor.col) * atlas.cellWidth
-        let y = bounds.height - CGFloat(cursor.row + 1) * atlas.cellHeight
+        let x = CGFloat(cursor.col) * atlas.cellWidth + contentInset
+        let y = bounds.height - CGFloat(cursor.row + 1) * atlas.cellHeight - contentInset
         let rect = NSRect(x: x, y: y, width: atlas.cellWidth, height: atlas.cellHeight)
         return window?.convertToScreen(convert(rect, to: nil)) ?? .zero
     }

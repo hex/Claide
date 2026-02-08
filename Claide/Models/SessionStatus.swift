@@ -65,12 +65,28 @@ struct SessionStatus {
 
 struct TranscriptEntry: Decodable {
     let type: String
+    let timestamp: String?
     let message: TranscriptMessage?
 }
 
 struct TranscriptMessage: Decodable {
     let model: String?
     let usage: TranscriptUsage?
+    let content: [TranscriptContent]?
+}
+
+struct TranscriptContent: Decodable {
+    let type: String
+    let name: String?
+    let input: TranscriptToolInput?
+}
+
+struct TranscriptToolInput: Decodable {
+    let filePath: String?
+
+    enum CodingKeys: String, CodingKey {
+        case filePath = "file_path"
+    }
 }
 
 struct TranscriptUsage: Decodable {

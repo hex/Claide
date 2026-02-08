@@ -7,13 +7,16 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread::JoinHandle;
 
-use alacritty_terminal::grid::Dimensions;
-use alacritty_terminal::index::{Column, Line, Point, Side};
+use alacritty_terminal::grid::{Dimensions, Scroll};
+use alacritty_terminal::index::{Column, Direction, Line, Point, Side};
 use alacritty_terminal::selection::{Selection, SelectionType};
+use alacritty_terminal::term::cell::Flags;
 use alacritty_terminal::sync::FairMutex;
-use alacritty_terminal::term::{Config, Term};
+use alacritty_terminal::term::search::{Match, RegexSearch};
+use alacritty_terminal::term::{Config, Term, TermDamage};
+use alacritty_terminal::vte::ansi::Rgb;
 
-use crate::grid_snapshot::{self, ClaideGridSnapshot};
+use crate::grid_snapshot::{self, ClaideGridSnapshot, PersistentGrid, DEFAULT_ANSI, DEFAULT_BG, DEFAULT_FG};
 use crate::listener::Listener;
 use crate::pty_reader;
 
@@ -35,6 +38,41 @@ impl Dimensions for TermDimensions {
     }
 }
 
+/// Per-instance color palette: 16 ANSI colors + default foreground/background.
+pub struct ColorPalette {
+    pub ansi: [Rgb; 16],
+    pub fg: Rgb,
+    pub bg: Rgb,
+}
+
+impl Default for ColorPalette {
+    fn default() -> Self {
+        Self {
+            ansi: DEFAULT_ANSI,
+            fg: DEFAULT_FG,
+            bg: DEFAULT_BG,
+        }
+    }
+}
+
+/// C-compatible palette struct for FFI.
+#[repr(C)]
+pub struct ClaideColorPalette {
+    pub ansi: [u8; 48], // 16 colors x 3 bytes (r, g, b)
+    pub fg_r: u8,
+    pub fg_g: u8,
+    pub fg_b: u8,
+    pub bg_r: u8,
+    pub bg_g: u8,
+    pub bg_b: u8,
+}
+
+/// Search state for terminal find-in-buffer.
+struct SearchState {
+    regex: Option<RegexSearch>,
+    current_match: Option<Match>,
+}
+
 /// Opaque handle owning all terminal state.
 pub struct TerminalHandle {
     term: Arc<FairMutex<Term<Listener>>>,
@@ -42,6 +80,10 @@ pub struct TerminalHandle {
     shell_pid: u32,
     reader_thread: Option<JoinHandle<()>>,
     shutdown: Arc<AtomicBool>,
+    palette: FairMutex<ColorPalette>,
+    search: FairMutex<SearchState>,
+    grid_state: FairMutex<PersistentGrid>,
+    force_full_snapshot: AtomicBool,
 }
 
 impl TerminalHandle {
@@ -166,7 +208,28 @@ impl TerminalHandle {
             shell_pid: pid as u32,
             reader_thread: Some(reader_thread),
             shutdown,
+            palette: FairMutex::new(ColorPalette::default()),
+            search: FairMutex::new(SearchState {
+                regex: None,
+                current_match: None,
+            }),
+            grid_state: FairMutex::new(PersistentGrid::new()),
+            force_full_snapshot: AtomicBool::new(true),
         })
+    }
+
+    /// Replace the color palette from a C-compatible struct.
+    pub fn set_colors(&self, c_palette: &ClaideColorPalette) {
+        let mut palette = self.palette.lock();
+        for i in 0..16 {
+            palette.ansi[i] = Rgb {
+                r: c_palette.ansi[i * 3],
+                g: c_palette.ansi[i * 3 + 1],
+                b: c_palette.ansi[i * 3 + 2],
+            };
+        }
+        palette.fg = Rgb { r: c_palette.fg_r, g: c_palette.fg_g, b: c_palette.fg_b };
+        palette.bg = Rgb { r: c_palette.bg_r, g: c_palette.bg_g, b: c_palette.bg_b };
     }
 
     /// Write bytes to the PTY master (terminal input).
@@ -219,10 +282,72 @@ impl TerminalHandle {
         self.notify_pty_size(cols, rows, cell_width, cell_height);
     }
 
-    /// Take a snapshot of the visible grid.
+    /// Take an incremental snapshot of the visible grid using damage tracking.
+    /// Only rows that changed since the last snapshot are re-processed.
     pub fn snapshot(&self) -> Box<ClaideGridSnapshot> {
+        let mut term = self.term.lock();
+        let palette = self.palette.lock();
+        let search = self.search.lock();
+        let mut grid = self.grid_state.lock();
+
+        // Collect damage (must consume iterator before other term access)
+        let damaged_rows = {
+            let damage = term.damage();
+            match damage {
+                TermDamage::Full => None,
+                TermDamage::Partial(iter) => Some(iter.collect::<Vec<_>>()),
+            }
+        };
+        term.reset_damage();
+
+        // Force full rebuild if selection/search changed
+        let force = self.force_full_snapshot.swap(false, Ordering::Relaxed);
+        let damaged_rows = if force { None } else { damaged_rows };
+
+        Box::new(grid_snapshot::take_snapshot_incremental(
+            &term, &palette, search.current_match.as_ref(), &mut grid, damaged_rows
+        ))
+    }
+
+    /// Mark the snapshot as needing a full rebuild on the next frame.
+    /// Called when selection or search state changes (which the damage
+    /// system does not track).
+    fn invalidate_snapshot(&self) {
+        self.force_full_snapshot.store(true, Ordering::Relaxed);
+    }
+
+    /// Extract text for a single visible row, reading directly from the grid.
+    pub fn row_text(&self, row: u32) -> Option<String> {
         let term = self.term.lock();
-        Box::new(grid_snapshot::take_snapshot(&term))
+        let grid = term.grid();
+        let rows = grid.screen_lines();
+        let cols = grid.columns();
+        let display_offset = grid.display_offset();
+
+        if row as usize >= rows {
+            return None;
+        }
+
+        let line = Line((row as i32) - (display_offset as i32));
+        let grid_row = &grid[line];
+        let mut text = String::with_capacity(cols);
+
+        for col_idx in 0..cols {
+            let cell = &grid_row[Column(col_idx)];
+            if cell.flags.contains(Flags::WIDE_CHAR_SPACER) {
+                continue;
+            }
+            let cp = cell.c as u32;
+            if cp == 0 || cp == 0xFFFF {
+                text.push(' ');
+            } else if let Some(scalar) = char::from_u32(cp) {
+                text.push(scalar);
+            } else {
+                text.push(' ');
+            }
+        }
+
+        Some(text)
     }
 
     /// Get the shell process ID.
@@ -235,6 +360,7 @@ impl TerminalHandle {
         let mut term = self.term.lock();
         let point = Point::new(Line(row), Column(col));
         term.selection = Some(Selection::new(ty, point, side));
+        self.invalidate_snapshot();
     }
 
     /// Update the selection endpoint.
@@ -244,18 +370,122 @@ impl TerminalHandle {
             let point = Point::new(Line(row), Column(col));
             selection.update(point, side);
         }
+        self.invalidate_snapshot();
     }
 
     /// Clear the current selection.
     pub fn selection_clear(&self) {
         let mut term = self.term.lock();
         term.selection = None;
+        self.invalidate_snapshot();
     }
 
     /// Extract the selected text as a String.
     pub fn selection_text(&self) -> Option<String> {
         let term = self.term.lock();
         term.selection_to_string()
+    }
+
+    /// Scroll the terminal viewport. Positive delta scrolls up (into history),
+    /// negative scrolls down (toward live output).
+    pub fn scroll(&self, delta: i32) {
+        let mut term = self.term.lock();
+        term.scroll_display(Scroll::Delta(delta));
+    }
+
+    // MARK: - Search
+
+    /// Compile a search regex and find the first match forward from the cursor.
+    /// Returns true if a match was found.
+    pub fn search_set(&self, query: &str) -> bool {
+        let mut regex = match RegexSearch::new(query) {
+            Ok(r) => r,
+            Err(_) => {
+                self.search_clear();
+                return false;
+            }
+        };
+
+        let mut term = self.term.lock();
+        let origin = term.grid().cursor.point;
+        let found = term.search_next(&mut regex, origin, Direction::Right, Side::Left, None);
+
+        if let Some(ref m) = found {
+            Self::scroll_to_match(&mut term, m);
+        }
+
+        let mut search = self.search.lock();
+        search.current_match = found;
+        search.regex = Some(regex);
+
+        self.invalidate_snapshot();
+        search.current_match.is_some()
+    }
+
+    /// Navigate to the next or previous match.
+    /// Returns true if a match was found.
+    pub fn search_advance(&self, forward: bool) -> bool {
+        let mut search = self.search.lock();
+
+        // Destructure to allow borrowing regex and current_match independently
+        let SearchState { regex, current_match } = &mut *search;
+        let regex = match regex.as_mut() {
+            Some(r) => r,
+            None => return false,
+        };
+        let current = match current_match.as_ref() {
+            Some(m) => m.clone(),
+            None => return false,
+        };
+
+        let mut term = self.term.lock();
+
+        let (origin, direction) = if forward {
+            (*current.end(), Direction::Right)
+        } else {
+            (*current.start(), Direction::Left)
+        };
+
+        let found = term.search_next(regex, origin, direction, Side::Left, None);
+
+        if let Some(ref m) = found {
+            Self::scroll_to_match(&mut term, m);
+        }
+
+        *current_match = found;
+        self.invalidate_snapshot();
+        current_match.is_some()
+    }
+
+    /// Clear search state and remove highlights.
+    pub fn search_clear(&self) {
+        let mut search = self.search.lock();
+        search.regex = None;
+        search.current_match = None;
+        self.invalidate_snapshot();
+    }
+
+    /// Scroll the viewport so the match is visible, centering it if needed.
+    fn scroll_to_match(term: &mut Term<Listener>, m: &Match) {
+        let grid = term.grid();
+        let display_offset = grid.display_offset() as i32;
+        let screen_lines = grid.screen_lines() as i32;
+        let match_line = m.start().line.0;
+
+        // Visible line range: top = -display_offset, bottom = top + screen_lines - 1
+        let top_visible = -display_offset;
+        let bottom_visible = top_visible + screen_lines - 1;
+
+        if match_line >= top_visible && match_line <= bottom_visible {
+            return; // Already visible
+        }
+
+        // Scroll so the match line is roughly centered
+        let target_offset = (-match_line + screen_lines / 2).max(0);
+        let delta = target_offset - display_offset;
+        if delta != 0 {
+            term.scroll_display(Scroll::Delta(delta));
+        }
     }
 }
 

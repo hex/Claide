@@ -2,6 +2,7 @@
 // ABOUTME: Manages lifecycle, event dispatch, and grid snapshots.
 
 import Foundation
+import os
 
 /// Wraps a Rust-backed terminal emulator with PTY and event callbacks.
 ///
@@ -136,6 +137,44 @@ final class TerminalBridge: @unchecked Sendable {
         claide_terminal_snapshot_free(snapshot)
     }
 
+    // MARK: - Row Text
+
+    /// Extract text for a single visible row directly from the terminal grid.
+    func rowText(row: Int) -> String? {
+        guard let ptr = claide_terminal_row_text(handle, UInt32(row)) else { return nil }
+        defer { claide_terminal_free_string(ptr) }
+        return String(cString: ptr)
+    }
+
+    // MARK: - Scrollback
+
+    /// Scroll the terminal viewport by the given number of lines.
+    /// Positive delta scrolls up (into history), negative scrolls down.
+    func scroll(delta: Int32) {
+        claide_terminal_scroll(handle, delta)
+    }
+
+    // MARK: - Search
+
+    /// Start a search with the given query. Searches forward from the cursor.
+    /// Returns true if a match was found.
+    func searchSet(query: String) -> Bool {
+        query.withCString { cstr in
+            claide_terminal_search_set(handle, cstr)
+        }
+    }
+
+    /// Navigate to the next or previous match.
+    /// Returns true if a match was found.
+    func searchAdvance(forward: Bool) -> Bool {
+        claide_terminal_search_advance(handle, forward)
+    }
+
+    /// Clear the current search and remove highlights.
+    func searchClear() {
+        claide_terminal_search_clear(handle)
+    }
+
     // MARK: - Selection
 
     /// Start a selection at the given grid position.
@@ -158,6 +197,30 @@ final class TerminalBridge: @unchecked Sendable {
         guard let ptr = claide_terminal_selection_text(handle) else { return nil }
         defer { claide_terminal_selection_text_free(ptr) }
         return String(cString: ptr)
+    }
+
+    // MARK: - Colors
+
+    /// Push a color scheme's 16 ANSI + FG + BG colors to the Rust terminal.
+    func setColors(_ scheme: TerminalColorScheme) {
+        var palette = ClaideColorPalette()
+        // C arrays import as tuples in Swift; use pointer to write bytes
+        withUnsafeMutablePointer(to: &palette.ansi) { tuplePtr in
+            tuplePtr.withMemoryRebound(to: UInt8.self, capacity: 48) { ptr in
+                for i in 0..<16 {
+                    ptr[i * 3]     = scheme.ansi[i].r
+                    ptr[i * 3 + 1] = scheme.ansi[i].g
+                    ptr[i * 3 + 2] = scheme.ansi[i].b
+                }
+            }
+        }
+        palette.fg_r = scheme.foreground.r
+        palette.fg_g = scheme.foreground.g
+        palette.fg_b = scheme.foreground.b
+        palette.bg_r = scheme.background.r
+        palette.bg_g = scheme.background.g
+        palette.bg_b = scheme.background.b
+        claide_terminal_set_colors(handle, &palette)
     }
 
     deinit {
@@ -188,10 +251,32 @@ enum SelectionKind: UInt8 {
 /// before init completes.
 private final class TerminalBridgeContext: @unchecked Sendable {
     weak var bridge: TerminalBridge?
+
+    /// Coalesces Wakeup events so at most one GCD dispatch is in flight at a time.
+    /// Set to true on the reader thread before dispatch, cleared on main thread after delivery.
+    private var _wakeupPending = false
+    private var _lock = os_unfair_lock()
+
+    /// Attempt to set the wakeup flag. Returns true if it was previously unset.
+    func trySetWakeup() -> Bool {
+        os_unfair_lock_lock(&_lock)
+        let was = _wakeupPending
+        _wakeupPending = true
+        os_unfair_lock_unlock(&_lock)
+        return !was
+    }
+
+    /// Clear the wakeup flag after the main-thread dispatch has delivered.
+    func clearWakeup() {
+        os_unfair_lock_lock(&_lock)
+        _wakeupPending = false
+        os_unfair_lock_unlock(&_lock)
+    }
 }
 
 /// C-compatible callback function invoked by the Rust reader thread.
 /// Dispatches to the main thread before touching any bridge state.
+/// Wakeup events are coalesced so only one GCD dispatch is in flight at a time.
 private let terminalEventCallback: ClaideEventCallback = {
     (context: UnsafeMutableRawPointer?,
      eventType: UInt32,
@@ -204,13 +289,21 @@ private let terminalEventCallback: ClaideEventCallback = {
     let ctx = Unmanaged<TerminalBridgeContext>.fromOpaque(context).takeUnretainedValue()
     guard let bridge = ctx.bridge else { return }
 
+    // Wakeup events are coalesced: skip the GCD dispatch if one is already queued
+    if eventType == UInt32(ClaideEventWakeup) {
+        guard ctx.trySetWakeup() else { return }
+        DispatchQueue.main.async {
+            ctx.clearWakeup()
+            bridge.onWakeup?()
+        }
+        return
+    }
+
     // Extract string value on this thread (it may be freed after callback returns)
     let string: String? = stringValue.map { String(cString: $0) }
 
     DispatchQueue.main.async {
         switch eventType {
-        case UInt32(ClaideEventWakeup):
-            bridge.onWakeup?()
         case UInt32(ClaideEventTitle):
             if let title = string {
                 bridge.onTitle?(title)

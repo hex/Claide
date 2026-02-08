@@ -4,7 +4,7 @@
 import SwiftUI
 
 struct ContentView: View {
-    @State private var tabManager = TerminalTabManager()
+    let tabManager: TerminalTabManager
     @State private var graphVM = GraphViewModel()
     @State private var fileLogVM = FileLogViewModel()
     @State private var sessionStatusVM = SessionStatusViewModel()
@@ -13,10 +13,10 @@ struct ContentView: View {
     @AppStorage("cursorStyle") private var cursorStyle: String = "bar"
     @AppStorage("cursorBlink") private var cursorBlink: Bool = true
 
-    /// Session directory the terminal opens to
-    private let sessionDirectory: String = {
-        let home = FileManager.default.homeDirectoryForCurrentUser.path
-        return (home as NSString).appendingPathComponent(".claude-sessions/claide")
+    /// Initial directory — from CLAIDE_DIR env var (for cs integration) or home.
+    private static let initialDirectory: String = {
+        ProcessInfo.processInfo.environment["CLAIDE_DIR"]
+            ?? FileManager.default.homeDirectoryForCurrentUser.path
     }()
 
     enum SidebarTab: String, CaseIterable {
@@ -36,7 +36,7 @@ struct ContentView: View {
         .background(Theme.backgroundPrimary)
         .onAppear {
             // Create the first tab and load sidebar data
-            tabManager.addTab(initialDirectory: sessionDirectory, fontFamily: fontFamily)
+            tabManager.addTab(initialDirectory: Self.initialDirectory, fontFamily: fontFamily)
 
             // Pick the best default data source
             if BeadsService.findBinary() == nil && ClaudeTaskService.isAvailable {
@@ -45,21 +45,20 @@ struct ContentView: View {
 
             let vm = graphVM
             Task { @MainActor in
-                await vm.loadIssues(workingDirectory: sessionDirectory)
+                await vm.loadIssues(workingDirectory: Self.initialDirectory)
             }
-            discoverChangesFile(from: sessionDirectory)
             let shellPid = pid_t(tabManager.activeTab?.terminalView.shellPid ?? 0)
-            sessionStatusVM.startWatching(sessionDirectory: sessionDirectory, shellPid: shellPid)
+            fileLogVM.startWatching(sessionDirectory: Self.initialDirectory, shellPid: shellPid)
+            sessionStatusVM.startWatching(sessionDirectory: Self.initialDirectory, shellPid: shellPid)
         }
-        .focusedSceneValue(\.tabManager, tabManager)
         .onChange(of: tabManager.activeViewModel?.currentDirectory) { _, newDir in
             if let dir = newDir.flatMap({ $0 }) {
                 let vm = graphVM
                 Task { @MainActor in
                     await vm.loadIssues(workingDirectory: dir)
                 }
-                discoverChangesFile(from: dir)
                 let shellPid = pid_t(tabManager.activeTab?.terminalView.shellPid ?? 0)
+                fileLogVM.startWatching(sessionDirectory: dir, shellPid: shellPid)
                 sessionStatusVM.startWatching(sessionDirectory: dir, shellPid: shellPid)
             }
         }
@@ -76,12 +75,14 @@ struct ContentView: View {
     private var terminalSection: some View {
         VStack(spacing: 0) {
             TerminalTabBar(tabManager: tabManager) {
-                tabManager.addTab(initialDirectory: sessionDirectory, fontFamily: fontFamily)
+                tabManager.addTab(initialDirectory: Self.initialDirectory, fontFamily: fontFamily)
             }
 
+            // Colored strip between tab bar and terminal, matching the active tab's tint
+            (tabManager.activeViewModel?.tabColor?.tint ?? Color(nsColor: TerminalTheme.background))
+                .frame(height: 2)
+
             TerminalPanel(tabManager: tabManager, fontFamily: fontFamily)
-                .padding(12)
-                .background(Color(nsColor: TerminalTheme.background))
 
             SessionStatusBar(status: sessionStatusVM.status)
         }
@@ -196,25 +197,4 @@ struct ContentView: View {
         .overlay(Tooltip(tab.rawValue).allowsHitTesting(false))
     }
 
-    // MARK: - Discovery
-
-    /// Try to find changes.md in the session directory hierarchy
-    private func discoverChangesFile(from directory: String) {
-        var dir = directory
-        for _ in 0..<5 {
-            let candidate = (dir as NSString).appendingPathComponent("changes.md")
-            if FileManager.default.fileExists(atPath: candidate) {
-                fileLogVM.startWatching(path: candidate)
-                return
-            }
-            dir = (dir as NSString).deletingLastPathComponent
-        }
-    }
 }
-
-// MARK: - Focused Value
-
-extension FocusedValues {
-    @Entry var tabManager: TerminalTabManager?
-}
-

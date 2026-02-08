@@ -13,8 +13,8 @@ struct TerminalTabManagerTests {
         let manager = TerminalTabManager()
         for _ in 0..<tabCount {
             manager.addTab(initialDirectory: nil, fontFamily: "", env: [
-                "PATH=/usr/bin:/bin",
-                "TERM=xterm-256color",
+                ("PATH", "/usr/bin:/bin"),
+                ("TERM", "xterm-256color"),
             ])
         }
         return manager
@@ -39,8 +39,8 @@ struct TerminalTabManagerTests {
         let firstID = manager.tabs[0].id
 
         manager.addTab(initialDirectory: nil, fontFamily: "", env: [
-            "PATH=/usr/bin:/bin",
-            "TERM=xterm-256color",
+            ("PATH", "/usr/bin:/bin"),
+            ("TERM", "xterm-256color"),
         ])
 
         #expect(manager.tabs.count == 2)
@@ -133,25 +133,25 @@ struct TerminalTabManagerTests {
     func buildEnvironmentIncludesHomebrew() {
         let env = TerminalTabManager.buildEnvironment()
 
-        let pathEntry = env.first { $0.hasPrefix("PATH=") }
-        #expect(pathEntry != nil)
-        #expect(pathEntry!.contains("/opt/homebrew/bin"))
+        let pathValue = env.first(where: { $0.0 == "PATH" })?.1
+        #expect(pathValue != nil)
+        #expect(pathValue!.contains("/opt/homebrew/bin"))
     }
 
-    @Test("buildEnvironment sets TERM_PROGRAM to Apple_Terminal")
+    @Test("buildEnvironment sets TERM_PROGRAM to Claide")
     func buildEnvironmentSetsTermProgram() {
         let env = TerminalTabManager.buildEnvironment()
 
-        let termProgram = env.first { $0.hasPrefix("TERM_PROGRAM=") }
-        #expect(termProgram == "TERM_PROGRAM=Apple_Terminal")
+        let value = env.first(where: { $0.0 == "TERM_PROGRAM" })?.1
+        #expect(value == "Claide")
     }
 
     @Test("buildEnvironment disables shell sessions")
     func buildEnvironmentDisablesShellSessions() {
         let env = TerminalTabManager.buildEnvironment()
 
-        let sessionsDisable = env.first { $0.hasPrefix("SHELL_SESSIONS_DISABLE=") }
-        #expect(sessionsDisable == "SHELL_SESSIONS_DISABLE=1")
+        let value = env.first(where: { $0.0 == "SHELL_SESSIONS_DISABLE" })?.1
+        #expect(value == "1")
     }
 
     // MARK: - Tab Identity
@@ -225,14 +225,95 @@ struct TerminalTabManagerTests {
         #expect(manager.activeTabID == id)
     }
 
+    // MARK: - Grid Dimensions at Startup
+
+    @Test("terminal view uses standard 80x24 when frame is zero")
+    func gridDimensionsDefaultsAtZeroFrame() {
+        let manager = makeManager(tabCount: 1)
+        let view = manager.tabs[0].terminalView
+
+        // View was created with frame: .zero — should fall back to 80x24, not 2x1
+        let (cols, rows) = view.gridDimensions
+        #expect(cols == 80)
+        #expect(rows == 24)
+    }
+
+    // MARK: - Move Tab
+
+    @Test("moveTab forward shifts tab to later position")
+    func moveTabForward() {
+        let manager = makeManager(tabCount: 3)
+        let ids = manager.tabs.map(\.id)
+
+        manager.moveTab(from: 0, to: 2)
+
+        #expect(manager.tabs.map(\.id) == [ids[1], ids[2], ids[0]])
+    }
+
+    @Test("moveTab backward shifts tab to earlier position")
+    func moveTabBackward() {
+        let manager = makeManager(tabCount: 3)
+        let ids = manager.tabs.map(\.id)
+
+        manager.moveTab(from: 2, to: 0)
+
+        #expect(manager.tabs.map(\.id) == [ids[2], ids[0], ids[1]])
+    }
+
+    @Test("moveTab to same index is a no-op")
+    func moveTabSameIndex() {
+        let manager = makeManager(tabCount: 3)
+        let ids = manager.tabs.map(\.id)
+
+        manager.moveTab(from: 1, to: 1)
+
+        #expect(manager.tabs.map(\.id) == ids)
+    }
+
+    @Test("moveTab with out-of-bounds indices is a no-op")
+    func moveTabOutOfBounds() {
+        let manager = makeManager(tabCount: 3)
+        let ids = manager.tabs.map(\.id)
+
+        manager.moveTab(from: -1, to: 0)
+        #expect(manager.tabs.map(\.id) == ids)
+
+        manager.moveTab(from: 0, to: 5)
+        #expect(manager.tabs.map(\.id) == ids)
+
+        manager.moveTab(from: 3, to: 0)
+        #expect(manager.tabs.map(\.id) == ids)
+    }
+
+    @Test("moveTab preserves active tab selection")
+    func moveTabPreservesActive() {
+        let manager = makeManager(tabCount: 3)
+        let ids = manager.tabs.map(\.id)
+        manager.switchTo(id: ids[0])
+
+        manager.moveTab(from: 0, to: 2)
+
+        // Active tab moved but stays active
+        #expect(manager.activeTabID == ids[0])
+    }
+
+    @Test("moveTab adjacent swap works correctly")
+    func moveTabAdjacentSwap() {
+        let manager = makeManager(tabCount: 3)
+        let ids = manager.tabs.map(\.id)
+
+        manager.moveTab(from: 0, to: 1)
+        #expect(manager.tabs.map(\.id) == [ids[1], ids[0], ids[2]])
+    }
+
     // MARK: - No-Args addTab
 
     @Test("addTab with no args reuses last directory and font")
     func addTabNoArgsReusesDefaults() {
         let manager = TerminalTabManager()
         manager.addTab(initialDirectory: "/tmp", fontFamily: "Menlo", env: [
-            "PATH=/usr/bin:/bin",
-            "TERM=xterm-256color",
+            ("PATH", "/usr/bin:/bin"),
+            ("TERM", "xterm-256color"),
         ])
 
         #expect(manager.tabs.count == 1)

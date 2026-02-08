@@ -1,74 +1,96 @@
-// ABOUTME: Centralized design tokens for the dark terminal-inspired UI.
-// ABOUTME: Colors, fonts, and spacing constants used across all views.
+// ABOUTME: Centralized design tokens derived from the active terminal color scheme.
+// ABOUTME: Chrome colors adapt to the scheme; semantic colors (status, priority) stay fixed.
 
 import SwiftUI
 
 enum Theme {
-    // Background layers (darkest to lightest)
-    static let backgroundPrimary = Palette.color(.bgPrimary)
-    static let backgroundPanel   = Palette.color(.bgPanel)
-    static let backgroundSunken  = Palette.color(.bgSunken)
-    static let backgroundHover   = Palette.color(.bgHover)
+    // Active terminal color scheme for chrome derivation.
+    private static var activeScheme: TerminalColorScheme {
+        let name = UserDefaults.standard.string(forKey: "terminalColorScheme") ?? "hexed"
+        return TerminalColorScheme.named(name)
+    }
+    private static var schemeBG: NSColor { Palette.nsColor(activeScheme.background) }
+    private static var schemeFG: NSColor { Palette.nsColor(activeScheme.foreground) }
+
+    // Background layers (derived from terminal color scheme)
+    static var backgroundPrimary: Color { Color(nsColor: schemeBG) }
+    static var backgroundPanel: Color {
+        Color(nsColor: schemeBG.blended(withFraction: 0.04, of: schemeFG) ?? schemeBG)
+    }
+    static var backgroundSunken: Color {
+        Color(nsColor: schemeBG.blended(withFraction: 0.20, of: .black) ?? schemeBG)
+    }
+    static var backgroundHover: Color {
+        Color(nsColor: schemeBG.blended(withFraction: 0.08, of: schemeFG) ?? schemeBG)
+    }
 
     // Border
-    static let border = Palette.color(.border)
+    static var border: Color {
+        Color(nsColor: schemeBG.blended(withFraction: 0.15, of: schemeFG) ?? schemeFG)
+    }
 
     // Text
-    static let textPrimary   = Palette.color(.fgPrimary)
-    static let textSecondary = Palette.color(.fgSecondary)
-    static let textMuted     = Palette.color(.fgMuted)
+    static var textPrimary: Color { Color(nsColor: schemeFG) }
+    static var textSecondary: Color {
+        Color(nsColor: schemeFG.blended(withFraction: 0.45, of: schemeBG) ?? schemeFG)
+    }
+    static var textMuted: Color {
+        Color(nsColor: schemeFG.blended(withFraction: 0.65, of: schemeBG) ?? schemeFG)
+    }
 
-    // Status
+    // Status (fixed)
     static let statusOpen       = Palette.color(.uiBlue)
     static let statusInProgress = Palette.color(.uiYellow)
     static let statusBlocked    = Palette.color(.uiRed)
     static let statusClosed     = Palette.color(.uiGreen)
 
-    // Priority (P0-P4)
+    // Priority (fixed)
     static let priorityCritical = Palette.color(.priCritical)
     static let priorityHigh     = Palette.color(.uiOrange)
     static let priorityMedium   = Palette.color(.priMedium)
     static let priorityLow      = Palette.color(.priLow)
     static let priorityBacklog  = Palette.color(.priBacklog)
 
-    // Accent
+    // Accent (fixed)
     static let accent   = Palette.color(.uiGreen)
     static let negative = Palette.color(.uiRed)
 
-    // Type colors (base colors for node fill at low zoom and badge derivation)
+    // Type colors (fixed)
     static let typeBug     = Palette.color(.typeBug)
     static let typeTask    = Palette.color(.typeTask)
     static let typeEpic    = Palette.color(.typeEpic)
     static let typeFeature = Palette.color(.typeFeature)
     static let typeChore   = Palette.color(.typeChore)
 
-    // Pre-computed badge color sets
-    static let badgeBug        = BadgeColors(base: typeBug)
-    static let badgeTask       = BadgeColors(base: typeTask)
-    static let badgeEpic       = BadgeColors(base: typeEpic)
-    static let badgeFeature    = BadgeColors(base: typeFeature)
-    static let badgeChore      = BadgeColors(base: typeChore)
-    static let badgeOpen       = BadgeColors(base: statusOpen)
-    static let badgeInProgress = BadgeColors(base: statusInProgress)
-    static let badgeClosed     = BadgeColors(base: statusClosed)
-    static let badgeBlocked    = BadgeColors(base: statusBlocked)
-    static let badgeCritical   = BadgeColors(base: priorityCritical)
-    static let badgeHigh       = BadgeColors(base: priorityHigh)
-    static let badgeMedium     = BadgeColors(base: priorityMedium)
-    static let badgeLow        = BadgeColors(base: priorityLow)
-    static let badgeBacklog    = BadgeColors(base: priorityBacklog)
+    // Badge color sets (recomputed to track dynamic backgroundPanel)
+    static var badgeBug:        BadgeColors { BadgeColors(base: typeBug) }
+    static var badgeTask:       BadgeColors { BadgeColors(base: typeTask) }
+    static var badgeEpic:       BadgeColors { BadgeColors(base: typeEpic) }
+    static var badgeFeature:    BadgeColors { BadgeColors(base: typeFeature) }
+    static var badgeChore:      BadgeColors { BadgeColors(base: typeChore) }
+    static var badgeOpen:       BadgeColors { BadgeColors(base: statusOpen) }
+    static var badgeInProgress: BadgeColors { BadgeColors(base: statusInProgress) }
+    static var badgeClosed:     BadgeColors { BadgeColors(base: statusClosed) }
+    static var badgeBlocked:    BadgeColors { BadgeColors(base: statusBlocked) }
+    static var badgeCritical:   BadgeColors { BadgeColors(base: priorityCritical) }
+    static var badgeHigh:       BadgeColors { BadgeColors(base: priorityHigh) }
+    static var badgeMedium:     BadgeColors { BadgeColors(base: priorityMedium) }
+    static var badgeLow:        BadgeColors { BadgeColors(base: priorityLow) }
+    static var badgeBacklog:    BadgeColors { BadgeColors(base: priorityBacklog) }
 
-    // Selection glow for graph highlighting
+    // Selection glow for graph highlighting (fixed)
     static let selectionGlow = Palette.color(.yellow)
 
     // Edge colors for graph
     static let edgeBlocks  = Palette.color(.uiRed).opacity(0.6)
-    static let edgeDefault = Palette.color(.edgeMuted)
+    static var edgeDefault: Color {
+        Color(nsColor: schemeFG.blended(withFraction: 0.7, of: schemeBG) ?? schemeFG)
+    }
 
     // Typography — sizes derived from the user's "uiFontSize" preference.
     private static var baseFontSize: CGFloat {
         let size = UserDefaults.standard.double(forKey: "uiFontSize")
-        return size > 0 ? size : 13
+        return size > 0 ? size : 12
     }
     static var bodyFont: Font { .system(size: baseFontSize) }
     static var bodyFontSmall: Font { .system(size: baseFontSize - 2) }
@@ -124,29 +146,58 @@ struct BadgeColors: Equatable, Sendable {
     }
 }
 
+/// Describes the visual style of a single tooltip line.
+enum TooltipLineStyle {
+    case bold       // Medium weight, primary color
+    case normal     // Regular weight, primary color
+    case muted      // Regular weight, dimmed color
+    case mono       // Monospaced, slightly smaller
+}
+
+/// A single styled line in a structured tooltip.
+struct TooltipLine {
+    let text: String
+    let style: TooltipLineStyle
+}
+
 /// Fast-appearing tooltip for SwiftUI views where `.help()` doesn't work
 /// (e.g. buttons with `.buttonStyle(.plain)`).
 /// Shows after 0.1s instead of the default ~1.5s macOS delay.
+/// Supports plain text or structured multi-line content with accent color.
 struct Tooltip: NSViewRepresentable {
-    let text: String
+    let lines: [TooltipLine]
+    let accentColor: Color?
 
-    init(_ text: String) { self.text = text }
+    /// Plain text tooltip
+    init(_ text: String) {
+        self.lines = [TooltipLine(text: text, style: .normal)]
+        self.accentColor = nil
+    }
+
+    /// Structured tooltip with individually styled lines and optional accent
+    init(lines: [TooltipLine], accentColor: Color? = nil) {
+        self.lines = lines
+        self.accentColor = accentColor
+    }
 
     func makeNSView(context: Context) -> TooltipView {
-        TooltipView(text: text)
+        TooltipView(lines: lines, accentColor: accentColor.map { NSColor($0) })
     }
 
     func updateNSView(_ nsView: TooltipView, context: Context) {
-        nsView.tooltipText = text
+        nsView.lines = lines
+        nsView.accentColor = accentColor.map { NSColor($0) }
     }
 
     final class TooltipView: NSView {
-        var tooltipText: String
+        var lines: [TooltipLine]
+        var accentColor: NSColor?
         private var hoverTimer: Timer?
         private var tooltipWindow: NSWindow?
 
-        init(text: String) {
-            self.tooltipText = text
+        init(lines: [TooltipLine], accentColor: NSColor?) {
+            self.lines = lines
+            self.accentColor = accentColor
             super.init(frame: .zero)
             let area = NSTrackingArea(
                 rect: .zero,
@@ -179,18 +230,123 @@ struct Tooltip: NSViewRepresentable {
             super.removeFromSuperview()
         }
 
+        // MARK: - Label Factory
+
+        private func makeLabel(_ line: TooltipLine) -> NSTextField {
+            let font: NSFont
+            let color: NSColor
+
+            switch line.style {
+            case .bold:
+                font = NSFont.systemFont(ofSize: 12, weight: .medium)
+                color = NSColor(srgbRed: 224/255, green: 230/255, blue: 235/255, alpha: 1)
+            case .normal:
+                font = NSFont.systemFont(ofSize: 11)
+                color = NSColor(srgbRed: 224/255, green: 230/255, blue: 235/255, alpha: 1)
+            case .muted:
+                font = NSFont.systemFont(ofSize: 10)
+                color = NSColor(srgbRed: 89/255, green: 97/255, blue: 107/255, alpha: 1)
+            case .mono:
+                font = NSFont.monospacedSystemFont(ofSize: 10, weight: .regular)
+                color = NSColor(srgbRed: 224/255, green: 230/255, blue: 235/255, alpha: 0.75)
+            }
+
+            let label: NSTextField
+            if line.style == .mono {
+                // Wrapping label for long file paths
+                label = NSTextField(wrappingLabelWithString: line.text)
+                label.maximumNumberOfLines = 3
+            } else {
+                label = NSTextField(labelWithString: line.text)
+                label.lineBreakMode = .byTruncatingTail
+                label.maximumNumberOfLines = 1
+            }
+            label.font = font
+            label.textColor = color
+            label.isSelectable = false
+            return label
+        }
+
+        // MARK: - Show / Hide
+
         private func showTooltip() {
             guard let window, let screen = window.screen else { return }
             let mouseScreen = NSEvent.mouseLocation
-            let padding: CGFloat = 4
-            let font = NSFont.systemFont(ofSize: NSFont.smallSystemFontSize)
-            let attrs: [NSAttributedString.Key: Any] = [.font: font]
-            let size = (tooltipText as NSString).size(withAttributes: attrs)
-            let tipWidth = size.width + padding * 2 + 4
-            let tipHeight = size.height + padding * 2
+            let paddingH: CGFloat = 12
+            let paddingV: CGFloat = 10
+            let maxTipWidth: CGFloat = 340
+            let lineSpacing: CGFloat = 3
+            let isStructured = accentColor != nil && lines.count >= 3
+            let maxTextWidth = maxTipWidth - paddingH * 2
 
+            // Create and measure labels (constrained to max width)
+            var labelData: [(NSTextField, CGSize)] = []
+            var maxWidth: CGFloat = 0
+            for line in lines {
+                let label = makeLabel(line)
+                label.preferredMaxLayoutWidth = maxTextWidth
+                let size = label.fittingSize
+                let constrainedWidth = min(size.width, maxTextWidth)
+                // Re-measure height at constrained width for wrapping labels
+                let finalSize: CGSize
+                if constrainedWidth < size.width {
+                    label.preferredMaxLayoutWidth = constrainedWidth
+                    finalSize = CGSize(width: constrainedWidth, height: label.fittingSize.height)
+                } else {
+                    finalSize = size
+                }
+                labelData.append((label, finalSize))
+                maxWidth = max(maxWidth, finalSize.width)
+            }
+
+            // Calculate total content height
+            let accentGap: CGFloat = 10   // 4 + 1.5 accent + 4.5
+            let separatorGap: CGFloat = 12 // 5.5 + 0.5 sep + 6
+            var contentHeight: CGFloat = 0
+            for (i, (_, size)) in labelData.enumerated() {
+                contentHeight += size.height
+                if i < labelData.count - 1 {
+                    if isStructured && i == 0 {
+                        contentHeight += accentGap
+                    } else if isStructured && i == labelData.count - 2 {
+                        contentHeight += separatorGap
+                    } else {
+                        contentHeight += lineSpacing
+                    }
+                }
+            }
+
+            let tipWidth = maxWidth + paddingH * 2
+            let tipHeight = contentHeight + paddingV * 2
+
+            // Layout labels top-down (NSView y=0 is bottom)
+            var y = tipHeight - paddingV
+            var accentLineY: CGFloat = 0
+            var separatorY: CGFloat = 0
+
+            for (i, (label, size)) in labelData.enumerated() {
+                y -= size.height
+                label.frame = NSRect(x: paddingH, y: y, width: maxWidth, height: size.height)
+
+                if i < labelData.count - 1 {
+                    if isStructured && i == 0 {
+                        y -= 4
+                        y -= 1.5
+                        accentLineY = y
+                        y -= 4.5
+                    } else if isStructured && i == labelData.count - 2 {
+                        y -= 5.5
+                        y -= 0.5
+                        separatorY = y
+                        y -= 6
+                    } else {
+                        y -= lineSpacing
+                    }
+                }
+            }
+
+            // Position window near cursor
             var origin = CGPoint(x: mouseScreen.x + 12, y: mouseScreen.y - tipHeight - 8)
-            // Keep on screen
             if origin.x + tipWidth > screen.visibleFrame.maxX {
                 origin.x = screen.visibleFrame.maxX - tipWidth
             }
@@ -209,21 +365,57 @@ struct Tooltip: NSViewRepresentable {
             tipWindow.level = .floating
             tipWindow.ignoresMouseEvents = true
 
-            let label = NSTextField(labelWithString: tooltipText)
-            label.font = font
-            label.textColor = .white
-            label.frame = NSRect(x: padding, y: padding, width: size.width + 4, height: size.height)
-
+            // Container with rounded corners
             let container = NSView(frame: NSRect(origin: .zero, size: CGSize(width: tipWidth, height: tipHeight)))
             container.wantsLayer = true
-            container.layer?.backgroundColor = NSColor(white: 0.15, alpha: 0.95).cgColor
-            container.layer?.cornerRadius = 4
-            container.layer?.borderWidth = 0.5
-            container.layer?.borderColor = NSColor(white: 0.3, alpha: 1).cgColor
-            container.addSubview(label)
+            container.layer?.cornerRadius = 10
+            container.layer?.masksToBounds = true
+
+            // Gradient background: lighter at top, darker at bottom
+            let gradient = CAGradientLayer()
+            gradient.frame = container.bounds
+            gradient.colors = [
+                CGColor(srgbRed: 22/255, green: 25/255, blue: 33/255, alpha: 1),
+                CGColor(srgbRed: 13/255, green: 15/255, blue: 20/255, alpha: 1),
+            ]
+            gradient.startPoint = CGPoint(x: 0.5, y: 1) // top
+            gradient.endPoint = CGPoint(x: 0.5, y: 0)   // bottom
+            container.layer?.addSublayer(gradient)
+
+            // Accent underline after header
+            if isStructured, let color = accentColor {
+                let accent = CALayer()
+                accent.frame = CGRect(x: paddingH, y: accentLineY, width: maxWidth, height: 1.5)
+                accent.backgroundColor = color.withAlphaComponent(0.5).cgColor
+                accent.cornerRadius = 0.75
+                container.layer?.addSublayer(accent)
+            }
+
+            // Separator before path
+            if isStructured {
+                let sep = CALayer()
+                sep.frame = CGRect(x: paddingH, y: separatorY, width: maxWidth, height: 0.5)
+                sep.backgroundColor = CGColor(srgbRed: 46/255, green: 51/255, blue: 61/255, alpha: 1)
+                container.layer?.addSublayer(sep)
+            }
+
+            // Add labels on top
+            for (label, _) in labelData {
+                container.addSubview(label)
+            }
 
             tipWindow.contentView = container
+            tipWindow.hasShadow = true
+
+            // Fade-in animation
+            tipWindow.alphaValue = 0
             tipWindow.orderFront(nil)
+            NSAnimationContext.runAnimationGroup { ctx in
+                ctx.duration = 0.15
+                ctx.timingFunction = CAMediaTimingFunction(name: .easeOut)
+                tipWindow.animator().alphaValue = 1
+            }
+
             self.tooltipWindow = tipWindow
         }
 
@@ -258,9 +450,11 @@ struct SectionHeader: View {
 
 /// Panel container with thin border, dark background
 struct PanelView<Content: View>: View {
+    @AppStorage("terminalColorScheme") private var schemeName: String = "hexed"
     @ViewBuilder let content: () -> Content
 
     var body: some View {
+        let _ = schemeName
         VStack(alignment: .leading, spacing: 8) {
             content()
         }

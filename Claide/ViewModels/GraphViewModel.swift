@@ -54,7 +54,12 @@ final class GraphViewModel {
             computeLayout()
         } catch {
             issues = []
-            self.error = error.localizedDescription
+            switch error {
+            case BeadsError.noDatabase, BeadsError.binaryNotFound:
+                break
+            default:
+                self.error = error.localizedDescription
+            }
         }
     }
 
