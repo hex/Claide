@@ -16,8 +16,21 @@ struct ClaideApp: App {
             userDriverDelegate: nil
         )
         UserDefaults.standard.register(defaults: [
+            // General
+            "shellPath": "",
+            "workingDirectory": "home",
+            "customWorkingDirectory": "",
+            "scrollbackLines": 2048,
+            "newTabPosition": "end",
+            "confirmBeforeClosing": true,
+            "quitWhenLastWindowCloses": false,
+            "bellStyle": "visual",
+            // Terminal
             "cursorStyle": "bar",
             "cursorBlink": true,
+            "copyOnSelect": false,
+            "pasteOnRightClick": false,
+            // Appearance
             "terminalFontSize": 14.0,
             "uiFontSize": 12.0,
             "terminalColorScheme": "hexed",
@@ -28,7 +41,7 @@ struct ClaideApp: App {
 
     var body: some Scene {
         Settings {
-            SettingsView()
+            SettingsView(updater: updaterController.updater)
         }
         .commands {
             CommandGroup(after: .appInfo) {
