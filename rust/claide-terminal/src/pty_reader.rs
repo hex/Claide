@@ -9,6 +9,7 @@ use alacritty_terminal::event::{Event, EventListener};
 use alacritty_terminal::sync::FairMutex;
 use alacritty_terminal::term::Term;
 use alacritty_terminal::vte;
+use memchr::memchr;
 
 use crate::listener::Listener;
 
@@ -124,6 +125,29 @@ impl Osc7Scanner {
         self.buffer.clear();
         result
     }
+
+    /// Scan a batch of bytes, using memchr to skip directly to ESC bytes in ground state.
+    fn scan_batch(&mut self, data: &[u8], listener: &Listener) {
+        let mut pos = 0;
+        while pos < data.len() {
+            if self.state == Osc7State::Ground {
+                // SIMD-accelerated skip to the next ESC byte
+                match memchr(0x1b, &data[pos..]) {
+                    Some(offset) => {
+                        pos += offset;
+                        self.state = Osc7State::Esc;
+                        pos += 1;
+                    }
+                    None => break,
+                }
+            } else {
+                if let Some(dir) = self.feed(data[pos]) {
+                    listener.send_directory_change(&dir);
+                }
+                pos += 1;
+            }
+        }
+    }
 }
 
 /// Maximum bytes to accumulate before flushing through VTE.
@@ -145,15 +169,34 @@ fn poll_readable(fd: i32) -> bool {
 /// Drains all available PTY data before processing through VTE to maximize
 /// throughput. Uses poll() to check for more data without blocking, then
 /// flushes the accumulated batch in a single lock acquisition.
+/// Read into a Vec's spare capacity, returning the number of bytes read.
+/// Avoids intermediate stack buffers by writing directly into the Vec.
+fn read_into_vec(file: &mut std::fs::File, vec: &mut Vec<u8>) -> std::io::Result<usize> {
+    vec.reserve(65536);
+    let start = vec.len();
+    // SAFETY: reserve() ensures capacity >= start + 65536. The bytes between
+    // len and capacity are allocated but uninitialized; read() will overwrite
+    // them before we set_len to include only the bytes actually written.
+    unsafe { vec.set_len(start + 65536) };
+    match file.read(&mut vec[start..]) {
+        Ok(n) => {
+            unsafe { vec.set_len(start + n) };
+            Ok(n)
+        }
+        Err(e) => {
+            unsafe { vec.set_len(start) };
+            Err(e)
+        }
+    }
+}
+
 pub fn run_reader(
     pty_fd: i32,
     term: Arc<FairMutex<Term<Listener>>>,
     listener: Listener,
     shutdown: Arc<AtomicBool>,
 ) {
-    let file = unsafe { std::fs::File::from_raw_fd(pty_fd) };
-    let mut reader = std::io::BufReader::with_capacity(65536, file);
-    let mut buf = [0u8; 65536];
+    let mut file = unsafe { std::fs::File::from_raw_fd(pty_fd) };
     let mut parser = vte::ansi::Processor::<vte::ansi::StdSyncHandler>::new();
     let mut osc7 = Osc7Scanner::new();
     let mut pending = Vec::with_capacity(65536);
@@ -163,34 +206,28 @@ pub fn run_reader(
             break;
         }
 
-        // Blocking read — suspends the thread when no data is available
-        let n = match reader.read(&mut buf) {
+        // Blocking read directly into pending — no intermediate buffer
+        match read_into_vec(&mut file, &mut pending) {
             Ok(0) => break,
-            Ok(n) => n,
+            Ok(_) => {}
             Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
             Err(_) => break,
-        };
-
-        pending.extend_from_slice(&buf[..n]);
+        }
 
         // Drain: keep reading while more data is available and under the batch limit.
         // poll() with zero timeout returns immediately, so we only accumulate
         // data that's already in the kernel buffer.
         while pending.len() < BATCH_LIMIT && poll_readable(pty_fd) {
-            match reader.read(&mut buf) {
+            match read_into_vec(&mut file, &mut pending) {
                 Ok(0) => break,
-                Ok(n) => pending.extend_from_slice(&buf[..n]),
+                Ok(_) => {}
                 Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
                 Err(_) => break,
             }
         }
 
-        // Scan for OSC 7 before VTE parsing
-        for &byte in pending.iter() {
-            if let Some(dir) = osc7.feed(byte) {
-                listener.send_directory_change(&dir);
-            }
-        }
+        // Scan for OSC 7 before VTE parsing (memchr skips to ESC bytes)
+        osc7.scan_batch(&pending, &listener);
 
         // Flush the entire batch through VTE in a single lock acquisition
         {
@@ -211,7 +248,7 @@ pub fn run_reader(
     }
 
     // Prevent the File from closing the fd — handle.rs owns it via pty_master_fd
-    std::mem::forget(reader.into_inner());
+    std::mem::forget(file);
 }
 
 use std::os::fd::FromRawFd;
@@ -270,5 +307,46 @@ mod tests {
             }
         }
         assert_eq!(result, Some("file:///tmp".to_string()));
+    }
+
+    #[test]
+    fn scan_batch_matches_byte_by_byte() {
+        // Test data: normal text, then two OSC 7 sequences, then more text
+        let data = b"normal output\x1b]7;file:///first\x07between\x1b]7;file:///second\x1b\\trailing";
+
+        // Byte-by-byte
+        let mut scanner1 = Osc7Scanner::new();
+        let mut results1 = Vec::new();
+        for &byte in data.iter() {
+            if let Some(dir) = scanner1.feed(byte) {
+                results1.push(dir);
+            }
+        }
+
+        // Batch (memchr-accelerated) — collect results manually since we can't
+        // easily create a real Listener in tests. Replicate scan_batch logic.
+        let mut scanner2 = Osc7Scanner::new();
+        let mut results2 = Vec::new();
+        let mut pos = 0;
+        while pos < data.len() {
+            if scanner2.state == Osc7State::Ground {
+                match memchr(0x1b, &data[pos..]) {
+                    Some(offset) => {
+                        pos += offset;
+                        scanner2.state = Osc7State::Esc;
+                        pos += 1;
+                    }
+                    None => break,
+                }
+            } else {
+                if let Some(dir) = scanner2.feed(data[pos]) {
+                    results2.push(dir);
+                }
+                pos += 1;
+            }
+        }
+
+        assert_eq!(results1, results2);
+        assert_eq!(results1, vec!["file:///first", "file:///second"]);
     }
 }
