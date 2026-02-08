@@ -16,6 +16,9 @@ targets:
     platform: macOS
     sources:
       - Claide
+      - path: Claide/Resources/shell-integration
+        buildPhase: resources
+        type: folder
     preBuildScripts:
       - name: Build Rust Library
         script: '"${PROJECT_DIR}/rust/build-universal.sh"'
