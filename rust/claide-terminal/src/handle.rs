@@ -13,10 +13,10 @@ use alacritty_terminal::selection::{Selection, SelectionType};
 use alacritty_terminal::term::cell::Flags;
 use alacritty_terminal::sync::FairMutex;
 use alacritty_terminal::term::search::{Match, RegexSearch};
-use alacritty_terminal::term::{Config, Term};
+use alacritty_terminal::term::{Config, Term, TermDamage};
 use alacritty_terminal::vte::ansi::Rgb;
 
-use crate::grid_snapshot::{self, ClaideGridSnapshot, DEFAULT_ANSI, DEFAULT_BG, DEFAULT_FG};
+use crate::grid_snapshot::{self, ClaideGridSnapshot, PersistentGrid, DEFAULT_ANSI, DEFAULT_BG, DEFAULT_FG};
 use crate::listener::Listener;
 use crate::pty_reader;
 
@@ -82,6 +82,8 @@ pub struct TerminalHandle {
     shutdown: Arc<AtomicBool>,
     palette: FairMutex<ColorPalette>,
     search: FairMutex<SearchState>,
+    grid_state: FairMutex<PersistentGrid>,
+    force_full_snapshot: AtomicBool,
 }
 
 impl TerminalHandle {
@@ -211,6 +213,8 @@ impl TerminalHandle {
                 regex: None,
                 current_match: None,
             }),
+            grid_state: FairMutex::new(PersistentGrid::new()),
+            force_full_snapshot: AtomicBool::new(true),
         })
     }
 
@@ -278,12 +282,38 @@ impl TerminalHandle {
         self.notify_pty_size(cols, rows, cell_width, cell_height);
     }
 
-    /// Take a snapshot of the visible grid using the current palette.
+    /// Take an incremental snapshot of the visible grid using damage tracking.
+    /// Only rows that changed since the last snapshot are re-processed.
     pub fn snapshot(&self) -> Box<ClaideGridSnapshot> {
-        let term = self.term.lock();
+        let mut term = self.term.lock();
         let palette = self.palette.lock();
         let search = self.search.lock();
-        Box::new(grid_snapshot::take_snapshot(&term, &palette, search.current_match.as_ref()))
+        let mut grid = self.grid_state.lock();
+
+        // Collect damage (must consume iterator before other term access)
+        let damaged_rows = {
+            let damage = term.damage();
+            match damage {
+                TermDamage::Full => None,
+                TermDamage::Partial(iter) => Some(iter.collect::<Vec<_>>()),
+            }
+        };
+        term.reset_damage();
+
+        // Force full rebuild if selection/search changed
+        let force = self.force_full_snapshot.swap(false, Ordering::Relaxed);
+        let damaged_rows = if force { None } else { damaged_rows };
+
+        Box::new(grid_snapshot::take_snapshot_incremental(
+            &term, &palette, search.current_match.as_ref(), &mut grid, damaged_rows
+        ))
+    }
+
+    /// Mark the snapshot as needing a full rebuild on the next frame.
+    /// Called when selection or search state changes (which the damage
+    /// system does not track).
+    fn invalidate_snapshot(&self) {
+        self.force_full_snapshot.store(true, Ordering::Relaxed);
     }
 
     /// Extract text for a single visible row, reading directly from the grid.
@@ -330,6 +360,7 @@ impl TerminalHandle {
         let mut term = self.term.lock();
         let point = Point::new(Line(row), Column(col));
         term.selection = Some(Selection::new(ty, point, side));
+        self.invalidate_snapshot();
     }
 
     /// Update the selection endpoint.
@@ -339,12 +370,14 @@ impl TerminalHandle {
             let point = Point::new(Line(row), Column(col));
             selection.update(point, side);
         }
+        self.invalidate_snapshot();
     }
 
     /// Clear the current selection.
     pub fn selection_clear(&self) {
         let mut term = self.term.lock();
         term.selection = None;
+        self.invalidate_snapshot();
     }
 
     /// Extract the selected text as a String.
@@ -385,6 +418,7 @@ impl TerminalHandle {
         search.current_match = found;
         search.regex = Some(regex);
 
+        self.invalidate_snapshot();
         search.current_match.is_some()
     }
 
@@ -419,6 +453,7 @@ impl TerminalHandle {
         }
 
         *current_match = found;
+        self.invalidate_snapshot();
         current_match.is_some()
     }
 
@@ -427,6 +462,7 @@ impl TerminalHandle {
         let mut search = self.search.lock();
         search.regex = None;
         search.current_match = None;
+        self.invalidate_snapshot();
     }
 
     /// Scroll the viewport so the match is visible, centering it if needed.
