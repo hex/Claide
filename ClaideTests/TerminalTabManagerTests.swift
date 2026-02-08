@@ -138,12 +138,12 @@ struct TerminalTabManagerTests {
         #expect(pathValue!.contains("/opt/homebrew/bin"))
     }
 
-    @Test("buildEnvironment sets TERM_PROGRAM to Apple_Terminal")
+    @Test("buildEnvironment sets TERM_PROGRAM to Claide")
     func buildEnvironmentSetsTermProgram() {
         let env = TerminalTabManager.buildEnvironment()
 
         let value = env.first(where: { $0.0 == "TERM_PROGRAM" })?.1
-        #expect(value == "Apple_Terminal")
+        #expect(value == "Claide")
     }
 
     @Test("buildEnvironment disables shell sessions")
