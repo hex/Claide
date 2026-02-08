@@ -10,12 +10,27 @@ options:
   createIntermediateGroups: true
   defaultConfig: Debug
 
+packages:
+  Sparkle:
+    url: https://github.com/sparkle-project/Sparkle
+    from: "2.8.1"
+
 targets:
   Claide:
     type: application
     platform: macOS
     sources:
       - Claide
+    dependencies:
+      - package: Sparkle
+    info:
+      path: Claide/Info.plist
+      properties:
+        CFBundleShortVersionString: "$(MARKETING_VERSION)"
+        CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
+        LSUIElement: false
+        SUFeedURL: "https://hex.github.io/homebrew-claide/appcast.xml"
+        SUPublicEDKey: "GENERATE_WITH_sparkle_generate_keys"
     preBuildScripts:
       - name: Build Rust Library
         script: '"${PROJECT_DIR}/rust/build-universal.sh"'
@@ -29,8 +44,6 @@ targets:
         CURRENT_PROJECT_VERSION: "1"
         SWIFT_VERSION: "6.0"
         MACOSX_DEPLOYMENT_TARGET: "14.0"
-        GENERATE_INFOPLIST_FILE: YES
-        INFOPLIST_KEY_LSUIElement: false
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         LIBRARY_SEARCH_PATHS: "$(PROJECT_DIR)/rust/target/lib"
         SWIFT_OBJC_BRIDGING_HEADER: Claide/BridgingHeader.h

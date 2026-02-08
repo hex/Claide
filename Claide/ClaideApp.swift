@@ -2,11 +2,19 @@
 // ABOUTME: Content extends under the traffic lights for a minimal terminal aesthetic.
 
 import AppKit
+import Sparkle
 import SwiftUI
 
 @main
 struct ClaideApp: App {
+    private let updaterController: SPUStandardUpdaterController
+
     init() {
+        updaterController = SPUStandardUpdaterController(
+            startingUpdater: true,
+            updaterDelegate: nil,
+            userDriverDelegate: nil
+        )
         UserDefaults.standard.register(defaults: [
             "cursorStyle": "bar",
             "cursorBlink": true,
@@ -24,7 +32,12 @@ struct ClaideApp: App {
                 .preferredColorScheme(.dark)
         }
         .defaultSize(width: 1200, height: 700)
-        .commands { TerminalTabCommands() }
+        .commands {
+            CommandGroup(after: .appInfo) {
+                CheckForUpdatesView(updater: updaterController.updater)
+            }
+            TerminalTabCommands()
+        }
 
         Settings {
             SettingsView()

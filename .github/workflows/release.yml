@@ -1,5 +1,5 @@
-# ABOUTME: Builds a signed, notarized Claide.dmg on tag push and uploads it as a GitHub Release.
-# ABOUTME: Requires repository secrets for Developer ID certificate and notarization API key.
+# ABOUTME: Builds a signed, notarized Claide.dmg on tag push and publishes to GitHub Releases.
+# ABOUTME: Updates Homebrew cask and Sparkle appcast in the tap repo after release.
 
 name: Release
 
@@ -37,8 +37,8 @@ jobs:
             echo "version=$TAG" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Install XcodeGen
-        run: brew install xcodegen
+      - name: Install tools
+        run: brew install xcodegen sparkle
 
       - name: Import Developer ID certificate
         env:
@@ -122,6 +122,55 @@ jobs:
           files: build/Claide-${{ steps.version.outputs.version }}.dmg
           generate_release_notes: true
           tag_name: v${{ steps.version.outputs.version }}
+
+      - name: Update Homebrew cask and appcast
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          SPARKLE_EDDSA_KEY: ${{ secrets.SPARKLE_EDDSA_KEY }}
+        run: |
+          DMG_PATH="build/Claide-${VERSION}.dmg"
+          SHA256=$(shasum -a 256 "$DMG_PATH" | awk '{print $1}')
+          DMG_SIZE=$(stat -f%z "$DMG_PATH")
+          DMG_URL="https://github.com/hex/Claide/releases/download/v${VERSION}/Claide-${VERSION}.dmg"
+
+          # EdDSA signature for Sparkle
+          EDDSA_SIG=$(echo "$SPARKLE_EDDSA_KEY" | sign_update "$DMG_PATH" -f -)
+          SIG_VALUE=$(echo "$EDDSA_SIG" | sed 's/.*edSignature="\([^"]*\)".*/\1/')
+
+          # Clone tap repo
+          git clone "https://x-access-token:${HOMEBREW_TAP_TOKEN}@github.com/hex/homebrew-claide.git" /tmp/tap
+          cd /tmp/tap
+
+          # Update cask formula
+          sed -i '' "s/version \".*\"/version \"${VERSION}\"/" Casks/claide.rb
+          sed -i '' "s/sha256 \".*\"/sha256 \"${SHA256}\"/" Casks/claide.rb
+
+          # Generate appcast entry
+          PUB_DATE=$(date -R)
+          cat > /tmp/new_item.xml << XMLEOF
+              <item>
+                <title>Version ${VERSION}</title>
+                <pubDate>${PUB_DATE}</pubDate>
+                <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+                <enclosure
+                  url="${DMG_URL}"
+                  sparkle:version="${VERSION}"
+                  sparkle:shortVersionString="${VERSION}"
+                  sparkle:edSignature="${SIG_VALUE}"
+                  length="${DMG_SIZE}"
+                  type="application/octet-stream"/>
+              </item>
+          XMLEOF
+
+          # Insert new item after <language> line
+          sed -i '' "/<language>en<\/language>/r /tmp/new_item.xml" appcast.xml
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Casks/claide.rb appcast.xml
+          git commit -m "Update Claide to ${VERSION}"
+          git push
 
       - name: Cleanup keychain
         if: always()
