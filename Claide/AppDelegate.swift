@@ -18,7 +18,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// The tab manager for the currently active (key) window.
     private var activeTabManager: TerminalTabManager? {
-        activeWindowController?.tabManager
+        if let keyWindow = NSApp.keyWindow,
+           keyWindow === hotkeyWindowController?.window {
+            return hotkeyWindowController?.tabManager
+        }
+        return activeWindowController?.tabManager
     }
 
     /// The window controller for the currently active (key) window.
@@ -194,6 +198,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if enabled {
             registerGlobalHotkey()
             hotkeyWindowController?.updateCollectionBehavior()
+            hotkeyWindowController?.updateSidebarVisibility()
         } else {
             globalHotkey = nil
             hotkeyWindowController?.teardown()
@@ -372,7 +377,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func toggleSidebar() {
-        activeWindowController?.splitViewController.toggleSidebarPanel()
+        if let keyWindow = NSApp.keyWindow,
+           keyWindow === hotkeyWindowController?.window {
+            hotkeyWindowController?.splitViewController?.toggleSidebarPanel()
+        } else {
+            activeWindowController?.splitViewController.toggleSidebarPanel()
+        }
     }
 
     @objc private func switchToTab(_ sender: NSMenuItem) {

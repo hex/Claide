@@ -22,8 +22,8 @@ enum HotkeyScreen: String, CaseIterable {
 final class HotkeyWindowController {
 
     private(set) var window: NSWindow?
-    private var tabManager: TerminalTabManager?
-    private var splitViewController: MainSplitViewController?
+    private(set) var tabManager: TerminalTabManager?
+    private(set) var splitViewController: MainSplitViewController?
     private var notchInsetConstraint: NSLayoutConstraint?
     private var edgeBorderView: NSView?
     private var isVisible = false
@@ -90,9 +90,12 @@ final class HotkeyWindowController {
         updateNotchInset(for: currentScreen)
         updateEdgeBorder()
 
+        // .nonactivatingPanel lets us order the window without triggering an app
+        // activation space switch. We remove it after activation (see below).
+        win.styleMask.insert(.nonactivatingPanel)
+
         // Use .moveToActiveSpace so the window lands on the current space (including
         // fullscreen spaces). .canJoinAllSpaces overrides it, so we set that after.
-        // The .nonactivatingPanel style lets us order the window without switching spaces.
         win.collectionBehavior = [.ignoresCycle, .fullScreenAuxiliary, .moveToActiveSpace]
 
         switch animation {
@@ -128,7 +131,9 @@ final class HotkeyWindowController {
 
         // Activate on the next run loop — by then the window is already on the
         // current space, so macOS activates in-place instead of switching spaces.
+        // Remove .nonactivatingPanel so menu key equivalents route normally.
         DispatchQueue.main.async { [weak self] in
+            win.styleMask.remove(.nonactivatingPanel)
             NSApp.activate()
             win.makeKey()
             self?.updateCollectionBehavior()
@@ -319,7 +324,7 @@ final class HotkeyWindowController {
 
         let win = HotkeyPanel(
             contentRect: .zero,
-            styleMask: [.borderless, .fullSizeContentView, .nonactivatingPanel],
+            styleMask: [.borderless, .fullSizeContentView],
             backing: .buffered,
             defer: false
         )
