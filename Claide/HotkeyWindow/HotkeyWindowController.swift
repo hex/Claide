@@ -24,6 +24,8 @@ final class HotkeyWindowController {
     private(set) var window: NSWindow?
     private var tabManager: TerminalTabManager?
     private var splitViewController: MainSplitViewController?
+    private var notchInsetConstraint: NSLayoutConstraint?
+    private var edgeBorderView: NSView?
     private var isVisible = false
     private var focusLossObserver: Any?
 
@@ -79,10 +81,14 @@ final class HotkeyWindowController {
 
     func show() {
         let win = ensureWindow()
-        let screenFrame = resolveScreen().frame
+        let currentScreen = resolveScreen()
+        let screenFrame = currentScreen.frame
         let targetFrame = Self.calculateFrame(
             position: position, screenFrame: screenFrame, sizePercent: sizePercent
         )
+
+        updateNotchInset(for: currentScreen)
+        updateEdgeBorder()
 
         // Activate the app so the window can become key and appear above other apps
         NSApp.activate()
@@ -175,11 +181,77 @@ final class HotkeyWindowController {
 
     func repositionWindow() {
         guard let win = window, isVisible else { return }
-        let screenFrame = resolveScreen().frame
+        let currentScreen = resolveScreen()
+        let screenFrame = currentScreen.frame
         let frame = Self.calculateFrame(
             position: position, screenFrame: screenFrame, sizePercent: sizePercent
         )
         win.setFrame(frame, display: true)
+        updateNotchInset(for: currentScreen)
+        updateEdgeBorder()
+    }
+
+    // MARK: - Edge Border
+
+    /// Position a 1px border on the exposed edge (the edge facing the screen interior).
+    /// Hidden when the window covers the full screen dimension.
+    private func updateEdgeBorder() {
+        guard let border = edgeBorderView, let container = border.superview else { return }
+
+        // Remove old constraints on the border before adding new ones.
+        NSLayoutConstraint.deactivate(border.constraints)
+        for constraint in container.constraints where constraint.firstItem === border || constraint.secondItem === border {
+            constraint.isActive = false
+        }
+
+        let thickness: CGFloat = 1
+        let fullSize = sizePercent >= 100
+        border.isHidden = fullSize
+
+        switch position {
+        case .top:
+            NSLayoutConstraint.activate([
+                border.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+                border.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+                border.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+                border.heightAnchor.constraint(equalToConstant: thickness),
+            ])
+        case .bottom:
+            NSLayoutConstraint.activate([
+                border.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+                border.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+                border.topAnchor.constraint(equalTo: container.topAnchor),
+                border.heightAnchor.constraint(equalToConstant: thickness),
+            ])
+        case .left:
+            NSLayoutConstraint.activate([
+                border.topAnchor.constraint(equalTo: container.topAnchor),
+                border.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+                border.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+                border.widthAnchor.constraint(equalToConstant: thickness),
+            ])
+        case .right:
+            NSLayoutConstraint.activate([
+                border.topAnchor.constraint(equalTo: container.topAnchor),
+                border.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+                border.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+                border.widthAnchor.constraint(equalToConstant: thickness),
+            ])
+        }
+    }
+
+    // MARK: - Notch Inset
+
+    /// Inset content below the notch on screens that have one.
+    /// Uses auxiliaryTopLeftArea to detect notch screens — safeAreaInsets.top includes
+    /// the menu bar on all screens, but we only need to inset for the physical notch.
+    private func updateNotchInset(for screen: NSScreen) {
+        guard position != .bottom else {
+            notchInsetConstraint?.constant = 0
+            return
+        }
+        let hasNotch = screen.auxiliaryTopLeftArea != nil
+        notchInsetConstraint?.constant = hasNotch ? screen.safeAreaInsets.top : 0
     }
 
     // MARK: - Collection Behavior
@@ -189,7 +261,7 @@ final class HotkeyWindowController {
         var behavior: NSWindow.CollectionBehavior = [.ignoresCycle]
         if allSpaces { behavior.insert(.canJoinAllSpaces) }
         win.collectionBehavior = behavior
-        win.level = floating ? .floating : .normal
+        win.level = floating ? NSWindow.Level(rawValue: NSWindow.Level.mainMenu.rawValue + 2) : .normal
     }
 
     // MARK: - Teardown
@@ -202,6 +274,8 @@ final class HotkeyWindowController {
         window = nil
         tabManager = nil
         splitViewController = nil
+        notchInsetConstraint = nil
+        edgeBorderView = nil
         isVisible = false
     }
 
@@ -211,7 +285,7 @@ final class HotkeyWindowController {
         if let existing = window { return existing }
 
         let tm = TerminalTabManager()
-        let splitVC = MainSplitViewController(tabManager: tm)
+        let splitVC = MainSplitViewController(tabManager: tm, isHotkeyWindow: true)
 
         // Collapse sidebar unless setting says to show it.
         // Must run after viewDidAppear (which calls restoreSidebarState from UserDefaults).
@@ -230,14 +304,34 @@ final class HotkeyWindowController {
             defer: false
         )
 
-        win.backgroundColor = TerminalTheme.background
-        let schemeName = UserDefaults.standard.string(forKey: "terminalColorScheme") ?? "hexed"
-        let bg = TerminalColorScheme.named(schemeName).background
-        let brightness = (Int(bg.r) * 299 + Int(bg.g) * 587 + Int(bg.b) * 114) / 1000
-        win.appearance = NSAppearance(named: brightness > 128 ? .aqua : .darkAqua)
+        win.backgroundColor = .black
+        win.appearance = NSAppearance(named: .darkAqua)
 
-        win.contentViewController = splitVC
-        win.hasShadow = true
+        // Use a container content view so we can inset the terminal below the notch.
+        // The notch area shows the window background color; content starts below it.
+        let container = NSView()
+        container.wantsLayer = true
+        splitVC.view.translatesAutoresizingMaskIntoConstraints = false
+        container.addSubview(splitVC.view)
+
+        let topConstraint = splitVC.view.topAnchor.constraint(equalTo: container.topAnchor)
+        NSLayoutConstraint.activate([
+            topConstraint,
+            splitVC.view.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            splitVC.view.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            splitVC.view.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+        ])
+
+        // 1px border on the exposed edge (opposite the screen edge the window is anchored to).
+        let border = NSView()
+        border.wantsLayer = true
+        border.layer?.backgroundColor = NSColor(white: 0.3, alpha: 1).cgColor
+        border.translatesAutoresizingMaskIntoConstraints = false
+        container.addSubview(border)
+        self.edgeBorderView = border
+
+        win.contentView = container
+        win.hasShadow = false
         win.isOpaque = false
 
         updateCollectionBehaviorFor(win)
@@ -245,6 +339,7 @@ final class HotkeyWindowController {
         self.window = win
         self.tabManager = tm
         self.splitViewController = splitVC
+        self.notchInsetConstraint = topConstraint
 
         return win
     }
@@ -253,7 +348,9 @@ final class HotkeyWindowController {
         var behavior: NSWindow.CollectionBehavior = [.ignoresCycle]
         if allSpaces { behavior.insert(.canJoinAllSpaces) }
         win.collectionBehavior = behavior
-        win.level = floating ? .floating : .normal
+        // .floating (3) is below the menu bar (.mainMenu = 24).
+        // Use a level above the menu bar so the hotkey window covers it.
+        win.level = floating ? NSWindow.Level(rawValue: NSWindow.Level.mainMenu.rawValue + 2) : .normal
     }
 
     // MARK: - Focus Loss

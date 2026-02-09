@@ -6,6 +6,7 @@ import AppKit
 
 struct TerminalTabBar: View {
     let tabManager: TerminalTabManager
+    var showDragArea: Bool = true
     let onAdd: () -> Void
 
     @State private var cmdHeld = false
@@ -22,14 +23,26 @@ struct TerminalTabBar: View {
             Theme.backgroundSunken
 
             HStack(spacing: 0) {
-                WindowDragArea()
-                    .frame(width: 78)
-                    .frame(maxHeight: .infinity)
-                    .overlay(alignment: .bottom) {
-                        Rectangle()
-                            .fill(Theme.border)
-                            .frame(height: Theme.borderWidth)
-                    }
+                if showDragArea {
+                    WindowDragArea()
+                        .frame(width: 110)
+                        .frame(maxHeight: .infinity)
+                        .overlay {
+                            HStack(spacing: 0) {
+                                Color.clear.frame(width: 76)
+                                Image(systemName: "arrow.up.and.down.and.arrow.left.and.right")
+                                    .font(.system(size: 9, weight: .medium))
+                                    .foregroundStyle(Theme.textMuted.opacity(0.5))
+                                    .frame(maxWidth: .infinity)
+                            }
+                            .allowsHitTesting(false)
+                        }
+                        .overlay(alignment: .bottom) {
+                            Rectangle()
+                                .fill(Theme.border)
+                                .frame(height: Theme.borderWidth)
+                        }
+                }
 
                 ForEach(Array(tabManager.tabs.enumerated()), id: \.element.id) { index, tab in
                     let isActive = tab.id == tabManager.activeTabID
@@ -164,12 +177,34 @@ struct WindowDragArea: NSViewRepresentable {
     func updateNSView(_ nsView: DragAreaView, context: Context) {}
 
     final class DragAreaView: NSView {
+        override func resetCursorRects() {
+            addCursorRect(bounds, cursor: .openHand)
+        }
+
         override func mouseDown(with event: NSEvent) {
             if event.clickCount == 2 {
                 window?.zoom(nil)
-            } else {
-                window?.performDrag(with: event)
+                return
             }
+
+            guard let window else { return }
+            let startOrigin = window.frame.origin
+            let startMouse = NSEvent.mouseLocation
+
+            NSCursor.closedHand.push()
+
+            while true {
+                guard let next = window.nextEvent(matching: [.leftMouseUp, .leftMouseDragged]) else { break }
+                if next.type == .leftMouseUp { break }
+
+                let current = NSEvent.mouseLocation
+                window.setFrameOrigin(NSPoint(
+                    x: startOrigin.x + (current.x - startMouse.x),
+                    y: startOrigin.y + (current.y - startMouse.y)
+                ))
+            }
+
+            NSCursor.pop()
         }
 
         override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
