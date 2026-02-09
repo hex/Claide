@@ -79,7 +79,7 @@ final class HotkeyWindowController {
 
     func show() {
         let win = ensureWindow()
-        let screenFrame = resolveScreen().visibleFrame
+        let screenFrame = resolveScreen().frame
         let targetFrame = Self.calculateFrame(
             position: position, screenFrame: screenFrame, sizePercent: sizePercent
         )
@@ -98,7 +98,8 @@ final class HotkeyWindowController {
             NSAnimationContext.runAnimationGroup { ctx in
                 ctx.duration = animationDuration
                 ctx.timingFunction = CAMediaTimingFunction(name: .easeOut)
-                win.animator().setFrame(targetFrame, display: true)
+                ctx.allowsImplicitAnimation = true
+                win.setFrame(targetFrame, display: true)
             }
 
         case .fade:
@@ -128,7 +129,7 @@ final class HotkeyWindowController {
         removeFocusLossObserver()
         isVisible = false
 
-        let screenFrame = resolveScreen().visibleFrame
+        let screenFrame = resolveScreen().frame
 
         switch animation {
         case .slide:
@@ -139,7 +140,8 @@ final class HotkeyWindowController {
             NSAnimationContext.runAnimationGroup { ctx in
                 ctx.duration = animationDuration
                 ctx.timingFunction = CAMediaTimingFunction(name: .easeIn)
-                win.animator().setFrame(offscreen, display: true)
+                ctx.allowsImplicitAnimation = true
+                win.setFrame(offscreen, display: true)
             } completionHandler: { [weak self] in
                 win.orderOut(nil)
                 self?.yieldFocusIfNeeded()
@@ -173,7 +175,7 @@ final class HotkeyWindowController {
 
     func repositionWindow() {
         guard let win = window, isVisible else { return }
-        let screenFrame = resolveScreen().visibleFrame
+        let screenFrame = resolveScreen().frame
         let frame = Self.calculateFrame(
             position: position, screenFrame: screenFrame, sizePercent: sizePercent
         )
@@ -211,9 +213,14 @@ final class HotkeyWindowController {
         let tm = TerminalTabManager()
         let splitVC = MainSplitViewController(tabManager: tm)
 
-        // Collapse sidebar unless setting says to show it
-        if !showSidebar, splitVC.splitViewItems.count > 1 {
-            splitVC.splitViewItems[1].isCollapsed = true
+        // Collapse sidebar unless setting says to show it.
+        // Must run after viewDidAppear (which calls restoreSidebarState from UserDefaults).
+        if !showSidebar {
+            DispatchQueue.main.async {
+                if splitVC.splitViewItems.count > 1 {
+                    splitVC.splitViewItems[1].isCollapsed = true
+                }
+            }
         }
 
         let win = HotkeyPanel(
