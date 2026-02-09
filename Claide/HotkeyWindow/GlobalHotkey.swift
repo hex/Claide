@@ -10,6 +10,13 @@ import Carbon.HIToolbox
 final class GlobalHotkey {
 
     nonisolated(unsafe) private var hotKeyRef: EventHotKeyRef?
+    nonisolated(unsafe) private var eventHandlerRef: EventHandlerRef?
+
+    /// Static weak reference used by the C callback to dispatch to the current instance.
+    /// Carbon callbacks are @convention(c) and cannot capture context.
+    /// nonisolated(unsafe) because deinit needs to clear it and the C callback reads it.
+    nonisolated(unsafe) private static weak var activeInstance: GlobalHotkey?
+
     private let handler: () -> Void
 
     /// Register a global hotkey.
@@ -19,13 +26,20 @@ final class GlobalHotkey {
     ///   - handler: Called when the hotkey is pressed.
     init(keyCode: UInt32, modifiers: NSEvent.ModifierFlags, handler: @escaping () -> Void) {
         self.handler = handler
+        Self.activeInstance = self
         register(keyCode: keyCode, modifiers: modifiers)
     }
 
     deinit {
-        // UnregisterEventHotKey is a plain C function, safe to call from nonisolated deinit.
+        if let ref = eventHandlerRef {
+            RemoveEventHandler(ref)
+        }
         if let ref = hotKeyRef {
             UnregisterEventHotKey(ref)
+        }
+        // Clear the static reference if it points to us
+        if Self.activeInstance === self {
+            Self.activeInstance = nil
         }
     }
 
@@ -33,34 +47,36 @@ final class GlobalHotkey {
 
     private func register(keyCode: UInt32, modifiers: NSEvent.ModifierFlags) {
         let carbonMods = Self.carbonModifiers(from: modifiers)
-
-        // Unique ID for this hotkey — signature + id pair
         var hotKeyID = EventHotKeyID(signature: 0x434C_4149, id: 1) // "CLAI"
 
-        // Install the Carbon event handler that dispatches to our Swift closure
-        var eventType = EventTypeSpec(eventClass: OSType(kEventClassKeyboard),
-                                      eventKind: UInt32(kEventHotKeyPressed))
+        // Install the Carbon event handler for hotkey events
+        var eventType = EventTypeSpec(
+            eventClass: OSType(kEventClassKeyboard),
+            eventKind: UInt32(kEventHotKeyPressed)
+        )
 
-        let handlerPtr = Unmanaged.passUnretained(self).toOpaque()
-
-        InstallEventHandler(
+        let status = InstallEventHandler(
             GetApplicationEventTarget(),
-            { _, event, userData -> OSStatus in
-                guard let userData else { return OSStatus(eventNotHandledErr) }
-                let hotkey = Unmanaged<GlobalHotkey>.fromOpaque(userData)
-                    .takeUnretainedValue()
-                Task { @MainActor in
-                    hotkey.handler()
+            { _, _, _ -> OSStatus in
+                // Dispatch to the active instance on the main thread.
+                // No userData needed — we use the static weak reference.
+                DispatchQueue.main.async {
+                    GlobalHotkey.activeInstance?.handler()
                 }
                 return noErr
             },
             1,
             &eventType,
-            handlerPtr,
-            nil
+            nil,
+            &eventHandlerRef
         )
 
-        RegisterEventHotKey(
+        if status != noErr {
+            NSLog("GlobalHotkey: InstallEventHandler failed with status \(status)")
+            return
+        }
+
+        let regStatus = RegisterEventHotKey(
             keyCode,
             carbonMods,
             hotKeyID,
@@ -68,12 +84,9 @@ final class GlobalHotkey {
             0,
             &hotKeyRef
         )
-    }
 
-    private func unregister() {
-        if let ref = hotKeyRef {
-            UnregisterEventHotKey(ref)
-            hotKeyRef = nil
+        if regStatus != noErr {
+            NSLog("GlobalHotkey: RegisterEventHotKey failed with status \(regStatus)")
         }
     }
 

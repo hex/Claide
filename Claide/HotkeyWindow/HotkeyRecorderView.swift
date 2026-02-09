@@ -1,5 +1,5 @@
 // ABOUTME: SwiftUI view that captures a global hotkey binding from raw key events.
-// ABOUTME: Displays modifier symbols and key name; wraps an NSView for keyDown access.
+// ABOUTME: Displays modifier symbols and key name; uses app-level event monitor for capture.
 
 import AppKit
 import Carbon.HIToolbox
@@ -13,8 +13,31 @@ struct HotkeyRecorderView: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            if isRecording {
-                HotkeyCapture(
+            ZStack {
+                if isRecording {
+                    Text("Type shortcut...")
+                        .foregroundStyle(.secondary)
+                        .font(.system(size: 11))
+                } else {
+                    Text(displayString)
+                        .foregroundStyle(keyCode >= 0 ? .primary : .secondary)
+                }
+            }
+            .frame(width: 160, height: 24)
+            .background(
+                RoundedRectangle(cornerRadius: 6)
+                    .fill(isRecording ? AnyShapeStyle(.selection.opacity(0.3)) : AnyShapeStyle(.quaternary))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 6)
+                    .stroke(isRecording ? .blue : .clear, lineWidth: 1.5)
+            )
+            .onTapGesture {
+                isRecording = true
+            }
+            .background(
+                HotkeyEventInterceptor(
+                    isActive: $isRecording,
                     onRecord: { code, mods in
                         keyCode = Int(code)
                         modifiers = Int(mods.rawValue)
@@ -24,26 +47,7 @@ struct HotkeyRecorderView: View {
                         isRecording = false
                     }
                 )
-                .frame(width: 160, height: 24)
-                .background(
-                    RoundedRectangle(cornerRadius: 6)
-                        .fill(.selection.opacity(0.3))
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 6)
-                        .stroke(.blue, lineWidth: 1.5)
-                )
-            } else {
-                Text(displayString)
-                    .frame(width: 160, height: 24)
-                    .background(
-                        RoundedRectangle(cornerRadius: 6)
-                            .fill(.quaternary)
-                    )
-                    .onTapGesture {
-                        isRecording = true
-                    }
-            }
+            )
 
             if keyCode >= 0 {
                 Button("Clear") {
@@ -76,7 +80,6 @@ struct HotkeyRecorderView: View {
 
     /// Human-readable name for a virtual key code.
     static func keyName(for keyCode: UInt16) -> String {
-        // Common special keys
         switch Int(keyCode) {
         case kVK_Return:       return "Return"
         case kVK_Tab:          return "Tab"
@@ -105,7 +108,6 @@ struct HotkeyRecorderView: View {
         case kVK_PageUp:  return "Page Up"
         case kVK_PageDown: return "Page Down"
         default:
-            // Use the character from the key code via TISCopyCurrentKeyboardInputSource
             if let name = characterForKeyCode(keyCode) {
                 return name.uppercased()
             }
@@ -130,7 +132,7 @@ struct HotkeyRecorderView: View {
             layout,
             keyCode,
             UInt16(kUCKeyActionDisplay),
-            0, // No modifiers
+            0,
             UInt32(LMGetKbdType()),
             UInt32(kUCKeyTranslateNoDeadKeysBit),
             &deadKeyState,
@@ -144,61 +146,68 @@ struct HotkeyRecorderView: View {
     }
 }
 
-// MARK: - NSView Wrapper for Key Capture
+// MARK: - App-Level Event Interceptor
 
-/// NSViewRepresentable that captures raw key events during hotkey recording.
-private struct HotkeyCapture: NSViewRepresentable {
+/// Installs/removes an app-level key event monitor when recording is active.
+/// Uses addLocalMonitorForEvents to capture keys BEFORE system shortcuts handle them,
+/// allowing recording of combinations like Cmd+` that the responder chain never sees.
+private struct HotkeyEventInterceptor: NSViewRepresentable {
+    @Binding var isActive: Bool
     let onRecord: (UInt16, NSEvent.ModifierFlags) -> Void
     let onCancel: () -> Void
 
-    func makeNSView(context: Context) -> KeyCaptureView {
-        let view = KeyCaptureView()
-        view.onRecord = onRecord
-        view.onCancel = onCancel
-        // Become first responder after the view is in the window
-        DispatchQueue.main.async {
-            view.window?.makeFirstResponder(view)
-        }
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
         return view
     }
 
-    func updateNSView(_ nsView: KeyCaptureView, context: Context) {}
-}
-
-/// NSView that accepts first responder and captures keyDown for hotkey recording.
-private final class KeyCaptureView: NSView {
-    var onRecord: ((UInt16, NSEvent.ModifierFlags) -> Void)?
-    var onCancel: (() -> Void)?
-
-    override var acceptsFirstResponder: Bool { true }
-
-    override func keyDown(with event: NSEvent) {
-        // Escape cancels recording
-        if event.keyCode == UInt16(kVK_Escape) {
-            onCancel?()
-            return
+    func updateNSView(_ nsView: NSView, context: Context) {
+        if isActive {
+            context.coordinator.startMonitoring(onRecord: onRecord, onCancel: onCancel)
+        } else {
+            context.coordinator.stopMonitoring()
         }
-
-        // Require at least one modifier (bare keys aren't useful as global hotkeys)
-        let mods = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-            .intersection([.command, .option, .control, .shift])
-        guard !mods.isEmpty else { return }
-
-        onRecord?(event.keyCode, mods)
     }
 
-    override func draw(_ dirtyRect: NSRect) {
-        // Draw "Type shortcut..." prompt
-        let text = "Type shortcut..."
-        let attrs: [NSAttributedString.Key: Any] = [
-            .font: NSFont.systemFont(ofSize: 11),
-            .foregroundColor: NSColor.secondaryLabelColor,
-        ]
-        let size = text.size(withAttributes: attrs)
-        let point = NSPoint(
-            x: (bounds.width - size.width) / 2,
-            y: (bounds.height - size.height) / 2
-        )
-        text.draw(at: point, withAttributes: attrs)
+    func makeCoordinator() -> Coordinator {
+        Coordinator()
+    }
+
+    final class Coordinator {
+        private var monitor: Any?
+
+        func startMonitoring(
+            onRecord: @escaping (UInt16, NSEvent.ModifierFlags) -> Void,
+            onCancel: @escaping () -> Void
+        ) {
+            guard monitor == nil else { return }
+
+            monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+                // Escape cancels recording
+                if event.keyCode == UInt16(kVK_Escape) {
+                    onCancel()
+                    return nil // Consume the event
+                }
+
+                // Require at least one modifier (bare keys aren't useful as global hotkeys)
+                let mods = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+                    .intersection([.command, .option, .control, .shift])
+                guard !mods.isEmpty else { return event }
+
+                onRecord(event.keyCode, mods)
+                return nil // Consume the event
+            }
+        }
+
+        func stopMonitoring() {
+            if let monitor {
+                NSEvent.removeMonitor(monitor)
+                self.monitor = nil
+            }
+        }
+
+        deinit {
+            stopMonitoring()
+        }
     }
 }
