@@ -84,6 +84,9 @@ final class HotkeyWindowController {
             position: position, screenFrame: screenFrame, sizePercent: sizePercent
         )
 
+        // Activate the app so the window can become key and appear above other apps
+        NSApp.activate()
+
         switch animation {
         case .slide:
             let startFrame = Self.offscreenFrame(
@@ -91,7 +94,7 @@ final class HotkeyWindowController {
             )
             win.setFrame(startFrame, display: false)
             win.alphaValue = 1
-            win.orderFront(nil)
+            win.makeKeyAndOrderFront(nil)
             NSAnimationContext.runAnimationGroup { ctx in
                 ctx.duration = animationDuration
                 ctx.timingFunction = CAMediaTimingFunction(name: .easeOut)
@@ -101,7 +104,7 @@ final class HotkeyWindowController {
         case .fade:
             win.setFrame(targetFrame, display: false)
             win.alphaValue = 0
-            win.orderFront(nil)
+            win.makeKeyAndOrderFront(nil)
             NSAnimationContext.runAnimationGroup { ctx in
                 ctx.duration = animationDuration
                 ctx.timingFunction = CAMediaTimingFunction(name: .easeOut)
@@ -111,10 +114,9 @@ final class HotkeyWindowController {
         case .instant:
             win.setFrame(targetFrame, display: true)
             win.alphaValue = 1
-            win.orderFront(nil)
+            win.makeKeyAndOrderFront(nil)
         }
 
-        win.makeKey()
         isVisible = true
         installFocusLossObserver()
     }
@@ -124,6 +126,7 @@ final class HotkeyWindowController {
     func hide() {
         guard let win = window, isVisible else { return }
         removeFocusLossObserver()
+        isVisible = false
 
         let screenFrame = resolveScreen().visibleFrame
 
@@ -137,8 +140,9 @@ final class HotkeyWindowController {
                 ctx.duration = animationDuration
                 ctx.timingFunction = CAMediaTimingFunction(name: .easeIn)
                 win.animator().setFrame(offscreen, display: true)
-            } completionHandler: {
+            } completionHandler: { [weak self] in
                 win.orderOut(nil)
+                self?.yieldFocusIfNeeded()
             }
 
         case .fade:
@@ -146,15 +150,23 @@ final class HotkeyWindowController {
                 ctx.duration = animationDuration
                 ctx.timingFunction = CAMediaTimingFunction(name: .easeIn)
                 win.animator().alphaValue = 0
-            } completionHandler: {
+            } completionHandler: { [weak self] in
                 win.orderOut(nil)
+                self?.yieldFocusIfNeeded()
             }
 
         case .instant:
             win.orderOut(nil)
+            yieldFocusIfNeeded()
         }
+    }
 
-        isVisible = false
+    /// If no other Claide windows are visible, hide the app so the previous app regains focus.
+    private func yieldFocusIfNeeded() {
+        let hasVisibleWindows = NSApp.windows.contains { $0.isVisible && $0 !== window }
+        if !hasVisibleWindows {
+            NSApp.hide(nil)
+        }
     }
 
     // MARK: - Reposition
