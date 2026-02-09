@@ -9,12 +9,12 @@ final class MainSplitViewController: NSSplitViewController {
 
     private let tabManager: TerminalTabManager
 
-    init(tabManager: TerminalTabManager) {
+    init(tabManager: TerminalTabManager, isHotkeyWindow: Bool = false) {
         self.tabManager = tabManager
         super.init(nibName: nil, bundle: nil)
 
         let terminalHost = NSHostingController(
-            rootView: TerminalSection(tabManager: tabManager)
+            rootView: TerminalSection(tabManager: tabManager, showDragArea: !isHotkeyWindow)
         )
         terminalHost.sizingOptions = []
         let terminalItem = NSSplitViewItem(viewController: terminalHost)

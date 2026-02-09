@@ -15,6 +15,7 @@ struct SidebarSection: View {
     @AppStorage("filesExpanded") private var filesExpanded = true
     @AppStorage("sidebarSplitRatio") private var splitRatio: Double = 0.5
     @State private var dragStartRatio: Double?
+    @State private var hasTaskContext = false
 
     private static let initialDirectory: String = {
         ProcessInfo.processInfo.environment["CLAIDE_DIR"]
@@ -30,42 +31,55 @@ struct SidebarSection: View {
         let _ = schemeName // Force SwiftUI to re-evaluate when the terminal scheme changes
         GeometryReader { geometry in
             VStack(spacing: 0) {
-                if tasksExpanded && filesExpanded {
-                    tasksSection
-                        .frame(height: geometry.size.height * splitRatio)
-                    sidebarDivider(totalHeight: geometry.size.height)
-                    filesSection
+                // Match TerminalTabBar height so the sidebar content aligns
+                // with the terminal panel below the tab bar.
+                Theme.backgroundSunken
+                    .frame(height: 36)
+                    .overlay(alignment: .bottom) {
+                        Theme.border.frame(height: Theme.borderWidth)
+                    }
+
+                if hasTaskContext {
+                    if tasksExpanded && filesExpanded {
+                        tasksSection
+                            .frame(height: (geometry.size.height - 36) * splitRatio)
+                        sidebarDivider(totalHeight: geometry.size.height - 36)
+                        filesSection
+                    } else {
+                        tasksSection
+                        filesSection
+                        Spacer(minLength: 0)
+                    }
                 } else {
-                    tasksSection
                     filesSection
                     Spacer(minLength: 0)
                 }
             }
             .frame(maxHeight: .infinity)
         }
-        .padding(.top, 28)
-        .overlay(alignment: .top) {
-            WindowDragArea()
-                .frame(height: 28)
-                .frame(maxWidth: .infinity)
-        }
         .background(Theme.backgroundPrimary)
         .onAppear {
-            if BeadsService.findBinary() == nil && ClaudeTaskService.isAvailable {
-                graphVM.dataSource = .claudeCode
-            }
-            let vm = graphVM
-            Task { @MainActor in
-                await vm.loadIssues(workingDirectory: Self.initialDirectory)
+            updateTaskContext(for: Self.initialDirectory)
+            if hasTaskContext {
+                if BeadsService.findBinary() == nil && ClaudeTaskService.isAvailable {
+                    graphVM.dataSource = .claudeCode
+                }
+                let vm = graphVM
+                Task { @MainActor in
+                    await vm.loadIssues(workingDirectory: Self.initialDirectory)
+                }
             }
             let shellPid = pid_t(tabManager.activeTab?.terminalView.shellPid ?? 0)
             fileLogVM.startWatching(sessionDirectory: Self.initialDirectory, shellPid: shellPid)
         }
         .onChange(of: tabManager.activeViewModel?.currentDirectory) { _, newDir in
             if let dir = newDir.flatMap({ $0 }) {
-                let vm = graphVM
-                Task { @MainActor in
-                    await vm.loadIssues(workingDirectory: dir)
+                updateTaskContext(for: dir)
+                if hasTaskContext {
+                    let vm = graphVM
+                    Task { @MainActor in
+                        await vm.loadIssues(workingDirectory: dir)
+                    }
                 }
                 let shellPid = pid_t(tabManager.activeTab?.terminalView.shellPid ?? 0)
                 fileLogVM.startWatching(sessionDirectory: dir, shellPid: shellPid)
@@ -252,6 +266,14 @@ struct SidebarSection: View {
         }
         .buttonStyle(.plain)
         .overlay(Tooltip(source.rawValue).allowsHitTesting(false))
+    }
+
+    // MARK: - Task Context Detection
+
+    private func updateTaskContext(for directory: String) {
+        let hasBeads = BeadsService.findBinary() != nil
+            && FileManager.default.fileExists(atPath: (directory as NSString).appendingPathComponent(".beads"))
+        hasTaskContext = hasBeads || ClaudeTaskService.isAvailable
     }
 
     private func tabIcon(_ tab: SidebarTab, systemName: String) -> some View {

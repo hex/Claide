@@ -5,6 +5,7 @@ import SwiftUI
 
 struct TerminalSection: View {
     let tabManager: TerminalTabManager
+    var showDragArea: Bool = true
     @State private var sessionStatusVM = SessionStatusViewModel()
     @AppStorage("fontFamily") private var fontFamily: String = ""
     @AppStorage("cursorStyle") private var cursorStyle: String = "bar"
@@ -20,7 +21,7 @@ struct TerminalSection: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            TerminalTabBar(tabManager: tabManager) {
+            TerminalTabBar(tabManager: tabManager, showDragArea: showDragArea) {
                 tabManager.addTab(initialDirectory: Self.initialDirectory, fontFamily: fontFamily)
             }
 
@@ -32,7 +33,9 @@ struct TerminalSection: View {
             SessionStatusBar(status: sessionStatusVM.status)
         }
         .onAppear {
-            tabManager.addTab(initialDirectory: Self.initialDirectory, fontFamily: fontFamily)
+            if tabManager.tabs.isEmpty {
+                tabManager.addTab(initialDirectory: Self.initialDirectory, fontFamily: fontFamily)
+            }
             let shellPid = pid_t(tabManager.activeTab?.terminalView.shellPid ?? 0)
             sessionStatusVM.startWatching(sessionDirectory: Self.initialDirectory, shellPid: shellPid)
         }
