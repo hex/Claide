@@ -90,8 +90,10 @@ final class HotkeyWindowController {
         updateNotchInset(for: currentScreen)
         updateEdgeBorder()
 
-        // Activate the app so the window can become key and appear above other apps
-        NSApp.activate()
+        // Use .moveToActiveSpace so the window lands on the current space (including
+        // fullscreen spaces). .canJoinAllSpaces overrides it, so we set that after.
+        // The .nonactivatingPanel style lets us order the window without switching spaces.
+        win.collectionBehavior = [.ignoresCycle, .fullScreenAuxiliary, .moveToActiveSpace]
 
         switch animation {
         case .slide:
@@ -100,7 +102,7 @@ final class HotkeyWindowController {
             )
             win.setFrame(startFrame, display: false)
             win.alphaValue = 1
-            win.makeKeyAndOrderFront(nil)
+            win.orderFrontRegardless()
             NSAnimationContext.runAnimationGroup { ctx in
                 ctx.duration = animationDuration
                 ctx.timingFunction = CAMediaTimingFunction(name: .easeOut)
@@ -111,7 +113,7 @@ final class HotkeyWindowController {
         case .fade:
             win.setFrame(targetFrame, display: false)
             win.alphaValue = 0
-            win.makeKeyAndOrderFront(nil)
+            win.orderFrontRegardless()
             NSAnimationContext.runAnimationGroup { ctx in
                 ctx.duration = animationDuration
                 ctx.timingFunction = CAMediaTimingFunction(name: .easeOut)
@@ -121,7 +123,15 @@ final class HotkeyWindowController {
         case .instant:
             win.setFrame(targetFrame, display: true)
             win.alphaValue = 1
-            win.makeKeyAndOrderFront(nil)
+            win.orderFrontRegardless()
+        }
+
+        // Activate on the next run loop — by then the window is already on the
+        // current space, so macOS activates in-place instead of switching spaces.
+        DispatchQueue.main.async { [weak self] in
+            NSApp.activate()
+            win.makeKey()
+            self?.updateCollectionBehavior()
         }
 
         isVisible = true
@@ -174,6 +184,16 @@ final class HotkeyWindowController {
         let hasVisibleWindows = NSApp.windows.contains { $0.isVisible && $0 !== window }
         if !hasVisibleWindows {
             NSApp.hide(nil)
+        }
+    }
+
+    // MARK: - Sidebar
+
+    func updateSidebarVisibility() {
+        guard let splitVC = splitViewController, splitVC.splitViewItems.count > 1 else { return }
+        let sidebarItem = splitVC.splitViewItems[1]
+        if sidebarItem.isCollapsed == showSidebar {
+            sidebarItem.isCollapsed = !showSidebar
         }
     }
 
@@ -258,7 +278,7 @@ final class HotkeyWindowController {
 
     func updateCollectionBehavior() {
         guard let win = window else { return }
-        var behavior: NSWindow.CollectionBehavior = [.ignoresCycle]
+        var behavior: NSWindow.CollectionBehavior = [.ignoresCycle, .fullScreenAuxiliary]
         if allSpaces { behavior.insert(.canJoinAllSpaces) }
         win.collectionBehavior = behavior
         win.level = floating ? NSWindow.Level(rawValue: NSWindow.Level.mainMenu.rawValue + 2) : .normal
@@ -299,10 +319,11 @@ final class HotkeyWindowController {
 
         let win = HotkeyPanel(
             contentRect: .zero,
-            styleMask: [.borderless, .fullSizeContentView],
+            styleMask: [.borderless, .fullSizeContentView, .nonactivatingPanel],
             backing: .buffered,
             defer: false
         )
+        win.hidesOnDeactivate = false
 
         win.backgroundColor = .black
         win.appearance = NSAppearance(named: .darkAqua)
@@ -345,7 +366,7 @@ final class HotkeyWindowController {
     }
 
     private func updateCollectionBehaviorFor(_ win: NSWindow) {
-        var behavior: NSWindow.CollectionBehavior = [.ignoresCycle]
+        var behavior: NSWindow.CollectionBehavior = [.ignoresCycle, .fullScreenAuxiliary]
         if allSpaces { behavior.insert(.canJoinAllSpaces) }
         win.collectionBehavior = behavior
         // .floating (3) is below the menu bar (.mainMenu = 24).
