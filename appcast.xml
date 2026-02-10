@@ -6,39 +6,15 @@
     <description>Claide release updates</description>
     <language>en</language>
     <item>
-      <title>Version 2026.2.5</title>
-      <pubDate>Sun, 08 Feb 2026 20:22:00 +0000</pubDate>
+      <title>Version 2026.2.0</title>
+      <pubDate>Mon, 10 Feb 2026 00:00:00 +0000</pubDate>
       <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
       <enclosure
-        url="https://github.com/hex/Claide/releases/download/v2026.2.5/Claide-2026.2.5.dmg"
-        sparkle:version="2026.2.5"
-        sparkle:shortVersionString="2026.2.5"
-        sparkle:edSignature="lZvK0gQ/3eAW9289AIrSJj7dz4s7i6IisLpZlrTLM37ZWHKW/pBXITNNB+vMt7Ol2ia4HD6cbiV8PgKm8UVTCg=="
-        length="5461132"
-        type="application/octet-stream"/>
-    </item>
-    <item>
-      <title>Version 2026.2.4</title>
-      <pubDate>Sun, 08 Feb 2026 19:31:00 +0000</pubDate>
-      <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-      <enclosure
-        url="https://github.com/hex/Claide/releases/download/v2026.2.4/Claide-2026.2.4.dmg"
-        sparkle:version="2026.2.4"
-        sparkle:shortVersionString="2026.2.4"
-        sparkle:edSignature="9qmxLy4gyk9e4oQezBowdVSf7Or2+lLuLPtyeyP17srP9e+rxtmWE7xd9ihIi+MrdTwY0DCVx0m4y4N/N/jWBQ=="
-        length="5453621"
-        type="application/octet-stream"/>
-    </item>
-    <item>
-      <title>Version 2026.2.3</title>
-      <pubDate>Sat, 08 Feb 2026 19:05:00 +0000</pubDate>
-      <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-      <enclosure
-        url="https://github.com/hex/Claide/releases/download/v2026.2.3/Claide-2026.2.3.dmg"
-        sparkle:version="2026.2.3"
-        sparkle:shortVersionString="2026.2.3"
-        sparkle:edSignature="2X2RAD/RozPw0EUPVc63eLfIDq6mfg5gCWG1PGfSmoZfhWsUxvdiR94rtVO2/B7C37Q2Bv/JqipATBowVZP/Bg=="
-        length="5529233"
+        url="https://github.com/hex/Claide/releases/download/v2026.2.0/Claide-2026.2.0.dmg"
+        sparkle:version="1"
+        sparkle:shortVersionString="2026.2.0"
+        sparkle:edSignature="DcTbsDl5cnFfgtDmt7bFGojuoEg70UdVGzk1rLYk+ima4xUC+EZ/UfeTpklW2WkgNhM1Y4mZegnfq8f8Jx3aBQ=="
+        length="5494779"
         type="application/octet-stream"/>
     </item>
   </channel>
