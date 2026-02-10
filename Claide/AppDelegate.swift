@@ -10,9 +10,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private var keyMonitor: Any?
 
+    // MARK: - Hotkey Window
+
+    private var hotkeyWindowController: HotkeyWindowController?
+    private var globalHotkey: GlobalHotkey?
+    private var settingsObserver: Any?
+
     /// The tab manager for the currently active (key) window.
     private var activeTabManager: TerminalTabManager? {
-        activeWindowController?.tabManager
+        if let keyWindow = NSApp.keyWindow,
+           keyWindow === hotkeyWindowController?.window {
+            return hotkeyWindowController?.tabManager
+        }
+        return activeWindowController?.tabManager
     }
 
     /// The window controller for the currently active (key) window.
@@ -33,14 +43,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         DispatchQueue.main.async { self.installTerminalMenu() }
 
         installKeyMonitor()
+        setupHotkeyWindow()
+        observeHotkeySettings()
     }
 
     func applicationWillTerminate(_ notification: Notification) {
         saveSession()
+        hotkeyWindowController?.teardown()
+        globalHotkey = nil
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
-        true
+        // Keep app alive when hotkey window is enabled — it runs without visible windows
+        !UserDefaults.standard.bool(forKey: "hotkeyEnabled")
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
@@ -133,6 +148,62 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         return true
+    }
+
+    // MARK: - Hotkey Window Setup
+
+    private func setupHotkeyWindow() {
+        guard UserDefaults.standard.bool(forKey: "hotkeyEnabled") else { return }
+        registerGlobalHotkey()
+    }
+
+    private func registerGlobalHotkey() {
+        globalHotkey = nil
+
+        let keyCode = UserDefaults.standard.integer(forKey: "hotkeyKeyCode")
+        guard keyCode >= 0 else { return }
+
+        let modifierRaw = UInt(UserDefaults.standard.integer(forKey: "hotkeyModifiers"))
+        let modifiers = NSEvent.ModifierFlags(rawValue: modifierRaw)
+
+        globalHotkey = GlobalHotkey(
+            keyCode: UInt32(keyCode),
+            modifiers: modifiers
+        ) { [weak self] in
+            self?.toggleHotkeyWindow()
+        }
+    }
+
+    private func toggleHotkeyWindow() {
+        if hotkeyWindowController == nil {
+            hotkeyWindowController = HotkeyWindowController()
+        }
+        hotkeyWindowController?.toggle()
+    }
+
+    private func observeHotkeySettings() {
+        settingsObserver = NotificationCenter.default.addObserver(
+            forName: UserDefaults.didChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            guard let self else { return }
+            self.handleHotkeySettingsChange()
+        }
+    }
+
+    private func handleHotkeySettingsChange() {
+        let enabled = UserDefaults.standard.bool(forKey: "hotkeyEnabled")
+
+        if enabled {
+            registerGlobalHotkey()
+            hotkeyWindowController?.updateCollectionBehavior()
+            hotkeyWindowController?.updateSidebarVisibility()
+        } else {
+            globalHotkey = nil
+            hotkeyWindowController?.teardown()
+            hotkeyWindowController = nil
+        }
     }
 
     // MARK: - Terminal Menu
@@ -306,7 +377,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func toggleSidebar() {
-        activeWindowController?.splitViewController.toggleSidebarPanel()
+        if let keyWindow = NSApp.keyWindow,
+           keyWindow === hotkeyWindowController?.window {
+            hotkeyWindowController?.splitViewController?.toggleSidebarPanel()
+        } else {
+            activeWindowController?.splitViewController.toggleSidebarPanel()
+        }
     }
 
     @objc private func switchToTab(_ sender: NSMenuItem) {

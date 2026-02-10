@@ -36,6 +36,19 @@ struct ClaideApp: App {
             "terminalColorScheme": "hexed",
             "paneFocusIndicator": true,
             "dimUnfocusedPanes": true,
+            // Hotkey Window
+            "hotkeyEnabled": false,
+            "hotkeyKeyCode": -1,
+            "hotkeyModifiers": 0,
+            "hotkeyPosition": "top",
+            "hotkeyScreen": "cursor",
+            "hotkeySize": 50.0,
+            "hotkeyAnimation": "slide",
+            "hotkeyAnimationDuration": 0.2,
+            "hotkeyHideOnFocusLoss": true,
+            "hotkeyAllSpaces": true,
+            "hotkeyShowSidebar": false,
+            "hotkeyFloating": true,
         ])
     }
 
