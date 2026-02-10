@@ -8,7 +8,7 @@
 
 A GPU-accelerated macOS terminal emulator built with Swift, Metal, and Rust. Uses [alacritty_terminal](https://crates.io/crates/alacritty_terminal) for VT emulation and a custom Metal pipeline for rendering. Includes a project visualization sidebar for [Claude Code](https://docs.anthropic.com/en/docs/claude-code) sessions.
 
-Version 2026.2.6 | macOS 14.0+ | Swift 6.0 | MIT License
+Version 2026.2.0 | macOS 14.0+ | Swift 6.0 | MIT License
 
 <p align="center">
   <img src="docs/screenshot.png" width="720" alt="Claide screenshot">
@@ -37,6 +37,7 @@ Or download the latest DMG from [GitHub Releases](https://github.com/hex/Claide/
 - **IME**: Full `NSTextInputClient` implementation (marked text, candidate window)
 - **Process icons**: Recognizes 40+ executables in the tab bar
 - **Claude Code integration**: Context usage tracking via process tree walk + JSONL transcript parsing
+- **Hotkey window**: Quake-style dropdown terminal toggled by a global hotkey. Slides in from any screen edge, works over fullscreen apps. Configurable size, position, animation, and behavior.
 
 ### Sidebar
 
@@ -102,6 +103,8 @@ MetalTerminalView (NSView + CAMetalLayer)
 
 **Window**: Chromeless `NSWindow` with repositioned traffic lights and a custom tab bar.
 
+**Hotkey window**: Borderless `NSPanel` with Carbon `RegisterEventHotKey` for the global shortcut. Uses `.nonactivatingPanel` + `.moveToActiveSpace` + `.fullScreenAuxiliary` with deferred activation to appear over fullscreen apps without triggering a space switch. Notch-safe content inset via `auxiliaryTopLeftArea` detection.
+
 ### Pane System
 
 `PaneNode` is an immutable N-ary tree for split layouts with functional mutations. `PaneTreeController` manages the tree lifecycle. `PaneSplitView` and `PaneContainerView` handle the recursive NSView hierarchy for rendering splits.
@@ -157,10 +160,14 @@ Release builds are done locally with a private script that handles archiving, co
 ```
 Claide/
   ClaideApp.swift                # Entry point, NSApplicationDelegateAdaptor, Sparkle updater
-  AppDelegate.swift              # App lifecycle, window restoration
+  AppDelegate.swift              # App lifecycle, window restoration, hotkey wiring
   ContentView.swift              # Root layout
   MainWindowController.swift     # Window chrome, traffic light positioning
   MainSplitViewController.swift  # Terminal/sidebar split
+  HotkeyWindow/
+    GlobalHotkey.swift           # Carbon RegisterEventHotKey wrapper
+    HotkeyWindowController.swift # Dropdown window positioning, animation, fullscreen overlay
+    HotkeyRecorderView.swift     # SwiftUI key recorder with modifier symbols
   Theme.swift                    # Colors, fonts, spacing tokens
   Palette.swift                  # Color palette utilities
   FontSelection.swift            # Monospaced font enumeration
@@ -212,6 +219,7 @@ Claide/
       GeneralSettingsTab.swift   # Shell, scrollback, tabs, window behavior
       TerminalSettingsTab.swift  # Cursor style, mouse behavior
       AppearanceSettingsTab.swift # Fonts, color scheme, pane indicators
+      HotkeySettingsTab.swift     # Hotkey window configuration
       AboutSettingsTab.swift     # Version, website, update check
     EmptyStateView.swift
     IssueDetailPopover.swift
