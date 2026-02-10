@@ -33,8 +33,9 @@ struct SidebarSection: View {
             VStack(spacing: 0) {
                 // Match TerminalTabBar height so the sidebar content aligns
                 // with the terminal panel below the tab bar.
-                Theme.backgroundSunken
+                WindowDragArea()
                     .frame(height: 36)
+                    .background(Theme.backgroundSunken)
                     .overlay(alignment: .bottom) {
                         Theme.border.frame(height: Theme.borderWidth)
                     }
@@ -166,23 +167,14 @@ struct SidebarSection: View {
         @ViewBuilder trailing: () -> Trailing
     ) -> some View {
         HStack(spacing: 4) {
-            Button {
-                withAnimation(.easeInOut(duration: 0.15)) {
-                    isExpanded.wrappedValue.toggle()
-                }
-            } label: {
-                HStack(spacing: 4) {
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 8, weight: .bold))
-                        .rotationEffect(.degrees(isExpanded.wrappedValue ? 90 : 0))
-                        .frame(width: 12)
+            Image(systemName: "chevron.right")
+                .font(.system(size: 8, weight: .bold))
+                .rotationEffect(.degrees(isExpanded.wrappedValue ? 90 : 0))
+                .frame(width: 12)
 
-                    Text(title)
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(Theme.textSecondary)
-                }
-            }
-            .buttonStyle(.plain)
+            Text(title)
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(Theme.textSecondary)
 
             Spacer()
 
@@ -192,6 +184,12 @@ struct SidebarSection: View {
         }
         .padding(.horizontal, 8)
         .frame(height: 24)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            withAnimation(.easeInOut(duration: 0.15)) {
+                isExpanded.wrappedValue.toggle()
+            }
+        }
         .background(Theme.backgroundSunken)
         .overlay(alignment: .bottom) {
             Theme.border.frame(height: Theme.borderWidth)

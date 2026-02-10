@@ -211,6 +211,30 @@ struct WindowDragArea: NSViewRepresentable {
     }
 }
 
+/// Captures middle mouse button clicks. SwiftUI has no native middle-click gesture.
+private struct MiddleClickHandler: NSViewRepresentable {
+    let action: () -> Void
+
+    func makeNSView(context: Context) -> View {
+        let v = View()
+        v.action = action
+        return v
+    }
+
+    func updateNSView(_ nsView: View, context: Context) {
+        nsView.action = action
+    }
+
+    final class View: NSView {
+        nonisolated(unsafe) var action: (() -> Void)?
+
+        override func otherMouseDown(with event: NSEvent) {
+            if event.buttonNumber == 2 { action?() }
+            else { super.otherMouseDown(with: event) }
+        }
+    }
+}
+
 /// SF Symbol icon for the running process, tinted with a recognizable brand color.
 private struct ProcessIcon: View {
     let path: String?
@@ -546,6 +570,7 @@ private struct TabButton: View {
                 onSelect()
             }
         }
+        .overlay { MiddleClickHandler { if canClose { onClose() } } }
         .onHover { isHovered = $0 }
     }
 
