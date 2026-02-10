@@ -101,7 +101,9 @@ enum Theme {
     // Spacing
     static let panelPadding: CGFloat = 12
     static let panelCornerRadius: CGFloat = 2
-    static let borderWidth: CGFloat = 0.5
+    static var borderWidth: CGFloat {
+        1.0 / (NSScreen.main?.backingScaleFactor ?? 2.0)
+    }
 }
 
 /// Pill badge color triplet derived from a base color using beads-ui blend formula.

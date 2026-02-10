@@ -8,7 +8,7 @@
 
 A GPU-accelerated macOS terminal emulator built with Swift, Metal, and Rust. Uses [alacritty_terminal](https://crates.io/crates/alacritty_terminal) for VT emulation and a custom Metal pipeline for rendering. Includes a project visualization sidebar for [Claude Code](https://docs.anthropic.com/en/docs/claude-code) sessions.
 
-Version 2026.2.0 | macOS 14.0+ | Swift 6.0 | MIT License
+Version 2026.2.1 | macOS 14.0+ | Swift 6.0 | MIT License
 
 <p align="center">
   <img src="docs/screenshot.png" width="720" alt="Claide screenshot">
