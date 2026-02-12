@@ -1,5 +1,5 @@
 // ABOUTME: Reads PTY output on a background thread, feeds bytes to the VTE parser.
-// ABOUTME: Includes an OSC 7 byte-level scanner to detect directory change sequences.
+// ABOUTME: Drains all available PTY data before processing to maximize throughput.
 
 use std::io::Read;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -11,120 +11,6 @@ use alacritty_terminal::term::Term;
 use alacritty_terminal::vte;
 
 use crate::listener::Listener;
-
-/// Scans for OSC 7 (directory change) escape sequences in the raw byte stream.
-///
-/// Sequence format: ESC ] 7 ; <url> ST
-/// Where ST is either ESC \ or BEL (0x07).
-///
-/// This runs before VTE parsing because alacritty_terminal doesn't expose OSC 7.
-struct Osc7Scanner {
-    state: Osc7State,
-    buffer: Vec<u8>,
-}
-
-#[derive(PartialEq)]
-enum Osc7State {
-    Ground,
-    Esc,       // saw ESC
-    OscStart,  // saw ESC ]
-    Osc7,      // saw ESC ] 7
-    OscSemi,   // saw ESC ] 7 ;
-    Payload,   // collecting URL bytes
-    PayloadEsc, // saw ESC inside payload (looking for \)
-}
-
-impl Osc7Scanner {
-    fn new() -> Self {
-        Self {
-            state: Osc7State::Ground,
-            buffer: Vec::with_capacity(256),
-        }
-    }
-
-    /// Process a single byte, returns the directory URL if a complete OSC 7 sequence was found.
-    fn feed(&mut self, byte: u8) -> Option<String> {
-        match self.state {
-            Osc7State::Ground => {
-                if byte == 0x1b {
-                    self.state = Osc7State::Esc;
-                }
-                None
-            }
-            Osc7State::Esc => {
-                if byte == b']' {
-                    self.state = Osc7State::OscStart;
-                } else {
-                    self.state = Osc7State::Ground;
-                }
-                None
-            }
-            Osc7State::OscStart => {
-                if byte == b'7' {
-                    self.state = Osc7State::Osc7;
-                } else {
-                    self.state = Osc7State::Ground;
-                }
-                None
-            }
-            Osc7State::Osc7 => {
-                if byte == b';' {
-                    self.state = Osc7State::OscSemi;
-                    self.buffer.clear();
-                } else {
-                    self.state = Osc7State::Ground;
-                }
-                None
-            }
-            Osc7State::OscSemi => {
-                // Transition: first payload byte
-                self.state = Osc7State::Payload;
-                self.feed_payload(byte)
-            }
-            Osc7State::Payload => self.feed_payload(byte),
-            Osc7State::PayloadEsc => {
-                self.state = Osc7State::Ground;
-                if byte == b'\\' {
-                    self.complete()
-                } else {
-                    self.buffer.clear();
-                    None
-                }
-            }
-        }
-    }
-
-    fn feed_payload(&mut self, byte: u8) -> Option<String> {
-        match byte {
-            0x07 => {
-                // BEL terminates OSC
-                self.state = Osc7State::Ground;
-                self.complete()
-            }
-            0x1b => {
-                // Possible start of ST (ESC \)
-                self.state = Osc7State::PayloadEsc;
-                None
-            }
-            _ => {
-                if self.buffer.len() < 4096 {
-                    self.buffer.push(byte);
-                } else {
-                    // Payload too long, abort
-                    self.state = Osc7State::Ground;
-                    self.buffer.clear();
-                }
-                None
-            }
-        }
-    }
-
-    fn complete(&mut self) -> Option<String> {
-        let result = String::from_utf8(self.buffer.clone()).ok();
-        self.buffer.clear();
-        result
-    }
-}
 
 /// Maximum bytes to accumulate before flushing through VTE.
 const BATCH_LIMIT: usize = 1024 * 1024; // 1 MB
@@ -155,7 +41,7 @@ pub fn run_reader(
     let mut reader = std::io::BufReader::with_capacity(65536, file);
     let mut buf = [0u8; 65536];
     let mut parser = vte::ansi::Processor::<vte::ansi::StdSyncHandler>::new();
-    let mut osc7 = Osc7Scanner::new();
+    let mut osc7_partial = Vec::new();
     let mut pending = Vec::with_capacity(65536);
 
     loop {
@@ -186,10 +72,8 @@ pub fn run_reader(
         }
 
         // Scan for OSC 7 before VTE parsing
-        for &byte in pending.iter() {
-            if let Some(dir) = osc7.feed(byte) {
-                listener.send_directory_change(&dir);
-            }
+        for dir in scan_osc7(&pending, &mut osc7_partial) {
+            listener.send_directory_change(&dir);
         }
 
         // Flush the entire batch through VTE in a single lock acquisition
@@ -216,59 +100,157 @@ pub fn run_reader(
 
 use std::os::fd::FromRawFd;
 
+/// Scan a data buffer for OSC 7 directory-change sequences using SIMD-accelerated search.
+///
+/// Uses memchr to find ESC (0x1b) bytes, then inspects those positions for `]7;` sequences.
+/// `partial` carries incomplete sequences across batch boundaries.
+/// Returns all directory URLs found in the buffer.
+fn scan_osc7(data: &[u8], partial: &mut Vec<u8>) -> Vec<String> {
+    let mut results = Vec::new();
+
+    // Complete a partial sequence from a previous batch
+    if !partial.is_empty() {
+        if let Some((url_end, term_len)) = find_osc_terminator(data) {
+            partial.extend_from_slice(&data[..url_end]);
+            if let Ok(dir) = std::str::from_utf8(partial) {
+                results.push(dir.to_string());
+            }
+            partial.clear();
+            // Continue scanning after the terminator
+            let rest = &data[url_end + term_len..];
+            results.extend(scan_osc7(rest, partial));
+            return results;
+        } else if data.len() + partial.len() > 4096 {
+            // Partial grew too large — abandon it
+            partial.clear();
+        } else {
+            partial.extend_from_slice(data);
+            return results;
+        }
+    }
+
+    let mut pos = 0;
+    while let Some(esc_offset) = memchr::memchr(0x1b, &data[pos..]) {
+        let esc_pos = pos + esc_offset;
+        let remaining = &data[esc_pos..];
+
+        if remaining.starts_with(b"\x1b]7;") {
+            let url_start = esc_pos + 4;
+            if let Some((url_end, term_len)) = find_osc_terminator(&data[url_start..]) {
+                if let Ok(dir) = std::str::from_utf8(&data[url_start..url_start + url_end]) {
+                    results.push(dir.to_string());
+                }
+                pos = url_start + url_end + term_len;
+                continue;
+            } else {
+                // Partial sequence at end of buffer — save for next batch
+                partial.clear();
+                partial.extend_from_slice(&data[url_start..]);
+                break;
+            }
+        }
+        pos = esc_pos + 1;
+    }
+
+    results
+}
+
+/// Find the terminator for an OSC sequence (BEL or ST) within data.
+/// Returns (url_length, terminator_length) if found.
+fn find_osc_terminator(data: &[u8]) -> Option<(usize, usize)> {
+    for (i, &byte) in data.iter().enumerate() {
+        match byte {
+            0x07 => return Some((i, 1)),
+            0x1b if data.get(i + 1) == Some(&b'\\') => return Some((i, 2)),
+            _ => {
+                if i > 4096 {
+                    return None;
+                }
+            }
+        }
+    }
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn osc7_bel_terminator() {
-        let mut scanner = Osc7Scanner::new();
-        let seq = b"\x1b]7;file:///Users/hex/projects\x07";
-        let mut result = None;
-        for &byte in seq.iter() {
-            if let Some(dir) = scanner.feed(byte) {
-                result = Some(dir);
-            }
-        }
-        assert_eq!(result, Some("file:///Users/hex/projects".to_string()));
+        let data = b"\x1b]7;file:///Users/hex/projects\x07";
+        let mut partial = Vec::new();
+        let results = scan_osc7(data, &mut partial);
+        assert_eq!(results, vec!["file:///Users/hex/projects"]);
     }
 
     #[test]
     fn osc7_st_terminator() {
-        let mut scanner = Osc7Scanner::new();
-        let seq = b"\x1b]7;file:///Users/hex\x1b\\";
-        let mut result = None;
-        for &byte in seq.iter() {
-            if let Some(dir) = scanner.feed(byte) {
-                result = Some(dir);
-            }
-        }
-        assert_eq!(result, Some("file:///Users/hex".to_string()));
+        let data = b"\x1b]7;file:///Users/hex\x1b\\";
+        let mut partial = Vec::new();
+        let results = scan_osc7(data, &mut partial);
+        assert_eq!(results, vec!["file:///Users/hex"]);
     }
 
     #[test]
     fn osc7_ignores_other_osc() {
-        let mut scanner = Osc7Scanner::new();
-        let seq = b"\x1b]0;Window Title\x07";
-        let mut result = None;
-        for &byte in seq.iter() {
-            if let Some(dir) = scanner.feed(byte) {
-                result = Some(dir);
-            }
-        }
-        assert_eq!(result, None);
+        let data = b"\x1b]0;Window Title\x07";
+        let mut partial = Vec::new();
+        let results = scan_osc7(data, &mut partial);
+        assert!(results.is_empty());
     }
 
     #[test]
     fn osc7_mixed_with_normal_output() {
-        let mut scanner = Osc7Scanner::new();
-        let seq = b"Hello world\x1b]7;file:///tmp\x07more text";
-        let mut result = None;
-        for &byte in seq.iter() {
-            if let Some(dir) = scanner.feed(byte) {
-                result = Some(dir);
-            }
-        }
-        assert_eq!(result, Some("file:///tmp".to_string()));
+        let data = b"Hello world\x1b]7;file:///tmp\x07more text";
+        let mut partial = Vec::new();
+        let results = scan_osc7(data, &mut partial);
+        assert_eq!(results, vec!["file:///tmp"]);
+    }
+
+    #[test]
+    fn osc7_partial_across_batches() {
+        let mut partial = Vec::new();
+
+        // First batch: OSC 7 prefix + start of URL, no terminator
+        let batch1 = b"\x1b]7;file:///Us";
+        let results1 = scan_osc7(batch1, &mut partial);
+        assert!(results1.is_empty());
+        assert!(!partial.is_empty(), "partial should buffer incomplete URL");
+
+        // Second batch: rest of URL + terminator
+        let batch2 = b"ers/hex\x07";
+        let results2 = scan_osc7(batch2, &mut partial);
+        assert_eq!(results2, vec!["file:///Users/hex"]);
+        assert!(partial.is_empty(), "partial should be cleared after completion");
+    }
+
+    #[test]
+    fn osc7_multiple_in_one_buffer() {
+        let data = b"\x1b]7;file:///tmp\x07some text\x1b]7;file:///home\x07";
+        let mut partial = Vec::new();
+        let results = scan_osc7(data, &mut partial);
+        assert_eq!(results, vec!["file:///tmp", "file:///home"]);
+    }
+
+    #[test]
+    fn find_osc_terminator_bel() {
+        let data = b"file:///tmp\x07rest";
+        let result = find_osc_terminator(data);
+        assert_eq!(result, Some((11, 1)));
+    }
+
+    #[test]
+    fn find_osc_terminator_st() {
+        let data = b"file:///tmp\x1b\\rest";
+        let result = find_osc_terminator(data);
+        assert_eq!(result, Some((11, 2)));
+    }
+
+    #[test]
+    fn find_osc_terminator_absent() {
+        let data = b"file:///tmp with no terminator";
+        let result = find_osc_terminator(data);
+        assert_eq!(result, None);
     }
 }
