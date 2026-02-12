@@ -13,7 +13,8 @@ struct SidebarSection: View {
     @AppStorage("terminalColorScheme") private var schemeName: String = "hexed"
     @AppStorage("tasksExpanded") private var tasksExpanded = true
     @AppStorage("filesExpanded") private var filesExpanded = true
-    @AppStorage("sidebarSplitRatio") private var splitRatio: Double = 0.5
+    @AppStorage("sidebarSplitRatio") private var storedSplitRatio: Double = 0.5
+    @State private var splitRatio: Double = 0.5
     @State private var dragStartRatio: Double?
     @State private var hasTaskContext = false
 
@@ -42,10 +43,14 @@ struct SidebarSection: View {
 
                 if hasTaskContext {
                     if tasksExpanded && filesExpanded {
+                        let availableHeight = geometry.size.height - 36 - 7
                         tasksSection
-                            .frame(height: (geometry.size.height - 36) * splitRatio)
-                        sidebarDivider(totalHeight: geometry.size.height - 36)
+                            .frame(height: availableHeight * splitRatio)
+                            .clipped()
+                        sidebarDivider(totalHeight: availableHeight)
                         filesSection
+                            .frame(height: availableHeight * (1 - splitRatio))
+                            .clipped()
                     } else {
                         tasksSection
                         filesSection
@@ -57,9 +62,11 @@ struct SidebarSection: View {
                 }
             }
             .frame(maxHeight: .infinity)
+            .coordinateSpace(name: "sidebarContainer")
         }
         .background(Theme.backgroundPrimary)
         .onAppear {
+            splitRatio = storedSplitRatio
             updateTaskContext(for: Self.initialDirectory)
             if hasTaskContext {
                 if BeadsService.findBinary() == nil && ClaudeTaskService.isAvailable {
@@ -138,16 +145,22 @@ struct SidebarSection: View {
             .padding(.vertical, 3)
             .contentShape(Rectangle())
             .gesture(
-                DragGesture()
+                DragGesture(minimumDistance: 1, coordinateSpace: .named("sidebarContainer"))
                     .onChanged { value in
                         if dragStartRatio == nil { dragStartRatio = splitRatio }
-                        let minRatio = 24.0 / totalHeight
-                        let maxRatio = 1.0 - (24.0 / totalHeight)
-                        let newRatio = dragStartRatio! + value.translation.height / totalHeight
-                        splitRatio = min(max(newRatio, minRatio), maxRatio)
+                        let minRatio = 0.15
+                        let maxRatio = 0.85
+                        let delta = value.location.y - value.startLocation.y
+                        let newRatio = dragStartRatio! + delta / totalHeight
+                        var t = Transaction()
+                        t.disablesAnimations = true
+                        withTransaction(t) {
+                            splitRatio = min(max(newRatio, minRatio), maxRatio)
+                        }
                     }
                     .onEnded { _ in
                         dragStartRatio = nil
+                        storedSplitRatio = splitRatio
                     }
             )
             .onHover { hovering in

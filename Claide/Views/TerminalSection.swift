@@ -25,9 +25,6 @@ struct TerminalSection: View {
                 tabManager.addTab(initialDirectory: Self.initialDirectory, fontFamily: fontFamily)
             }
 
-            (tabManager.activeViewModel?.tabColor?.tint ?? Color(nsColor: TerminalTheme.background))
-                .frame(height: 2)
-
             TerminalPanel(tabManager: tabManager, fontFamily: fontFamily)
 
             SessionStatusBar(status: sessionStatusVM.status)

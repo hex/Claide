@@ -1,5 +1,5 @@
 // ABOUTME: Horizontal tab bar for terminal tabs with add/close controls.
-// ABOUTME: Active tab has top/left/right border and overlaps the bar's bottom border.
+// ABOUTME: Active tab is full height; inactive tabs are 1pt shorter with a bottom border.
 
 import SwiftUI
 import AppKit
@@ -14,8 +14,13 @@ struct TerminalTabBar: View {
     @State private var dragOffset: CGFloat = 0
     @State private var dragAccumulator: CGFloat = 0
     @State private var tabWidth: CGFloat = 0
+    @State private var windowDragStartOrigin: NSPoint?
+    @State private var windowDragStartMouse: NSPoint?
 
     var body: some View {
+        let singleTab = tabManager.tabs.count == 1
+
+        VStack(spacing: 0) {
         // ZStack instead of .background() to prevent safe area background propagation.
         // .background() modifiers auto-extend into the parent's safe area, causing
         // tab colors to bleed into the title bar area.
@@ -79,12 +84,30 @@ struct TerminalTabBar: View {
                     .zIndex(draggedTabID == tab.id ? 1 : 0)
                     .shadow(color: draggedTabID == tab.id ? .black.opacity(0.4) : .clear, radius: 4, y: 2)
                     .simultaneousGesture(
-                        DragGesture(minimumDistance: 5, coordinateSpace: .global)
+                        singleTab ? nil : DragGesture(minimumDistance: 5, coordinateSpace: .global)
                             .onChanged { value in
                                 handleDragChanged(tabID: tab.id, translation: value.translation.width)
                             }
                             .onEnded { _ in handleDragEnded() }
                     )
+                    .highPriorityGesture(
+                        singleTab ? DragGesture(minimumDistance: 5, coordinateSpace: .global)
+                            .onChanged { _ in handleWindowDrag() }
+                            .onEnded { _ in
+                                windowDragStartOrigin = nil
+                                windowDragStartMouse = nil
+                            } : nil
+                    )
+                }
+
+                if singleTab {
+                    WindowDragArea()
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .overlay(alignment: .bottom) {
+                            Rectangle()
+                                .fill(Theme.border)
+                                .frame(height: Theme.borderWidth)
+                        }
                 }
 
                 AddTabButton(action: onAdd)
@@ -96,11 +119,30 @@ struct TerminalTabBar: View {
             }
         }
         .fixedSize(horizontal: false, vertical: true)
+
+        (tabManager.activeTab?.viewModel.tabColor?.tint ?? Color(nsColor: TerminalTheme.background))
+            .frame(height: 2)
+        }
         .onPreferenceChange(TabWidthKey.self) { tabWidth = $0 }
         .overlay { CmdKeyMonitor(isPressed: $cmdHeld).frame(width: 0, height: 0) }
     }
 
     // MARK: - Drag Reorder
+
+    private func handleWindowDrag() {
+        guard let window = NSApp.keyWindow else { return }
+        if windowDragStartOrigin == nil {
+            windowDragStartOrigin = window.frame.origin
+            windowDragStartMouse = NSEvent.mouseLocation
+        }
+        guard let startOrigin = windowDragStartOrigin,
+              let startMouse = windowDragStartMouse else { return }
+        let current = NSEvent.mouseLocation
+        window.setFrameOrigin(NSPoint(
+            x: startOrigin.x + (current.x - startMouse.x),
+            y: startOrigin.y + (current.y - startMouse.y)
+        ))
+    }
 
     private func handleDragChanged(tabID: UUID, translation: CGFloat) {
         if draggedTabID == nil {
@@ -212,6 +254,9 @@ struct WindowDragArea: NSViewRepresentable {
 }
 
 /// Captures middle mouse button clicks. SwiftUI has no native middle-click gesture.
+/// Uses an event monitor instead of overriding otherMouseDown so the NSView can
+/// remain invisible to hit-testing — otherwise the overlay blocks left-click events
+/// from reaching SwiftUI's gesture system (close button, tap-to-select, rename).
 private struct MiddleClickHandler: NSViewRepresentable {
     let action: () -> Void
 
@@ -227,11 +272,28 @@ private struct MiddleClickHandler: NSViewRepresentable {
 
     final class View: NSView {
         nonisolated(unsafe) var action: (() -> Void)?
+        private nonisolated(unsafe) var monitor: Any?
 
-        override func otherMouseDown(with event: NSEvent) {
-            if event.buttonNumber == 2 { action?() }
-            else { super.otherMouseDown(with: event) }
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            if let monitor { NSEvent.removeMonitor(monitor) }
+            guard window != nil else { monitor = nil; return }
+            monitor = NSEvent.addLocalMonitorForEvents(matching: .otherMouseDown) { [weak self] event in
+                guard let self,
+                      event.buttonNumber == 2,
+                      let window = self.window,
+                      event.window === window else { return event }
+                let point = self.convert(event.locationInWindow, from: nil)
+                if self.bounds.contains(point) {
+                    self.action?()
+                }
+                return event
+            }
         }
+
+        deinit { if let monitor { NSEvent.removeMonitor(monitor) } }
     }
 }
 
@@ -365,18 +427,6 @@ private struct TabWidthKey: PreferenceKey {
     }
 }
 
-/// Top, left, and right edges only — no bottom, so the active tab merges with content.
-private struct TabBorder: Shape {
-    func path(in rect: CGRect) -> Path {
-        var p = Path()
-        p.move(to: CGPoint(x: rect.minX, y: rect.maxY))
-        p.addLine(to: CGPoint(x: rect.minX, y: rect.minY))
-        p.addLine(to: CGPoint(x: rect.maxX, y: rect.minY))
-        p.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY))
-        return p
-    }
-}
-
 private struct AddTabButton: View {
     let action: () -> Void
     @State private var isHovered = false
@@ -391,8 +441,10 @@ private struct AddTabButton: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .background(isHovered ? Theme.backgroundHover : .clear)
-        .onHover { isHovered = $0 }
+        .background(Theme.backgroundHover.opacity(isHovered ? 1 : 0))
+        .onHover { hovering in
+            withAnimation(.easeOut(duration: 0.15)) { isHovered = hovering }
+        }
     }
 }
 
@@ -423,8 +475,8 @@ private struct TabButton: View {
         ZStack {
             if isActive {
                 Color(nsColor: TerminalTheme.background)
-            } else if isHovered {
-                Theme.backgroundHover
+            } else {
+                Theme.backgroundHover.opacity(isHovered ? 1 : 0)
             }
 
             if let tabColor {
@@ -480,9 +532,22 @@ private struct TabButton: View {
                         .font(Theme.labelFont)
                         .textFieldStyle(.plain)
                         .focused($editFocused)
+                        .padding(.horizontal, 4)
+                        .padding(.vertical, 2)
+                        .background(
+                            RoundedRectangle(cornerRadius: 3)
+                                .fill(Theme.backgroundPanel)
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 3)
+                                .stroke(Theme.border, lineWidth: 1)
+                        )
                         .onSubmit { commitEdit() }
                         .onExitCommand { cancelEdit() }
                         .onKeyPress(.escape) { cancelEdit(); return .handled }
+                        .onChange(of: editFocused) { _, focused in
+                            if !focused { commitEdit() }
+                        }
                 } else {
                     Text(title)
                         .font(Theme.labelFont)
@@ -509,12 +574,17 @@ private struct TabButton: View {
             .padding(.trailing, 12)
             .padding(.vertical, 10)
         }
+        .padding(.bottom, isActive ? 0 : 1)
         .fixedSize(horizontal: false, vertical: true)
         .contentShape(Rectangle())
         .overlay {
             if isActive {
-                TabBorder()
-                    .stroke(Theme.border, lineWidth: Theme.borderWidth)
+                HStack {
+                    Rectangle().fill(Theme.border).frame(width: Theme.borderWidth)
+                    Spacer()
+                    Rectangle().fill(Theme.border).frame(width: Theme.borderWidth)
+                }
+                .padding(.bottom, -2)
             }
         }
         .overlay(alignment: .bottom) {
@@ -571,7 +641,9 @@ private struct TabButton: View {
             }
         }
         .overlay { MiddleClickHandler { if canClose { onClose() } } }
-        .onHover { isHovered = $0 }
+        .onHover { hovering in
+            withAnimation(.easeOut(duration: 0.15)) { isHovered = hovering }
+        }
     }
 
     private var inactiveColor: Color {

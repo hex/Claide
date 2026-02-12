@@ -26,7 +26,7 @@ enum Theme {
 
     // Border
     static var border: Color {
-        Color(nsColor: schemeBG.blended(withFraction: 0.15, of: schemeFG) ?? schemeFG)
+        Color(nsColor: schemeBG.blended(withFraction: 0.1, of: schemeFG) ?? schemeFG)
     }
 
     // Text
@@ -101,9 +101,7 @@ enum Theme {
     // Spacing
     static let panelPadding: CGFloat = 12
     static let panelCornerRadius: CGFloat = 2
-    static var borderWidth: CGFloat {
-        1.0 / (NSScreen.main?.backingScaleFactor ?? 2.0)
-    }
+    static let borderWidth: CGFloat = 1.0
 }
 
 /// Pill badge color triplet derived from a base color using beads-ui blend formula.

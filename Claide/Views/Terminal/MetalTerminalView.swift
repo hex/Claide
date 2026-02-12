@@ -129,6 +129,7 @@ final class MetalTerminalView: NSView, CALayerDelegate {
     private func commonInit() {
         wantsLayer = true
         layerContentsRedrawPolicy = .never
+        registerForDraggedTypes([.fileURL])
 
         guard let dev = MTLCreateSystemDefaultDevice() else {
             fatalError("Metal is not available")
@@ -781,6 +782,44 @@ final class MetalTerminalView: NSView, CALayerDelegate {
     @objc func paste(_ sender: Any?) {
         guard let text = NSPasteboard.general.string(forType: .string) else { return }
         bridge?.write(text)
+    }
+
+    // MARK: - Drag and Drop
+
+    override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
+        guard sender.draggingPasteboard.canReadObject(forClasses: [NSURL.self], options: fileURLReadingOptions) else {
+            return []
+        }
+        return .copy
+    }
+
+    override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        guard let urls = sender.draggingPasteboard.readObjects(
+            forClasses: [NSURL.self],
+            options: fileURLReadingOptions
+        ) as? [URL], !urls.isEmpty else {
+            return false
+        }
+        let escaped = urls.map { shellEscape($0.path) }.joined(separator: " ")
+        bridge?.write(escaped)
+        return true
+    }
+
+    private var fileURLReadingOptions: [NSPasteboard.ReadingOptionKey: Any] {
+        [.urlReadingFileURLsOnly: true]
+    }
+
+    /// Escape a file path for safe insertion into a shell command line.
+    private func shellEscape(_ path: String) -> String {
+        // Backslash-escape shell metacharacters so paths are safe to paste into commands.
+        var result = ""
+        for char in path {
+            if " '\"\\()[]{}$#!&|;`<>?*~".contains(char) {
+                result.append("\\")
+            }
+            result.append(char)
+        }
+        return result
     }
 
     @objc override func selectAll(_ sender: Any?) {
