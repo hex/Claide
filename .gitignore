@@ -21,6 +21,11 @@ rust/target/
 scripts/release.sh
 ExportOptions.plist
 
+# Session data
+.cs/
+.claude/
+AGENTS.md
+
 # Beads (local issue data)
 .beads/issues.jsonl
 .beads/interactions.jsonl
