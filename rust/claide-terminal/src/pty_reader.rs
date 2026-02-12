@@ -12,6 +12,12 @@ use alacritty_terminal::vte;
 
 use crate::listener::Listener;
 
+/// Parsed OSC 9;4 progress report from a terminal application.
+struct ProgressReport {
+    state: u8,      // 0-4
+    progress: i32,  // 0-100 or -1 for indeterminate
+}
+
 /// Maximum bytes to accumulate before flushing through VTE.
 const BATCH_LIMIT: usize = 1024 * 1024; // 1 MB
 
@@ -42,6 +48,7 @@ pub fn run_reader(
     let mut buf = [0u8; 65536];
     let mut parser = vte::ansi::Processor::<vte::ansi::StdSyncHandler>::new();
     let mut osc7_partial = Vec::new();
+    let mut osc94_partial: Vec<u8> = Vec::new();
     let mut pending = Vec::with_capacity(65536);
 
     loop {
@@ -74,6 +81,11 @@ pub fn run_reader(
         // Scan for OSC 7 before VTE parsing
         for dir in scan_osc7(&pending, &mut osc7_partial) {
             listener.send_directory_change(&dir);
+        }
+
+        // Scan for OSC 9;4 progress reports
+        for report in scan_osc94(&pending, &mut osc94_partial) {
+            listener.send_progress_report(report.state, report.progress);
         }
 
         // Flush the entire batch through VTE in a single lock acquisition
@@ -172,6 +184,78 @@ fn find_osc_terminator(data: &[u8]) -> Option<(usize, usize)> {
     None
 }
 
+/// Scan a data buffer for OSC 9;4 progress report sequences.
+///
+/// Format: ESC ] 9 ; 4 ; <state> ; <progress> BEL|ST
+/// Uses memchr to find ESC bytes, then inspects for `]9;4;` prefix.
+/// `partial` carries incomplete sequences across batch boundaries.
+fn scan_osc94(data: &[u8], partial: &mut Vec<u8>) -> Vec<ProgressReport> {
+    let mut results = Vec::new();
+
+    // Complete a partial sequence from a previous batch
+    if !partial.is_empty() {
+        if let Some((content_end, term_len)) = find_osc_terminator(data) {
+            partial.extend_from_slice(&data[..content_end]);
+            if let Some(report) = parse_osc94_content(partial) {
+                results.push(report);
+            }
+            partial.clear();
+            let rest = &data[content_end + term_len..];
+            results.extend(scan_osc94(rest, partial));
+            return results;
+        } else if data.len() + partial.len() > 4096 {
+            partial.clear();
+        } else {
+            partial.extend_from_slice(data);
+            return results;
+        }
+    }
+
+    let mut pos = 0;
+    while let Some(esc_offset) = memchr::memchr(0x1b, &data[pos..]) {
+        let esc_pos = pos + esc_offset;
+        let remaining = &data[esc_pos..];
+
+        if remaining.starts_with(b"\x1b]9;4;") {
+            let content_start = esc_pos + 6; // skip ESC ] 9 ; 4 ;
+            if let Some((content_end, term_len)) = find_osc_terminator(&data[content_start..]) {
+                if let Some(report) = parse_osc94_content(&data[content_start..content_start + content_end]) {
+                    results.push(report);
+                }
+                pos = content_start + content_end + term_len;
+                continue;
+            } else {
+                // Partial sequence at end of buffer
+                partial.clear();
+                partial.extend_from_slice(&data[content_start..]);
+                break;
+            }
+        }
+        pos = esc_pos + 1;
+    }
+
+    results
+}
+
+/// Parse the content between `ESC]9;4;` and the terminator.
+/// Content format: `<state>` or `<state>;<progress>`.
+fn parse_osc94_content(content: &[u8]) -> Option<ProgressReport> {
+    let s = std::str::from_utf8(content).ok()?;
+    let mut parts = s.split(';');
+
+    let state: u8 = parts.next()?.parse().ok()?;
+    if state > 4 {
+        return None;
+    }
+
+    let progress: i32 = match parts.next() {
+        Some(p) if !p.is_empty() => p.parse().ok()?,
+        _ => -1,
+    };
+
+    Some(ProgressReport { state, progress })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -252,5 +336,82 @@ mod tests {
         let data = b"file:///tmp with no terminator";
         let result = find_osc_terminator(data);
         assert_eq!(result, None);
+    }
+
+    // OSC 9;4 progress report tests
+
+    #[test]
+    fn osc94_bel_terminator() {
+        let data = b"\x1b]9;4;1;50\x07";
+        let mut partial = Vec::new();
+        let results = scan_osc94(data, &mut partial);
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].state, 1);
+        assert_eq!(results[0].progress, 50);
+    }
+
+    #[test]
+    fn osc94_st_terminator() {
+        let data = b"\x1b]9;4;2;75\x1b\\";
+        let mut partial = Vec::new();
+        let results = scan_osc94(data, &mut partial);
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].state, 2);
+        assert_eq!(results[0].progress, 75);
+    }
+
+    #[test]
+    fn osc94_partial_across_batches() {
+        let mut partial = Vec::new();
+
+        let batch1 = b"\x1b]9;4;1;";
+        let results1 = scan_osc94(batch1, &mut partial);
+        assert!(results1.is_empty());
+        assert!(!partial.is_empty());
+
+        let batch2 = b"42\x07";
+        let results2 = scan_osc94(batch2, &mut partial);
+        assert_eq!(results2.len(), 1);
+        assert_eq!(results2[0].state, 1);
+        assert_eq!(results2[0].progress, 42);
+        assert!(partial.is_empty());
+    }
+
+    #[test]
+    fn osc94_multiple_in_one_buffer() {
+        let data = b"\x1b]9;4;1;25\x07some text\x1b]9;4;1;50\x07";
+        let mut partial = Vec::new();
+        let results = scan_osc94(data, &mut partial);
+        assert_eq!(results.len(), 2);
+        assert_eq!(results[0].progress, 25);
+        assert_eq!(results[1].progress, 50);
+    }
+
+    #[test]
+    fn osc94_invalid_state_rejected() {
+        let data = b"\x1b]9;4;5;50\x07";
+        let mut partial = Vec::new();
+        let results = scan_osc94(data, &mut partial);
+        assert!(results.is_empty());
+    }
+
+    #[test]
+    fn osc94_missing_progress() {
+        let data = b"\x1b]9;4;3\x07";
+        let mut partial = Vec::new();
+        let results = scan_osc94(data, &mut partial);
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].state, 3);
+        assert_eq!(results[0].progress, -1);
+    }
+
+    #[test]
+    fn osc94_remove_state() {
+        let data = b"\x1b]9;4;0\x07";
+        let mut partial = Vec::new();
+        let results = scan_osc94(data, &mut partial);
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].state, 0);
+        assert_eq!(results[0].progress, -1);
     }
 }

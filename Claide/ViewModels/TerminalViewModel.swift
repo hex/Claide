@@ -64,6 +64,9 @@ final class TerminalViewModel {
     var tabColor: TabColor?
     var isRunning: Bool = false
     var profile: TerminalProfile = .default
+    var progressState: UInt8? = nil
+    var progressValue: Int32? = nil
+    private var progressResetTask: Task<Void, Never>?
 
     var displayTitle: String {
         if let custom = customTitle, !custom.isEmpty { return custom }
@@ -106,6 +109,24 @@ final class TerminalViewModel {
             currentDirectory = url.path
         } else {
             currentDirectory = raw
+        }
+    }
+
+    func progressReported(state: UInt8, progress: Int32) {
+        progressResetTask?.cancel()
+        if state == 0 {
+            progressState = nil
+            progressValue = nil
+            progressResetTask = nil
+        } else {
+            progressState = state
+            progressValue = progress == -1 ? nil : progress
+            progressResetTask = Task { @MainActor [weak self] in
+                try? await Task.sleep(for: .seconds(15))
+                guard let self, !Task.isCancelled else { return }
+                self.progressState = nil
+                self.progressValue = nil
+            }
         }
     }
 

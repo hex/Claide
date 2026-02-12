@@ -9,13 +9,29 @@ struct TerminalTabBar: View {
     var showDragArea: Bool = true
     let onAdd: () -> Void
 
-    @State private var cmdHeld = false
+    @Environment(CommandKeyObserver.self) private var cmdKeyObserver
     @State private var draggedTabID: UUID?
     @State private var dragOffset: CGFloat = 0
     @State private var dragAccumulator: CGFloat = 0
-    @State private var tabWidth: CGFloat = 0
     @State private var windowDragStartOrigin: NSPoint?
     @State private var windowDragStartMouse: NSPoint?
+    @State private var containerWidth: CGFloat = 0
+    @State private var scrollOffset: CGFloat = 0
+    @State private var contentWidth: CGFloat = 0
+
+    private var effectiveTabWidth: CGFloat {
+        let count = CGFloat(tabManager.tabs.count)
+        guard containerWidth > 0, count > 0 else { return TerminalTabBarMetrics.tabMaxWidth }
+        return min(
+            TerminalTabBarMetrics.tabMaxWidth,
+            max(TerminalTabBarMetrics.tabMinWidth, containerWidth / count)
+        )
+    }
+
+    private var canScrollLeft: Bool { scrollOffset > 1 }
+    private var canScrollRight: Bool {
+        contentWidth > containerWidth && scrollOffset < contentWidth - containerWidth - 1
+    }
 
     var body: some View {
         let singleTab = tabManager.tabs.count == 1
@@ -49,55 +65,114 @@ struct TerminalTabBar: View {
                         }
                 }
 
-                ForEach(Array(tabManager.tabs.enumerated()), id: \.element.id) { index, tab in
-                    let isActive = tab.id == tabManager.activeTabID
-                    let isLast = index == tabManager.tabs.count - 1
-                    let nextIsActive = !isLast && tabManager.tabs[index + 1].id == tabManager.activeTabID
+                GeometryReader { containerGeo in
+                    ScrollViewReader { scrollReader in
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 0) {
+                                ForEach(Array(tabManager.tabs.enumerated()), id: \.element.id) { index, tab in
+                                    let isActive = tab.id == tabManager.activeTabID
+                                    let isLast = index == tabManager.tabs.count - 1
+                                    let nextIsActive = !isLast && tabManager.tabs[index + 1].id == tabManager.activeTabID
 
-                    TabButton(
-                        title: tab.viewModel.displayTitle,
-                        isActive: isActive,
-                        isRunning: tab.viewModel.isRunning,
-                        executablePath: tab.viewModel.executablePath,
-                        tabColor: tab.viewModel.tabColor,
-                        paneCount: tab.paneController.paneTree.paneCount,
-                        canClose: tabManager.tabs.count > 1,
-                        showDivider: !isLast && !isActive && !nextIsActive,
-                        index: index + 1,
-                        showIndex: cmdHeld,
-                        onSelect: { tabManager.switchTo(id: tab.id) },
-                        onClose: { tabManager.closeTab(id: tab.id) },
-                        onRename: { name in
-                            let trimmed = name.trimmingCharacters(in: .whitespaces)
-                            tab.viewModel.customTitle = trimmed.isEmpty ? nil : trimmed
-                        },
-                        onSetColor: { tab.viewModel.tabColor = $0 }
-                    )
-                    .frame(maxWidth: .infinity)
-                    .background(
-                        GeometryReader { geo in
-                            Color.clear.preference(key: TabWidthKey.self, value: geo.size.width)
-                        }
-                    )
-                    .offset(x: draggedTabID == tab.id ? dragOffset : 0)
-                    .opacity(draggedTabID == tab.id ? 0.85 : 1)
-                    .zIndex(draggedTabID == tab.id ? 1 : 0)
-                    .shadow(color: draggedTabID == tab.id ? .black.opacity(0.4) : .clear, radius: 4, y: 2)
-                    .simultaneousGesture(
-                        singleTab ? nil : DragGesture(minimumDistance: 5, coordinateSpace: .global)
-                            .onChanged { value in
-                                handleDragChanged(tabID: tab.id, translation: value.translation.width)
+                                    TabButton(
+                                        tabId: tab.id,
+                                        title: tab.viewModel.displayTitle,
+                                        isActive: isActive,
+                                        isRunning: tab.viewModel.isRunning,
+                                        executablePath: tab.viewModel.executablePath,
+                                        tabColor: tab.viewModel.tabColor,
+                                        paneCount: tab.paneController.paneTree.paneCount,
+                                        tabCount: tabManager.tabs.count,
+                                        isLastTab: isLast,
+                                        showDivider: !isLast && !isActive && !nextIsActive,
+                                        index: index + 1,
+                                        showIndex: cmdKeyObserver.isPressed,
+                                        onSelect: { tabManager.switchTo(id: tab.id) },
+                                        onClose: { tabManager.closeTab(id: tab.id) },
+                                        onRename: { name in
+                                            let trimmed = name.trimmingCharacters(in: .whitespaces)
+                                            tab.viewModel.customTitle = trimmed.isEmpty ? nil : trimmed
+                                        },
+                                        onSetColor: { tab.viewModel.tabColor = $0 },
+                                        onCloseOthers: { tabManager.closeOthersKeeping(id: tab.id) },
+                                        onCloseToRight: { tabManager.closeToRight(afterId: tab.id) },
+                                        onCloseAll: {
+                                            tabManager.closeAll()
+                                            onAdd()
+                                        }
+                                    )
+                                    .frame(width: effectiveTabWidth)
+                                    .id(tab.id)
+                                    .offset(x: draggedTabID == tab.id ? dragOffset : 0)
+                                    .opacity(draggedTabID == tab.id ? 0.85 : 1)
+                                    .zIndex(draggedTabID == tab.id ? 1 : 0)
+                                    .shadow(color: draggedTabID == tab.id ? .black.opacity(0.4) : .clear, radius: 4, y: 2)
+                                    .simultaneousGesture(
+                                        singleTab ? nil : DragGesture(minimumDistance: 5, coordinateSpace: .global)
+                                            .onChanged { value in
+                                                handleDragChanged(tabID: tab.id, translation: value.translation.width)
+                                            }
+                                            .onEnded { _ in handleDragEnded() }
+                                    )
+                                    .highPriorityGesture(
+                                        singleTab ? DragGesture(minimumDistance: 5, coordinateSpace: .global)
+                                            .onChanged { _ in handleWindowDrag() }
+                                            .onEnded { _ in
+                                                windowDragStartOrigin = nil
+                                                windowDragStartMouse = nil
+                                            } : nil
+                                    )
+                                }
                             }
-                            .onEnded { _ in handleDragEnded() }
-                    )
-                    .highPriorityGesture(
-                        singleTab ? DragGesture(minimumDistance: 5, coordinateSpace: .global)
-                            .onChanged { _ in handleWindowDrag() }
-                            .onEnded { _ in
-                                windowDragStartOrigin = nil
-                                windowDragStartMouse = nil
-                            } : nil
-                    )
+                            .background(
+                                GeometryReader { contentGeo in
+                                    Color.clear
+                                        .onChange(of: contentGeo.frame(in: .named("tabScroll"))) { _, newFrame in
+                                            scrollOffset = -newFrame.minX
+                                            contentWidth = newFrame.width
+                                        }
+                                        .onAppear {
+                                            let frame = contentGeo.frame(in: .named("tabScroll"))
+                                            scrollOffset = -frame.minX
+                                            contentWidth = frame.width
+                                        }
+                                }
+                            )
+                        }
+                        .coordinateSpace(name: "tabScroll")
+                        .onChange(of: tabManager.activeTabID) { _, newID in
+                            if let id = newID {
+                                withAnimation(.easeInOut(duration: 0.15)) {
+                                    scrollReader.scrollTo(id, anchor: .center)
+                                }
+                            }
+                        }
+                    }
+                    .overlay(alignment: .leading) {
+                        TerminalTabsOverflowShadow(
+                            width: TerminalTabBarMetrics.overflowShadowWidth,
+                            startPoint: .leading,
+                            endPoint: .trailing
+                        )
+                        .opacity(canScrollLeft ? 1 : 0)
+                        .animation(.easeInOut(duration: 0.15), value: canScrollLeft)
+                    }
+                    .overlay(alignment: .trailing) {
+                        TerminalTabsOverflowShadow(
+                            width: TerminalTabBarMetrics.overflowShadowWidth,
+                            startPoint: .trailing,
+                            endPoint: .leading
+                        )
+                        .opacity(canScrollRight ? 1 : 0)
+                        .animation(.easeInOut(duration: 0.15), value: canScrollRight)
+                    }
+                    .overlay(alignment: .bottom) {
+                        Rectangle()
+                            .fill(Theme.border)
+                            .frame(height: Theme.borderWidth)
+                    }
+                    .onAppear { containerWidth = containerGeo.size.width }
+                    .onChange(of: containerGeo.size.width) { _, newWidth in containerWidth = newWidth }
                 }
 
                 if singleTab {
@@ -123,8 +198,6 @@ struct TerminalTabBar: View {
         (tabManager.activeTab?.viewModel.tabColor?.tint ?? Color(nsColor: TerminalTheme.background))
             .frame(height: 2)
         }
-        .onPreferenceChange(TabWidthKey.self) { tabWidth = $0 }
-        .overlay { CmdKeyMonitor(isPressed: $cmdHeld).frame(width: 0, height: 0) }
     }
 
     // MARK: - Drag Reorder
@@ -151,18 +224,19 @@ struct TerminalTabBar: View {
         }
         dragOffset = translation - dragAccumulator
 
-        guard tabWidth > 0,
+        let tw = effectiveTabWidth
+        guard tw > 0,
               let sourceIndex = tabManager.tabs.firstIndex(where: { $0.id == tabID }) else { return }
 
-        let threshold = tabWidth / 2
+        let threshold = tw / 2
 
         if dragOffset > threshold, sourceIndex < tabManager.tabs.count - 1 {
             performMove(from: sourceIndex, to: sourceIndex + 1)
-            dragAccumulator += tabWidth
+            dragAccumulator += tw
             dragOffset = translation - dragAccumulator
         } else if dragOffset < -threshold, sourceIndex > 0 {
             performMove(from: sourceIndex, to: sourceIndex - 1)
-            dragAccumulator -= tabWidth
+            dragAccumulator -= tw
             dragOffset = translation - dragAccumulator
         }
     }
@@ -182,34 +256,6 @@ struct TerminalTabBar: View {
 
     private func performMove(from source: Int, to destination: Int) {
         tabManager.moveTab(from: source, to: destination)
-    }
-}
-
-/// Monitors Cmd key press/release via NSEvent flags and updates a binding.
-private struct CmdKeyMonitor: NSViewRepresentable {
-    @Binding var isPressed: Bool
-
-    func makeNSView(context: Context) -> CmdKeyView { CmdKeyView() }
-
-    func updateNSView(_ nsView: CmdKeyView, context: Context) {
-        nsView.onChange = { [self] held in isPressed = held }
-    }
-
-    final class CmdKeyView: NSView {
-        nonisolated(unsafe) var onChange: ((Bool) -> Void)?
-        private nonisolated(unsafe) var monitor: Any?
-
-        override func viewDidMoveToWindow() {
-            super.viewDidMoveToWindow()
-            if let monitor { NSEvent.removeMonitor(monitor) }
-            guard window != nil else { monitor = nil; return }
-            monitor = NSEvent.addLocalMonitorForEvents(matching: .flagsChanged) { [weak self] event in
-                self?.onChange?(event.modifierFlags.contains(.command))
-                return event
-            }
-        }
-
-        deinit { if let monitor { NSEvent.removeMonitor(monitor) } }
     }
 }
 
@@ -419,14 +465,6 @@ private extension Color {
     }
 }
 
-private struct TabWidthKey: PreferenceKey {
-    nonisolated(unsafe) static var defaultValue: CGFloat = 0
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
-        let next = nextValue()
-        if next > 0 { value = next }
-    }
-}
-
 private struct AddTabButton: View {
     let action: () -> Void
     @State private var isHovered = false
@@ -449,13 +487,15 @@ private struct AddTabButton: View {
 }
 
 private struct TabButton: View {
+    let tabId: UUID
     let title: String
     let isActive: Bool
     let isRunning: Bool
     let executablePath: String?
     let tabColor: TabColor?
     let paneCount: Int
-    let canClose: Bool
+    let tabCount: Int
+    let isLastTab: Bool
     let showDivider: Bool
     let index: Int
     let showIndex: Bool
@@ -463,6 +503,9 @@ private struct TabButton: View {
     let onClose: () -> Void
     let onRename: (String) -> Void
     let onSetColor: (TabColor?) -> Void
+    let onCloseOthers: () -> Void
+    let onCloseToRight: () -> Void
+    let onCloseAll: () -> Void
 
     @State private var isHovered = false
     @State private var closeHovered = false
@@ -470,6 +513,8 @@ private struct TabButton: View {
     @State private var editText = ""
     @State private var lastTapTime: Date = .distantPast
     @FocusState private var editFocused: Bool
+
+    private var canClose: Bool { tabCount > 1 }
 
     var body: some View {
         ZStack {
@@ -487,12 +532,20 @@ private struct TabButton: View {
                 // Close button visible on hover; icon always present.
                 // ZStack keeps the icon fixed while close button appears alongside.
                 ZStack {
-                    ProcessIcon(
-                        path: executablePath,
-                        isRunning: isRunning,
-                        colorOverride: !isActive ? inactiveColor : nil
-                    )
-                    .opacity(showIndex && index <= 9 ? 0 : 1)
+                    if isRunning {
+                        ProgressView()
+                            .controlSize(.small)
+                            .tint(isActive ? Theme.textPrimary : inactiveColor)
+                            .frame(width: 16, height: 16)
+                            .opacity(showIndex && index <= 9 ? 0 : 1)
+                    } else {
+                        ProcessIcon(
+                            path: executablePath,
+                            isRunning: isRunning,
+                            colorOverride: !isActive ? inactiveColor : nil
+                        )
+                        .opacity(showIndex && index <= 9 ? 0 : 1)
+                    }
 
                     if index <= 9 {
                         Text("\(index)")
@@ -602,34 +655,18 @@ private struct TabButton: View {
                     .padding(.vertical, 8)
             }
         }
-        .contextMenu {
-            Button("Rename...") { startEditing() }
-
-            Menu("Tab Color") {
-                ForEach(TabColor.allCases, id: \.self) { preset in
-                    Toggle(isOn: Binding(
-                        get: { tabColor == preset },
-                        set: { _ in onSetColor(preset) }
-                    )) {
-                        Label {
-                            Text(preset.label)
-                        } icon: {
-                            preset.swatch
-                        }
-                    }
-                }
-
-                Divider()
-
-                Button("Clear") { onSetColor(nil) }
-                    .disabled(tabColor == nil)
-            }
-
-            if canClose {
-                Divider()
-                Button("Close Tab") { onClose() }
-            }
-        }
+        .terminalTabContextMenu(
+            tabId: tabId,
+            tabCount: tabCount,
+            isLastTab: isLastTab,
+            tabColor: tabColor,
+            onRename: { startEditing() },
+            onSetColor: onSetColor,
+            onClose: onClose,
+            onCloseOthers: onCloseOthers,
+            onCloseToRight: onCloseToRight,
+            onCloseAll: onCloseAll
+        )
         .onTapGesture {
             let now = Date()
             let isDoubleClick = now.timeIntervalSince(lastTapTime) < NSEvent.doubleClickInterval

@@ -110,6 +110,8 @@ final class MetalTerminalView: NSView, CALayerDelegate {
     private var markedTextStorage = NSMutableAttributedString()
     private var markedRangeStorage = NSRange(location: NSNotFound, length: 0)
 
+    private(set) var isOccluded: Bool = false
+
     /// Cursor blink state and timer (~530ms period, matching iTerm2/Alacritty convention).
     private var cursorBlinkOn = true
     private var cursorBlinkTimer: Timer?
@@ -218,7 +220,18 @@ final class MetalTerminalView: NSView, CALayerDelegate {
 
     // MARK: - Display Link
 
+    func setOccluded(_ occluded: Bool) {
+        guard isOccluded != occluded else { return }
+        isOccluded = occluded
+        if occluded {
+            stopDisplayLink()
+        } else {
+            startDisplayLink()
+        }
+    }
+
     private func startDisplayLink() {
+        guard displayLink == nil else { return }
         var link: CVDisplayLink?
         CVDisplayLinkCreateWithActiveCGDisplays(&link)
         guard let link else { return }
@@ -940,6 +953,7 @@ final class MetalTerminalView: NSView, CALayerDelegate {
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         if window == nil {
+            stopDisplayLink()
             stopCursorBlink()
             cursorBlinkOn = true
         }

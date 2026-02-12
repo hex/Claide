@@ -5,6 +5,7 @@ import SwiftUI
 
 struct TerminalSection: View {
     let tabManager: TerminalTabManager
+    var paletteManager: CommandPaletteManager?
     var showDragArea: Bool = true
     @State private var sessionStatusVM = SessionStatusViewModel()
     @AppStorage("fontFamily") private var fontFamily: String = ""
@@ -56,6 +57,11 @@ struct TerminalSection: View {
         }
         .onChange(of: dimUnfocusedPanes) {
             tabManager.applyPaneFocusSettingsToAll()
+        }
+        .overlay {
+            if let paletteManager, paletteManager.isPresented {
+                CommandPaletteOverlayView(manager: paletteManager)
+            }
         }
     }
 }

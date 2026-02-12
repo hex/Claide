@@ -83,6 +83,12 @@ final class MainWindowController: NSWindowController, NSWindowDelegate {
         }
     }
 
+    // MARK: - Command Palette
+
+    func toggleCommandPalette() {
+        splitViewController.paletteManager.toggle()
+    }
+
     // MARK: - NSWindowDelegate
 
     func windowDidEnterFullScreen(_ notification: Notification) {

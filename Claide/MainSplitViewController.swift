@@ -8,13 +8,20 @@ import SwiftUI
 final class MainSplitViewController: NSSplitViewController {
 
     private let tabManager: TerminalTabManager
+    let paletteManager = CommandPaletteManager()
 
-    init(tabManager: TerminalTabManager, isHotkeyWindow: Bool = false) {
+    init(tabManager: TerminalTabManager, isHotkeyWindow: Bool = false, commandKeyObserver: CommandKeyObserver = CommandKeyObserver()) {
         self.tabManager = tabManager
         super.init(nibName: nil, bundle: nil)
 
+        paletteManager.tabManager = tabManager
+        paletteManager.toggleSidebar = { [weak self] in
+            self?.toggleSidebarPanel()
+        }
+
         let terminalHost = NSHostingController(
-            rootView: TerminalSection(tabManager: tabManager, showDragArea: !isHotkeyWindow)
+            rootView: TerminalSection(tabManager: tabManager, paletteManager: paletteManager, showDragArea: !isHotkeyWindow)
+                .environment(commandKeyObserver)
         )
         terminalHost.sizingOptions = []
         let terminalItem = NSSplitViewItem(viewController: terminalHost)

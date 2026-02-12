@@ -7,6 +7,7 @@ import SwiftUI
 @main
 struct ClaideApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
+    @State private var commandKeyObserver = CommandKeyObserver()
     private let updaterController: SPUStandardUpdaterController
 
     init() {
@@ -55,6 +56,7 @@ struct ClaideApp: App {
     var body: some Scene {
         Settings {
             SettingsView(updater: updaterController.updater)
+                .environment(commandKeyObserver)
         }
         .commands {
             CommandGroup(after: .appInfo) {

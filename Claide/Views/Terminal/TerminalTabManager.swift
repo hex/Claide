@@ -87,6 +87,7 @@ final class TerminalTabManager {
         let tab = Tab(id: UUID(), paneController: controller, paneViewModels: [initialID: vm])
         tabs.append(tab)
         activeTabID = tab.id
+        updateOcclusion()
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak view] in
             guard let view else { return }
@@ -133,6 +134,7 @@ final class TerminalTabManager {
         let tab = Tab(id: UUID(), paneController: controller, paneViewModels: viewModels)
         tabs.append(tab)
         activeTabID = tab.id
+        updateOcclusion()
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak controller] in
             guard let controller else { return }
@@ -164,11 +166,53 @@ final class TerminalTabManager {
             activeTabID = tabs[newIndex].id
             focusActiveTab()
         }
+        updateOcclusion()
+    }
+
+    func closeOthersKeeping(id: UUID) {
+        guard tabs.contains(where: { $0.id == id }) else { return }
+        for tab in tabs where tab.id != id {
+            for view in tab.allTerminalViews {
+                view.terminate()
+            }
+        }
+        tabs.removeAll { $0.id != id }
+        activeTabID = id
+        updateOcclusion()
+        focusActiveTab()
+    }
+
+    func closeToRight(afterId: UUID) {
+        guard let index = tabs.firstIndex(where: { $0.id == afterId }) else { return }
+        let toRemove = tabs.suffix(from: index + 1)
+        for tab in toRemove {
+            for view in tab.allTerminalViews {
+                view.terminate()
+            }
+        }
+        let removedIDs = Set(toRemove.map(\.id))
+        tabs.removeAll { removedIDs.contains($0.id) }
+        if let activeTabID, removedIDs.contains(activeTabID) {
+            self.activeTabID = afterId
+            focusActiveTab()
+        }
+        updateOcclusion()
+    }
+
+    func closeAll() {
+        for tab in tabs {
+            for view in tab.allTerminalViews {
+                view.terminate()
+            }
+        }
+        tabs.removeAll()
+        activeTabID = nil
     }
 
     func switchTo(id: UUID) {
         guard tabs.contains(where: { $0.id == id }) else { return }
         activeTabID = id
+        updateOcclusion()
         focusActiveTab()
     }
 
@@ -289,6 +333,11 @@ final class TerminalTabManager {
                 NSApp.requestUserAttention(.informationalRequest)
             }
         }
+        view.bridge?.onProgressReport = { [weak viewModel] state, progress in
+            Task { @MainActor in
+                viewModel?.progressReported(state: state, progress: progress)
+            }
+        }
 
         view.onFocused = { [weak controller] in
             controller?.focusPane(paneID)
@@ -358,6 +407,17 @@ final class TerminalTabManager {
                 let isFocused = (view == view.window?.firstResponder as? MetalTerminalView)
                 let dim = UserDefaults.standard.bool(forKey: "dimUnfocusedPanes")
                 view.alphaValue = (isFocused || !dim) ? 1.0 : 0.6
+            }
+        }
+    }
+
+    // MARK: - Occlusion
+
+    private func updateOcclusion() {
+        for tab in tabs {
+            let occluded = (tab.id != activeTabID)
+            for view in tab.allTerminalViews {
+                view.setOccluded(occluded)
             }
         }
     }

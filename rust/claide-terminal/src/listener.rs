@@ -16,6 +16,7 @@ pub enum ClaideEventType {
     Bell = 2,
     ChildExit = 3,
     DirectoryChange = 4,
+    ProgressReport = 5,
 }
 
 /// C function pointer type for event callbacks.
@@ -54,6 +55,17 @@ impl Listener {
         if let Ok(cstr) = CString::new(directory) {
             (self.callback)(ctx, ClaideEventType::DirectoryChange as u32, cstr.as_ptr(), 0);
         }
+    }
+
+    /// Fire a progress report event (from OSC 9;4 scanning).
+    /// Packs state and progress into int_value: bits 31-16 = state, bits 15-0 = progress.
+    pub fn send_progress_report(&self, state: u8, progress: i32) {
+        let ctx = self.context.load(Ordering::Relaxed);
+        if ctx.is_null() {
+            return;
+        }
+        let packed = ((state as i32) << 16) | (progress & 0xFFFF);
+        (self.callback)(ctx, ClaideEventType::ProgressReport as u32, std::ptr::null(), packed);
     }
 }
 

@@ -21,6 +21,7 @@ enum {
     ClaideEventBell            = 2,
     ClaideEventChildExit       = 3,
     ClaideEventDirectoryChange = 4,
+    ClaideEventProgressReport  = 5,
 };
 
 /// Callback function type for terminal events.
@@ -28,7 +29,8 @@ enum {
 /// @param context  Opaque pointer passed to claide_terminal_create (the Swift TerminalBridge).
 /// @param event_type  One of the ClaideEvent* constants.
 /// @param string_value  UTF-8 string for Title/DirectoryChange events, NULL otherwise.
-/// @param int_value  Exit code for ChildExit, 0 otherwise.
+/// @param int_value  Exit code for ChildExit; packed progress for ProgressReport
+///                   (bits 31-16 = state 0-4, bits 15-0 = progress -1 or 0-100); 0 otherwise.
 typedef void (*ClaideEventCallback)(
     void *context,
     uint32_t event_type,

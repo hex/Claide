@@ -18,6 +18,7 @@ final class TerminalBridge: @unchecked Sendable {
     var onChildExit: ((Int32) -> Void)?
     var onWakeup: (() -> Void)?
     var onBell: (() -> Void)?
+    var onProgressReport: ((UInt8, Int32) -> Void)?
 
     /// Spawn a shell process and start terminal emulation.
     ///
@@ -316,6 +317,11 @@ private let terminalEventCallback: ClaideEventCallback = {
             if let dir = string {
                 bridge.onDirectoryChange?(dir)
             }
+        case UInt32(ClaideEventProgressReport):
+            let state = UInt8((intValue >> 16) & 0xFF)
+            let rawProgress = Int32(intValue & 0xFFFF)
+            let progress: Int32 = rawProgress > 32767 ? rawProgress - 65536 : rawProgress
+            bridge.onProgressReport?(state, progress)
         default:
             break
         }

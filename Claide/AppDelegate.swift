@@ -245,6 +245,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         sidebar.target = self
         menu.addItem(sidebar)
 
+        let palette = NSMenuItem(title: "Command Palette", action: #selector(showCommandPalette), keyEquivalent: "p")
+        palette.target = self
+        menu.addItem(palette)
+
         menu.addItem(.separator())
 
         for i in 1...9 {
@@ -289,6 +293,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     return nil
                 case "b":
                     self.toggleSidebar()
+                    return nil
+                case "p":
+                    self.toggleCommandPalette()
                     return nil
                 default:
                     break
@@ -374,6 +381,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func splitVertical() {
         activeTabManager?.splitActivePane(axis: .vertical)
+    }
+
+    @objc private func showCommandPalette() {
+        toggleCommandPalette()
+    }
+
+    private func toggleCommandPalette() {
+        if let keyWindow = NSApp.keyWindow,
+           keyWindow === hotkeyWindowController?.window {
+            hotkeyWindowController?.splitViewController?.paletteManager.toggle()
+        } else {
+            activeWindowController?.toggleCommandPalette()
+        }
     }
 
     @objc private func toggleSidebar() {
