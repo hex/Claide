@@ -24,10 +24,8 @@ ExportOptions.plist
 # Session data
 .cs/
 .claude/
+CLAUDE.md
 AGENTS.md
 
-# Beads (local issue data)
-.beads/issues.jsonl
-.beads/interactions.jsonl
-.beads/export-state/
-.beads/.jsonl.lock
+# Beads
+.beads/
