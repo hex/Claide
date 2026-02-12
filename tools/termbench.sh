@@ -53,7 +53,7 @@ setup_data() {
         ok "sequential.txt ($(du -h "$DATA_DIR/sequential.txt" | cut -f1 | xargs))"
 
         # 2) Dense ASCII (~10MB)
-        base64 < /dev/urandom | head -c 10000000 > "$DATA_DIR/dense_ascii.txt"
+        base64 < /dev/urandom | head -c 10000000 > "$DATA_DIR/dense_ascii.txt" || true
         ok "dense_ascii.txt ($(du -h "$DATA_DIR/dense_ascii.txt" | cut -f1 | xargs))"
 
         # 3) ANSI color stress test (~5MB of colored output)
