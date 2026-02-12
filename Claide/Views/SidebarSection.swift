@@ -43,13 +43,17 @@ struct SidebarSection: View {
 
                 if hasTaskContext {
                     if tasksExpanded && filesExpanded {
-                        let availableHeight = geometry.size.height - 36 - 7
-                        tasksSection
-                            .frame(height: availableHeight * splitRatio)
+                        // Headers stay outside the resizable area so they
+                        // are always visible regardless of split position.
+                        let contentHeight = geometry.size.height - 36 - 24 - 7 - 24
+                        sectionHeader("Tasks", isExpanded: $tasksExpanded)
+                        tasksContent
+                            .frame(height: max(0, contentHeight * splitRatio))
                             .clipped()
-                        sidebarDivider(totalHeight: availableHeight)
-                        filesSection
-                            .frame(height: availableHeight * (1 - splitRatio))
+                        sidebarDivider(totalHeight: max(1, contentHeight))
+                        sectionHeader("Files", isExpanded: $filesExpanded)
+                        filesContent
+                            .frame(height: max(0, contentHeight * (1 - splitRatio)))
                             .clipped()
                     } else {
                         tasksSection
@@ -100,24 +104,25 @@ struct SidebarSection: View {
     private var tasksSection: some View {
         VStack(spacing: 0) {
             sectionHeader("Tasks", isExpanded: $tasksExpanded)
-
-            if tasksExpanded {
-                Group {
-                    switch sidebarTab {
-                    case .board:
-                        KanbanPanel(viewModel: graphVM)
-                    case .graph:
-                        GraphPanel(viewModel: graphVM, fontFamily: fontFamily)
-                    }
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .overlay(alignment: .bottomLeading) {
-                    floatingTabControls
-                }
-            }
+            if tasksExpanded { tasksContent }
         }
         .frame(maxWidth: .infinity)
         .frame(maxHeight: tasksExpanded ? .infinity : nil)
+    }
+
+    private var tasksContent: some View {
+        Group {
+            switch sidebarTab {
+            case .board:
+                KanbanPanel(viewModel: graphVM)
+            case .graph:
+                GraphPanel(viewModel: graphVM, fontFamily: fontFamily)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .overlay(alignment: .bottomLeading) {
+            floatingTabControls
+        }
     }
 
     // MARK: - Files Section
@@ -125,14 +130,15 @@ struct SidebarSection: View {
     private var filesSection: some View {
         VStack(spacing: 0) {
             sectionHeader("Files", isExpanded: $filesExpanded)
-
-            if filesExpanded {
-                FileLogPanel(viewModel: fileLogVM)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            }
+            if filesExpanded { filesContent }
         }
         .frame(maxWidth: .infinity)
         .frame(maxHeight: filesExpanded ? .infinity : nil)
+    }
+
+    private var filesContent: some View {
+        FileLogPanel(viewModel: fileLogVM)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     // MARK: - Draggable Divider
@@ -148,8 +154,8 @@ struct SidebarSection: View {
                 DragGesture(minimumDistance: 1, coordinateSpace: .named("sidebarContainer"))
                     .onChanged { value in
                         if dragStartRatio == nil { dragStartRatio = splitRatio }
-                        let minRatio = 0.15
-                        let maxRatio = 0.85
+                        let minRatio = 0.0
+                        let maxRatio = 1.0
                         let delta = value.location.y - value.startLocation.y
                         let newRatio = dragStartRatio! + delta / totalHeight
                         var t = Transaction()
