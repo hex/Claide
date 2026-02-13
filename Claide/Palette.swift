@@ -10,6 +10,11 @@ struct RGB: Equatable, Hashable, Sendable {
     init(_ r: UInt8, _ g: UInt8, _ b: UInt8) {
         self.r = r; self.g = g; self.b = b
     }
+
+    /// Hex string like "#1a1b26" for use in terminal config APIs.
+    var hexString: String {
+        String(format: "#%02x%02x%02x", r, g, b)
+    }
 }
 
 // MARK: - Palette entries
