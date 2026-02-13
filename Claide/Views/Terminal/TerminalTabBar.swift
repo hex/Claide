@@ -453,6 +453,9 @@ private struct ProcessIcon: View {
         "csc":        ("chevron.left.forwardslash.chevron.right", Color(hex: 0x512BD4)),
         // Version control
         "git":        ("arrow.triangle.branch", Color(hex: 0xFC6D26)),
+        "tig":        ("arrow.triangle.branch", Color(hex: 0xFC6D26)),
+        "gh":         ("arrow.triangle.branch", Color(hex: 0xF0F0F0)),
+        "lazygit":    ("arrow.triangle.branch", Color(hex: 0xFC6D26)),
         // Package managers
         "npm":        ("shippingbox",     Color(hex: 0xC12127)),
         "npx":        ("shippingbox",     Color(hex: 0xC12127)),
