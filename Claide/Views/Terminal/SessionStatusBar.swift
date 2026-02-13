@@ -5,10 +5,12 @@ import SwiftUI
 
 struct SessionStatusBar: View {
     let status: SessionStatus?
+    @AppStorage("terminalColorScheme") private var schemeName: String = "hexed"
 
     private static let barHeight: CGFloat = 2
 
     var body: some View {
+        let _ = schemeName
         if let status {
             HStack {
                 Text(status.formattedUsage)

@@ -12,22 +12,33 @@ struct ThemeBrowser: View {
         VStack(spacing: 0) {
             searchBar
             Divider()
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 0) {
-                    hexedRow
-                    Divider().padding(.vertical, 4)
-                    themeSection(title: "DARK", themes: filteredDark)
-                    if !filteredDark.isEmpty && !filteredLight.isEmpty {
+            ScrollViewReader { proxy in
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 0) {
+                        hexedRow
                         Divider().padding(.vertical, 4)
+                        themeSection(title: "DARK", themes: filteredDark)
+                        if !filteredDark.isEmpty && !filteredLight.isEmpty {
+                            Divider().padding(.vertical, 4)
+                        }
+                        themeSection(title: "LIGHT", themes: filteredLight)
+                        if filteredDark.isEmpty && filteredLight.isEmpty && !search.isEmpty {
+                            emptyState
+                        }
                     }
-                    themeSection(title: "LIGHT", themes: filteredLight)
-                    if filteredDark.isEmpty && filteredLight.isEmpty && !search.isEmpty {
-                        emptyState
+                    .padding(.vertical, 4)
+                }
+                .onChange(of: selection) { _, newID in
+                    withAnimation(.easeOut(duration: 0.15)) {
+                        proxy.scrollTo(newID, anchor: .center)
                     }
                 }
-                .padding(.vertical, 4)
             }
         }
+        .focusable()
+        .focusEffectDisabled()
+        .onKeyPress(.upArrow) { moveSelection(by: -1); return .handled }
+        .onKeyPress(.downArrow) { moveSelection(by: 1); return .handled }
         .frame(height: 280)
         .background(Color(nsColor: .controlBackgroundColor))
         .clipShape(RoundedRectangle(cornerRadius: 6))
@@ -35,6 +46,23 @@ struct ThemeBrowser: View {
             RoundedRectangle(cornerRadius: 6)
                 .stroke(Color(nsColor: .separatorColor), lineWidth: 0.5)
         )
+    }
+
+    // MARK: - Keyboard navigation
+
+    private var allVisibleThemes: [ThemePreview] {
+        [ThemePreview.hexed] + filteredDark + filteredLight
+    }
+
+    private func moveSelection(by offset: Int) {
+        let themes = allVisibleThemes
+        guard !themes.isEmpty else { return }
+        guard let idx = themes.firstIndex(where: { $0.id == selection }) else {
+            selection = themes.first!.id
+            return
+        }
+        let newIdx = min(max(idx + offset, 0), themes.count - 1)
+        selection = themes[newIdx].id
     }
 
     // MARK: - Search
@@ -118,9 +146,10 @@ struct ThemeBrowser: View {
         .background(
             RoundedRectangle(cornerRadius: 4)
                 .fill(isSelected ? Color.accentColor.opacity(0.12)
-                      : isHovered ? Color(nsColor: .controlBackgroundColor).opacity(0.5)
+                      : isHovered ? Color.primary.opacity(0.06)
                       : .clear)
         )
+        .id(theme.id)
         .contentShape(Rectangle())
         .onTapGesture { selection = theme.id }
         .onHover { hovering in hoveredID = hovering ? theme.id : nil }
@@ -139,11 +168,12 @@ struct ThemeBrowser: View {
     }
 
     private func swatchCircle(_ rgb: RGB) -> some View {
-        Circle()
+        RoundedRectangle(cornerRadius: 3)
             .fill(Palette.color(rgb))
             .frame(width: 12, height: 12)
             .overlay(
-                Circle().stroke(Color(nsColor: .separatorColor), lineWidth: 0.5)
+                RoundedRectangle(cornerRadius: 3)
+                    .stroke(Color(nsColor: .separatorColor), lineWidth: 0.5)
             )
     }
 
