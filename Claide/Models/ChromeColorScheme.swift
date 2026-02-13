@@ -1,16 +1,20 @@
-// ABOUTME: Chrome color scheme presets for UI theming (window, panes, dividers).
-// ABOUTME: Defines FG/BG and 16 ANSI colors per named preset.
+// ABOUTME: Color scheme presets for UI chrome and terminal content theming.
+// ABOUTME: Defines FG/BG, 16 ANSI colors, and Ghostty theme mapping per named preset.
 
 import Foundation
 
-/// Named color scheme preset used to style application chrome (window appearance,
-/// pane title bars, dividers). Terminal content colors are managed by Ghostty's config.
+/// Named color scheme preset used to style both application chrome (window appearance,
+/// pane title bars, dividers) and terminal content (via Ghostty's theme system).
 struct ChromeColorScheme: Identifiable, Hashable {
     let id: String
     let name: String
     let ansi: [RGB]         // 16 ANSI colors (indices 0-15)
     let foreground: RGB
     let background: RGB
+
+    /// Ghostty built-in theme name matching this scheme.
+    /// nil means no match — terminal colors are set via individual palette/fg/bg keys.
+    var ghosttyThemeName: String? = nil
 
     static let builtIn: [ChromeColorScheme] = [
         .hexed,
@@ -82,7 +86,8 @@ struct ChromeColorScheme: Identifiable, Hashable {
             RGB(0xff, 0xff, 0xff), // Bright White
         ],
         foreground: RGB(0xf8, 0xf8, 0xf2),
-        background: RGB(0x28, 0x2a, 0x36)
+        background: RGB(0x28, 0x2a, 0x36),
+        ghosttyThemeName: "Dracula"
     )
 
     // MARK: - Nord
@@ -109,7 +114,8 @@ struct ChromeColorScheme: Identifiable, Hashable {
             RGB(0xec, 0xef, 0xf4), // Bright White
         ],
         foreground: RGB(0xd8, 0xde, 0xe9),
-        background: RGB(0x2e, 0x34, 0x40)
+        background: RGB(0x2e, 0x34, 0x40),
+        ghosttyThemeName: "Nord"
     )
 
     // MARK: - Catppuccin Frappe
@@ -136,7 +142,8 @@ struct ChromeColorScheme: Identifiable, Hashable {
             RGB(0xa5, 0xad, 0xce), // Bright White (Subtext 0)
         ],
         foreground: RGB(0xc6, 0xd0, 0xf5),
-        background: RGB(0x30, 0x34, 0x46)
+        background: RGB(0x30, 0x34, 0x46),
+        ghosttyThemeName: "Catppuccin Frappe"
     )
 
     // MARK: - One Dark
@@ -163,7 +170,8 @@ struct ChromeColorScheme: Identifiable, Hashable {
             RGB(0xff, 0xff, 0xff), // Bright White
         ],
         foreground: RGB(0xab, 0xb2, 0xbf),
-        background: RGB(0x28, 0x2c, 0x34)
+        background: RGB(0x28, 0x2c, 0x34),
+        ghosttyThemeName: "Atom One Dark"
     )
 
     // MARK: - Gruvbox Dark
@@ -190,7 +198,8 @@ struct ChromeColorScheme: Identifiable, Hashable {
             RGB(0xeb, 0xdb, 0xb2), // Bright White (fg1)
         ],
         foreground: RGB(0xeb, 0xdb, 0xb2),
-        background: RGB(0x28, 0x28, 0x28)
+        background: RGB(0x28, 0x28, 0x28),
+        ghosttyThemeName: "Gruvbox Dark"
     )
 
     // MARK: - Tokyo Night
@@ -217,7 +226,8 @@ struct ChromeColorScheme: Identifiable, Hashable {
             RGB(0xc0, 0xca, 0xf5), // Bright White
         ],
         foreground: RGB(0xa9, 0xb1, 0xd6),
-        background: RGB(0x1a, 0x1b, 0x26)
+        background: RGB(0x1a, 0x1b, 0x26),
+        ghosttyThemeName: "TokyoNight Night"
     )
 
     // MARK: - Solarized Dark
