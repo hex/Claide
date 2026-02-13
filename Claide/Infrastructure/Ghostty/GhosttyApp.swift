@@ -105,6 +105,7 @@ final class GhosttyApp {
         // Load default config from ~/.config/ghostty/config if it exists
         ghostty_config_load_default_files(config)
         ghostty_config_load_recursive_files(config)
+        applySettingsOverrides(config)
         ghostty_config_finalize(config)
 
         // Read terminal colors from finalized config so chrome matches.
@@ -148,6 +149,7 @@ final class GhosttyApp {
             name: NSTextInputContext.keyboardSelectionDidChangeNotification,
             object: nil
         )
+        observeGhosttySettings()
     }
 
     @objc private func keyboardLayoutChanged(_ notification: Notification) {
@@ -160,6 +162,70 @@ final class GhosttyApp {
             ghostty_app_free(app)
         }
         self.app = nil
+    }
+
+    // MARK: - Settings Bridge
+
+    /// Push a key-value pair into a Ghostty config object before finalization.
+    private func configSet(_ config: ghostty_config_t, key: String, value: String) {
+        key.withCString { keyPtr in
+            value.withCString { valPtr in
+                ghostty_config_set(config, keyPtr, UInt(key.utf8.count), valPtr, UInt(value.utf8.count))
+            }
+        }
+    }
+
+    /// Apply UserDefaults overrides to a Ghostty config (before finalize).
+    private func applySettingsOverrides(_ config: ghostty_config_t) {
+        let defaults = UserDefaults.standard
+
+        let fontFamily = defaults.string(forKey: "fontFamily") ?? ""
+        if !fontFamily.isEmpty {
+            configSet(config, key: "font-family", value: "")        // Reset RepeatableString
+            configSet(config, key: "font-family", value: fontFamily)
+        }
+
+        let fontSize = defaults.double(forKey: "terminalFontSize")
+        if fontSize > 0 {
+            configSet(config, key: "font-size", value: String(Int(fontSize)))
+        }
+
+        let scrollback = defaults.integer(forKey: "scrollbackLines")
+        if scrollback > 0 {
+            configSet(config, key: "scrollback-limit", value: String(scrollback))
+        }
+
+        if defaults.object(forKey: "copyOnSelect") != nil {
+            let copyOnSelect = defaults.bool(forKey: "copyOnSelect")
+            configSet(config, key: "copy-on-select", value: copyOnSelect ? "true" : "false")
+        }
+    }
+
+    /// Rebuild the full config from disk + UserDefaults and push to Ghostty.
+    func reloadConfig() {
+        guard let app else { return }
+        guard let config = ghostty_config_new() else { return }
+
+        ghostty_config_load_default_files(config)
+        ghostty_config_load_recursive_files(config)
+        applySettingsOverrides(config)
+        ghostty_config_finalize(config)
+
+        readConfigColors(config)
+        ghostty_app_update_config(app, config)
+        // ghostty_app_update_config takes ownership — do NOT free config
+    }
+
+    private var settingsObservation: Any?
+
+    private func observeGhosttySettings() {
+        settingsObservation = NotificationCenter.default.addObserver(
+            forName: UserDefaults.didChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.reloadConfig()
+        }
     }
 
     // MARK: - Config Colors

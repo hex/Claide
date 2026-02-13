@@ -85,7 +85,14 @@ final class TerminalTabManager {
         setupPane(paneID: initialID, controller: controller, view: view, viewModel: vm, directory: directory, environment: environment)
 
         let tab = Tab(id: UUID(), paneController: controller, paneViewModels: [initialID: vm])
-        tabs.append(tab)
+        let position = UserDefaults.standard.string(forKey: "newTabPosition") ?? "end"
+        if position == "afterCurrent",
+           let activeID = activeTabID,
+           let activeIndex = tabs.firstIndex(where: { $0.id == activeID }) {
+            tabs.insert(tab, at: activeIndex + 1)
+        } else {
+            tabs.append(tab)
+        }
         activeTabID = tab.id
         updateOcclusion()
 
@@ -349,9 +356,19 @@ final class TerminalTabManager {
             viewModel?.processTerminated(exitCode: code)
         }
         view.onBell = {
-            NSSound.beep()
-            if !NSApp.isActive {
-                NSApp.requestUserAttention(.informationalRequest)
+            let bellStyle = UserDefaults.standard.string(forKey: "bellStyle") ?? "visual"
+            switch bellStyle {
+            case "none":
+                break
+            case "audio":
+                NSSound.beep()
+                if !NSApp.isActive {
+                    NSApp.requestUserAttention(.informationalRequest)
+                }
+            default: // "visual"
+                if !NSApp.isActive {
+                    NSApp.requestUserAttention(.informationalRequest)
+                }
             }
         }
         view.onProgressReport = { [weak viewModel] state, progress in

@@ -91,6 +91,19 @@ final class MainWindowController: NSWindowController, NSWindowDelegate {
 
     // MARK: - NSWindowDelegate
 
+    func windowShouldClose(_ sender: NSWindow) -> Bool {
+        guard UserDefaults.standard.bool(forKey: "confirmBeforeClosing") else {
+            return true
+        }
+        let alert = NSAlert()
+        alert.messageText = "Close Window?"
+        alert.informativeText = "Running processes may be terminated."
+        alert.addButton(withTitle: "Close")
+        alert.addButton(withTitle: "Cancel")
+        alert.alertStyle = .warning
+        return alert.runModal() == .alertFirstButtonReturn
+    }
+
     func windowDidEnterFullScreen(_ notification: Notification) {
         guard let window else { return }
         negateTitleBarSafeArea(window)

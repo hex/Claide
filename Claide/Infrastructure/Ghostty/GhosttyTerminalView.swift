@@ -470,6 +470,10 @@ final class GhosttyTerminalView: NSView {
     }
 
     override func rightMouseDown(with event: NSEvent) {
+        if UserDefaults.standard.bool(forKey: "pasteOnRightClick") {
+            _ = bindingAction("paste_from_clipboard")
+            return
+        }
         guard let surface else { return }
         let mods = ghosttyMods(from: event.modifierFlags)
         _ = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_RIGHT, mods)

@@ -72,6 +72,20 @@ fi
 
 echo "Ghostty at $(git rev-parse --short HEAD)"
 
+# --- Apply patches ---
+
+PATCHES_DIR="$PROJECT_DIR/tools/patches"
+if [ -d "$PATCHES_DIR" ] && ls "$PATCHES_DIR"/*.patch &>/dev/null; then
+    for patch in "$PATCHES_DIR"/*.patch; do
+        if ! git apply --check "$patch" 2>/dev/null; then
+            echo "Patch already applied: $(basename "$patch")"
+        else
+            echo "Applying patch: $(basename "$patch")"
+            git apply "$patch"
+        fi
+    done
+fi
+
 # --- Build ---
 
 if [ "$CLEAN" = true ]; then

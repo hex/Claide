@@ -64,8 +64,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
-        // Keep app alive when hotkey window is enabled — it runs without visible windows
-        !UserDefaults.standard.bool(forKey: "hotkeyEnabled")
+        if UserDefaults.standard.bool(forKey: "hotkeyEnabled") {
+            return false
+        }
+        return UserDefaults.standard.bool(forKey: "quitWhenLastWindowCloses")
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {

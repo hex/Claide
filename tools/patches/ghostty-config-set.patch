@@ -1,0 +1,43 @@
+diff --git i/include/ghostty.h w/include/ghostty.h
+index 3f1e0c9d9..fd486c662 100644
+--- i/include/ghostty.h
++++ w/include/ghostty.h
+@@ -901,6 +901,7 @@ void ghostty_config_load_cli_args(ghostty_config_t);
+ void ghostty_config_load_default_files(ghostty_config_t);
+ void ghostty_config_load_recursive_files(ghostty_config_t);
+ void ghostty_config_finalize(ghostty_config_t);
++bool ghostty_config_set(ghostty_config_t, const char*, uintptr_t, const char*, uintptr_t);
+ bool ghostty_config_get(ghostty_config_t, void*, const char*, uintptr_t);
+ ghostty_input_trigger_s ghostty_config_trigger(ghostty_config_t,
+                                                const char*,
+diff --git i/src/config/CApi.zig w/src/config/CApi.zig
+index bdc59797a..d5e58fdf7 100644
+--- i/src/config/CApi.zig
++++ w/src/config/CApi.zig
+@@ -82,6 +82,26 @@ export fn ghostty_config_finalize(self: *Config) void {
+     };
+ }
+ 
++/// Set an individual config key-value pair. Uses the same parser as config
++/// files and CLI args. Returns true on success, false on parse error.
++export fn ghostty_config_set(
++    self: *Config,
++    key_str: [*]const u8,
++    key_len: usize,
++    value_str: [*]const u8,
++    value_len: usize,
++) bool {
++    @setEvalBranchQuota(10_000);
++    const key = key_str[0..key_len];
++    const value: ?[]const u8 = if (value_len > 0) value_str[0..value_len] else null;
++    const alloc = self.arenaAlloc();
++    cli.args.parseIntoField(Config, alloc, self, key, value) catch |err| {
++        log.err("error setting config key={s} err={}", .{ key, err });
++        return false;
++    };
++    return true;
++}
++
+ export fn ghostty_config_get(
+     self: *Config,
+     ptr: *anyopaque,
