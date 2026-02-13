@@ -343,7 +343,6 @@ private struct MiddleClickHandler: NSViewRepresentable {
 /// SF Symbol icon for the running process, tinted with a recognizable brand color.
 private struct ProcessIcon: View {
     let path: String?
-    let isRunning: Bool
     var colorOverride: Color?
 
     private enum IconSource {
@@ -357,15 +356,11 @@ private struct ProcessIcon: View {
             Image(systemName: symbol)
                 .font(.system(size: 13, weight: .medium))
                 .foregroundStyle(colorOverride ?? color)
-                .frame(width: 16, height: 16)
-                .opacity(isRunning ? 1.0 : 0.4)
-        case .appIcon(let nsImage):
+                .frame(width: 16, height: 16)        case .appIcon(let nsImage):
             Image(nsImage: nsImage)
                 .resizable()
                 .aspectRatio(contentMode: .fit)
-                .frame(width: 16, height: 16)
-                .opacity(isRunning ? 1.0 : 0.4)
-        }
+                .frame(width: 16, height: 16)        }
     }
 
     private static func lookup(_ path: String?) -> IconSource {
@@ -672,7 +667,6 @@ private struct TabButton: View {
                 ZStack {
                     ProcessIcon(
                         path: executablePath,
-                        isRunning: isRunning,
                         colorOverride: !isActive ? inactiveColor : nil
                     )
                     .opacity(showIndex && index <= 9 ? 0 : 1)
