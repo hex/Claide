@@ -520,6 +520,8 @@ private struct ProcessIcon: View {
         // Monitoring
         "top":        ("chart.bar",       Color(hex: 0x00AEFF)),
         "htop":       ("chart.bar",       Color(hex: 0x00AEFF)),
+        "btop":       ("chart.bar",       Color(hex: 0x00AEFF)),
+        "mactop":     ("chart.bar",       Color(hex: 0x00AEFF)),
         // Multiplexers
         "tmux":       ("rectangle.split.3x1", Color(hex: 0x1BB91F)),
         "screen":     ("rectangle.split.3x1", Color(hex: 0xAAAAAA)),
