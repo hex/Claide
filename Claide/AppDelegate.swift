@@ -2,6 +2,7 @@
 // ABOUTME: Creates new windows with Cmd+N, each with its own tab manager.
 
 import AppKit
+import UserNotifications
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
@@ -52,6 +53,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         installKeyMonitor()
         setupHotkeyWindow()
         observeHotkeySettings()
+        requestNotificationPermission()
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -71,6 +73,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             createNewWindow()
         }
         return true
+    }
+
+    // MARK: - Notifications
+
+    private func requestNotificationPermission() {
+        UNUserNotificationCenter.current().requestAuthorization(
+            options: [.alert, .sound]
+        ) { _, _ in }
     }
 
     // MARK: - Window Management

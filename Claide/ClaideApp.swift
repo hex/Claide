@@ -27,8 +27,6 @@ struct ClaideApp: App {
             "quitWhenLastWindowCloses": false,
             "bellStyle": "visual",
             // Terminal
-            "cursorStyle": "bar",
-            "cursorBlink": true,
             "copyOnSelect": false,
             "pasteOnRightClick": false,
             // Appearance

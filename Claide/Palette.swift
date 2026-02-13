@@ -38,11 +38,6 @@ extension RGB {
     static let border    = RGB(46, 51, 61)
     static let edgeMuted = RGB(77, 84, 97)
 
-    // -- Terminal chrome --
-    static let cursor     = RGB(234, 234, 234)
-    static let cursorText = RGB(52, 55, 68)
-    static let selection  = RGB(131, 74, 136)
-
     // -- Hexed ANSI (bright/neon, for terminal) --
     static let black       = RGB(0, 0, 0)
     static let red         = RGB(255, 92, 87)

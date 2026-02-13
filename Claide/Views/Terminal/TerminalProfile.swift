@@ -1,5 +1,5 @@
 // ABOUTME: Named terminal configuration profiles for per-tab/pane customization.
-// ABOUTME: Captures shell, directory, color scheme, font, and cursor settings.
+// ABOUTME: Captures shell, directory, color scheme, and font settings.
 
 import Foundation
 
@@ -14,9 +14,6 @@ struct TerminalProfile: Codable, Equatable {
     var colorScheme: String?
     var fontFamily: String?
     var fontSize: Double?
-    var cursorStyle: String?
-    var cursorBlink: Bool?
-
     /// The built-in profile that inherits all settings from UserDefaults.
     static let `default` = TerminalProfile(name: "Default")
 
@@ -50,15 +47,6 @@ struct TerminalProfile: Codable, Equatable {
         }()
     }
 
-    /// Resolve the effective cursor style.
-    var resolvedCursorStyle: String {
-        cursorStyle ?? UserDefaults.standard.string(forKey: "cursorStyle") ?? "bar"
-    }
-
-    /// Resolve whether cursor blink is enabled.
-    var resolvedCursorBlink: Bool {
-        cursorBlink ?? UserDefaults.standard.object(forKey: "cursorBlink") as? Bool ?? true
-    }
 }
 
 // MARK: - Profile Storage

@@ -1,5 +1,5 @@
 // ABOUTME: Chrome color scheme presets for UI theming (window, panes, dividers).
-// ABOUTME: Defines FG/BG, cursor, selection, and 16 ANSI colors per named preset.
+// ABOUTME: Defines FG/BG and 16 ANSI colors per named preset.
 
 import Foundation
 
@@ -11,9 +11,6 @@ struct ChromeColorScheme: Identifiable, Hashable {
     let ansi: [RGB]         // 16 ANSI colors (indices 0-15)
     let foreground: RGB
     let background: RGB
-    let cursor: RGB
-    let cursorText: RGB
-    let selection: RGB
 
     static let builtIn: [ChromeColorScheme] = [
         .hexed,
@@ -58,10 +55,7 @@ struct ChromeColorScheme: Identifiable, Hashable {
             RGB(0xef, 0xf0, 0xeb), // Bright White
         ],
         foreground: RGB(0xef, 0xf0, 0xeb),
-        background: RGB(0x15, 0x17, 0x28),
-        cursor: RGB(0xea, 0xea, 0xea),
-        cursorText: RGB(0x34, 0x37, 0x44),
-        selection: RGB(0x83, 0x4a, 0x88)
+        background: RGB(0x15, 0x17, 0x28)
     )
 
     // MARK: - Dracula
@@ -88,10 +82,7 @@ struct ChromeColorScheme: Identifiable, Hashable {
             RGB(0xff, 0xff, 0xff), // Bright White
         ],
         foreground: RGB(0xf8, 0xf8, 0xf2),
-        background: RGB(0x28, 0x2a, 0x36),
-        cursor: RGB(0xf8, 0xf8, 0xf2),
-        cursorText: RGB(0x28, 0x2a, 0x36),
-        selection: RGB(0x44, 0x47, 0x5a)
+        background: RGB(0x28, 0x2a, 0x36)
     )
 
     // MARK: - Nord
@@ -118,10 +109,7 @@ struct ChromeColorScheme: Identifiable, Hashable {
             RGB(0xec, 0xef, 0xf4), // Bright White
         ],
         foreground: RGB(0xd8, 0xde, 0xe9),
-        background: RGB(0x2e, 0x34, 0x40),
-        cursor: RGB(0xd8, 0xde, 0xe9),
-        cursorText: RGB(0x2e, 0x34, 0x40),
-        selection: RGB(0x43, 0x4c, 0x5e)
+        background: RGB(0x2e, 0x34, 0x40)
     )
 
     // MARK: - Catppuccin Frappe
@@ -148,10 +136,7 @@ struct ChromeColorScheme: Identifiable, Hashable {
             RGB(0xa5, 0xad, 0xce), // Bright White (Subtext 0)
         ],
         foreground: RGB(0xc6, 0xd0, 0xf5),
-        background: RGB(0x30, 0x34, 0x46),
-        cursor: RGB(0xf2, 0xd5, 0xcf),
-        cursorText: RGB(0x30, 0x34, 0x46),
-        selection: RGB(0x41, 0x45, 0x59)
+        background: RGB(0x30, 0x34, 0x46)
     )
 
     // MARK: - One Dark
@@ -178,10 +163,7 @@ struct ChromeColorScheme: Identifiable, Hashable {
             RGB(0xff, 0xff, 0xff), // Bright White
         ],
         foreground: RGB(0xab, 0xb2, 0xbf),
-        background: RGB(0x28, 0x2c, 0x34),
-        cursor: RGB(0x52, 0x8b, 0xff),
-        cursorText: RGB(0x28, 0x2c, 0x34),
-        selection: RGB(0x3e, 0x44, 0x51)
+        background: RGB(0x28, 0x2c, 0x34)
     )
 
     // MARK: - Gruvbox Dark
@@ -208,10 +190,7 @@ struct ChromeColorScheme: Identifiable, Hashable {
             RGB(0xeb, 0xdb, 0xb2), // Bright White (fg1)
         ],
         foreground: RGB(0xeb, 0xdb, 0xb2),
-        background: RGB(0x28, 0x28, 0x28),
-        cursor: RGB(0xeb, 0xdb, 0xb2),
-        cursorText: RGB(0x28, 0x28, 0x28),
-        selection: RGB(0x50, 0x49, 0x45)
+        background: RGB(0x28, 0x28, 0x28)
     )
 
     // MARK: - Tokyo Night
@@ -238,10 +217,7 @@ struct ChromeColorScheme: Identifiable, Hashable {
             RGB(0xc0, 0xca, 0xf5), // Bright White
         ],
         foreground: RGB(0xa9, 0xb1, 0xd6),
-        background: RGB(0x1a, 0x1b, 0x26),
-        cursor: RGB(0xc0, 0xca, 0xf5),
-        cursorText: RGB(0x1a, 0x1b, 0x26),
-        selection: RGB(0x28, 0x2d, 0x42)
+        background: RGB(0x1a, 0x1b, 0x26)
     )
 
     // MARK: - Solarized Dark
@@ -268,10 +244,7 @@ struct ChromeColorScheme: Identifiable, Hashable {
             RGB(0xfd, 0xf6, 0xe3), // Bright White (base3)
         ],
         foreground: RGB(0x83, 0x94, 0x96),
-        background: RGB(0x00, 0x2b, 0x36),
-        cursor: RGB(0x83, 0x94, 0x96),
-        cursorText: RGB(0x00, 0x2b, 0x36),
-        selection: RGB(0x07, 0x36, 0x42)
+        background: RGB(0x00, 0x2b, 0x36)
     )
 
     // MARK: - Solarized Light
@@ -298,9 +271,6 @@ struct ChromeColorScheme: Identifiable, Hashable {
             RGB(0x00, 0x2b, 0x36), // Bright White (base03)
         ],
         foreground: RGB(0x65, 0x7b, 0x83),
-        background: RGB(0xfd, 0xf6, 0xe3),
-        cursor: RGB(0x65, 0x7b, 0x83),
-        cursorText: RGB(0xfd, 0xf6, 0xe3),
-        selection: RGB(0xee, 0xe8, 0xd5)
+        background: RGB(0xfd, 0xf6, 0xe3)
     )
 }

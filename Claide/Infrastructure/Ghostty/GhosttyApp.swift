@@ -35,6 +35,15 @@ private func ghosttyReadClipboardCallback(
     GhosttyApp.readClipboard(userdata, location: location, state: state)
 }
 
+private func ghosttyConfirmReadClipboardCallback(
+    _ userdata: UnsafeMutableRawPointer?,
+    _ str: UnsafePointer<CChar>?,
+    _ state: UnsafeMutableRawPointer?,
+    _ request: ghostty_clipboard_request_e
+) {
+    GhosttyApp.confirmReadClipboard(userdata, str: str, state: state, request: request)
+}
+
 private func ghosttyWriteClipboardCallback(
     _ userdata: UnsafeMutableRawPointer?,
     _ string: UnsafePointer<CChar>?,
@@ -119,7 +128,7 @@ final class GhosttyApp {
             wakeup_cb: ghosttyWakeupCallback,
             action_cb: ghosttyActionCallback,
             read_clipboard_cb: ghosttyReadClipboardCallback,
-            confirm_read_clipboard_cb: nil,
+            confirm_read_clipboard_cb: ghosttyConfirmReadClipboardCallback,
             write_clipboard_cb: ghosttyWriteClipboardCallback,
             close_surface_cb: ghosttyCloseSurfaceCallback
         )
@@ -344,6 +353,58 @@ final class GhosttyApp {
         let str = pasteboard.string(forType: .string) ?? ""
         str.withCString { ptr in
             ghostty_surface_complete_clipboard_request(surface, ptr, state, false)
+        }
+    }
+
+    fileprivate nonisolated static func confirmReadClipboard(
+        _ userdata: UnsafeMutableRawPointer?,
+        str: UnsafePointer<CChar>?,
+        state: UnsafeMutableRawPointer?,
+        request: ghostty_clipboard_request_e
+    ) {
+        guard let userdata, let str else { return }
+        let view = Unmanaged<GhosttyTerminalView>.fromOpaque(userdata).takeUnretainedValue()
+        let contents = String(cString: str)
+
+        // Wrap the opaque pointer so it can cross the isolation boundary.
+        // The pointer is owned by Ghostty and valid until we call complete.
+        nonisolated(unsafe) let sendableState = state
+
+        DispatchQueue.main.async {
+            guard let surface = view.surface else { return }
+            guard let window = view.window else {
+                "".withCString { ptr in
+                    ghostty_surface_complete_clipboard_request(surface, ptr, sendableState, false)
+                }
+                return
+            }
+
+            let alert = NSAlert()
+            switch request {
+            case GHOSTTY_CLIPBOARD_REQUEST_PASTE:
+                alert.messageText = "Confirm Paste"
+                alert.informativeText = "A program wants to paste the following content:\n\n\(contents.prefix(500))"
+            case GHOSTTY_CLIPBOARD_REQUEST_OSC_52_READ:
+                alert.messageText = "Clipboard Access"
+                alert.informativeText = "A program wants to read your clipboard:\n\n\(contents.prefix(500))"
+            case GHOSTTY_CLIPBOARD_REQUEST_OSC_52_WRITE:
+                alert.messageText = "Clipboard Write"
+                alert.informativeText = "A program wants to write to your clipboard:\n\n\(contents.prefix(500))"
+            default:
+                alert.messageText = "Clipboard Access"
+                alert.informativeText = "A program wants to access your clipboard."
+            }
+            alert.addButton(withTitle: "Allow")
+            alert.addButton(withTitle: "Deny")
+            alert.alertStyle = .warning
+
+            alert.beginSheetModal(for: window) { response in
+                let confirmed = response == .alertFirstButtonReturn
+                let data = confirmed ? contents : ""
+                data.withCString { ptr in
+                    ghostty_surface_complete_clipboard_request(surface, ptr, sendableState, confirmed)
+                }
+            }
         }
     }
 
