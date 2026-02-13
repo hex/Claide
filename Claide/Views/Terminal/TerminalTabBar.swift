@@ -534,12 +534,20 @@ private struct TabButton: View {
                 // Close button visible on hover; icon always present.
                 // ZStack keeps the icon fixed while close button appears alongside.
                 ZStack {
-                    ProcessIcon(
-                        path: executablePath,
-                        isRunning: isRunning,
-                        colorOverride: !isActive ? inactiveColor : nil
-                    )
-                    .opacity(showIndex && index <= 9 ? 0 : 1)
+                    if isRunning {
+                        ProgressView()
+                            .controlSize(.small)
+                            .tint(isActive ? Theme.textPrimary : inactiveColor)
+                            .frame(width: 16, height: 16)
+                            .opacity(showIndex && index <= 9 ? 0 : 1)
+                    } else {
+                        ProcessIcon(
+                            path: executablePath,
+                            isRunning: isRunning,
+                            colorOverride: !isActive ? inactiveColor : nil
+                        )
+                        .opacity(showIndex && index <= 9 ? 0 : 1)
+                    }
 
                     if index <= 9 {
                         Text("\(index)")

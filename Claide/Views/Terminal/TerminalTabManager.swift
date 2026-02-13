@@ -311,8 +311,23 @@ final class TerminalTabManager {
             env.append(("SHELL", shell))
         }
 
+        let pidsBefore = Self.childPids()
         view.startShell(environment: env, directory: directory)
         viewModel.processStarted(executable: shell, args: [])
+
+        // Detect the shell PID by diffing Claide's children before/after spawn.
+        // Once found, foreground tracking polls the shell's children to detect
+        // when a command is actively running (shows spinner in the tab bar).
+        Task { @MainActor [weak viewModel] in
+            for _ in 0..<10 {
+                try? await Task.sleep(for: .milliseconds(100))
+                let newPids = Self.childPids().subtracting(pidsBefore)
+                if let shellPid = newPids.first {
+                    viewModel?.startTrackingForeground(shellPid: shellPid)
+                    return
+                }
+            }
+        }
 
         view.onTitle = { [weak viewModel, weak controller] title in
             viewModel?.titleChanged(title)
@@ -392,6 +407,15 @@ final class TerminalTabManager {
     }
 
     // MARK: - Environment
+
+    /// Snapshot of Claide's direct child PIDs (used to detect newly forked shells).
+    private static func childPids() -> Set<pid_t> {
+        var pids = [pid_t](repeating: 0, count: 256)
+        let byteSize = Int32(pids.count * MemoryLayout<pid_t>.size)
+        let count = Int(proc_listchildpids(getpid(), &pids, byteSize))
+        guard count > 0 else { return [] }
+        return Set(pids.prefix(count))
+    }
 
     static func buildEnvironment() -> [(String, String)] {
         var env: [(String, String)] = []

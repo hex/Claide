@@ -81,7 +81,6 @@ final class TerminalViewModel {
     private var trackingTask: Task<Void, Never>?
 
     func processStarted(executable: String, args: [String]) {
-        isRunning = true
         executablePath = executable
         shellExecutable = executable
         let name = (executable as NSString).lastPathComponent
@@ -153,6 +152,10 @@ final class TerminalViewModel {
     private func updateForeground() {
         guard shellPid > 0 else { return }
         let childPath = Self.foregroundChildExecutable(of: shellPid)
+        let commandRunning = childPath != nil
+        if commandRunning != isRunning {
+            isRunning = commandRunning
+        }
         let newPath = childPath ?? shellExecutable
         if newPath != executablePath {
             executablePath = newPath
