@@ -2,8 +2,10 @@
 // ABOUTME: Creates config, registers runtime callbacks, and routes actions to surfaces.
 
 import AppKit
+import Carbon.HIToolbox
 import GhosttyKit
 import os
+import UserNotifications
 
 // Free functions used as C callbacks — must not be @MainActor-isolated.
 // Swift closures defined inside @MainActor methods inherit that isolation,
@@ -233,6 +235,59 @@ final class GhosttyApp {
                 // Terminal-initiated color change (e.g. OSC 10/11)
                 return true
 
+            case GHOSTTY_ACTION_DESKTOP_NOTIFICATION:
+                let notification = action.action.desktop_notification
+                let title = String(cString: notification.title)
+                let body = String(cString: notification.body)
+                DispatchQueue.main.async {
+                    GhosttyApp.postDesktopNotification(title: title, body: body)
+                }
+                return true
+
+            case GHOSTTY_ACTION_OPEN_URL:
+                let openUrl = action.action.open_url
+                let raw = UnsafeRawBufferPointer(
+                    start: openUrl.url,
+                    count: Int(openUrl.len)
+                )
+                let urlString = String(bytes: raw, encoding: .utf8)
+                if let urlString, let url = URL(string: urlString) {
+                    DispatchQueue.main.async { NSWorkspace.shared.open(url) }
+                }
+                return true
+
+            case GHOSTTY_ACTION_MOUSE_OVER_LINK:
+                let link = action.action.mouse_over_link
+                let hasUrl = link.len > 0
+                DispatchQueue.main.async {
+                    if hasUrl {
+                        NSCursor.pointingHand.set()
+                    } else {
+                        NSCursor.iBeam.set()
+                    }
+                }
+                return true
+
+            case GHOSTTY_ACTION_SECURE_INPUT:
+                let mode = action.action.secure_input
+                DispatchQueue.main.async {
+                    switch mode {
+                    case GHOSTTY_SECURE_INPUT_ON:
+                        EnableSecureEventInput()
+                    case GHOSTTY_SECURE_INPUT_OFF:
+                        DisableSecureEventInput()
+                    case GHOSTTY_SECURE_INPUT_TOGGLE:
+                        if IsSecureEventInputEnabled() {
+                            DisableSecureEventInput()
+                        } else {
+                            EnableSecureEventInput()
+                        }
+                    default:
+                        break
+                    }
+                }
+                return true
+
             default:
                 return false
             }
@@ -246,9 +301,29 @@ final class GhosttyApp {
              GHOSTTY_ACTION_NEW_SPLIT:
             return true
 
+        case GHOSTTY_ACTION_CONFIG_CHANGE:
+            // Ghostty reloaded its config; acknowledged but no action needed.
+            // The embedded runtime manages config internally.
+            return true
+
         default:
             return false
         }
+    }
+
+    // MARK: - Desktop Notifications
+
+    private static func postDesktopNotification(title: String, body: String) {
+        let content = UNMutableNotificationContent()
+        content.title = title
+        content.body = body
+
+        let request = UNNotificationRequest(
+            identifier: UUID().uuidString,
+            content: content,
+            trigger: nil
+        )
+        UNUserNotificationCenter.current().add(request)
     }
 
     // MARK: - Clipboard Callbacks
