@@ -316,17 +316,26 @@ final class TerminalTabManager {
         viewModel.processStarted(executable: shell, args: [])
 
         // Detect the shell PID by diffing Claide's children before/after spawn.
+        // The direct child may be login(1), which wraps the actual shell, so we
+        // walk the child tree to find the process matching our target shell.
         // Once found, foreground tracking polls the shell's children to detect
         // when a command is actively running (shows spinner in the tab bar).
         Task { @MainActor [weak viewModel] in
+            var directChild: pid_t?
             for _ in 0..<10 {
                 try? await Task.sleep(for: .milliseconds(100))
                 let newPids = Self.childPids().subtracting(pidsBefore)
-                if let shellPid = newPids.first {
-                    viewModel?.startTrackingForeground(shellPid: shellPid)
-                    return
+                if let pid = newPids.first {
+                    directChild = pid
+                    break
                 }
             }
+            guard let directChild else { return }
+
+            // Wait for the login -> shell chain to establish
+            try? await Task.sleep(for: .milliseconds(300))
+            let shellPid = Self.resolveShellPid(from: directChild, shell: shell)
+            viewModel?.startTrackingForeground(shellPid: shellPid)
         }
 
         view.onTitle = { [weak viewModel, weak controller] title in
@@ -415,6 +424,32 @@ final class TerminalTabManager {
         let count = Int(proc_listchildpids(getpid(), &pids, byteSize))
         guard count > 0 else { return [] }
         return Set(pids.prefix(count))
+    }
+
+    /// Walk from a direct child PID (often login(1)) to find the actual shell.
+    /// Matches by executable name since login may wrap the shell as a child process.
+    private static func resolveShellPid(from pid: pid_t, shell: String) -> pid_t {
+        let shellName = (shell as NSString).lastPathComponent
+
+        // Check if this process IS the shell
+        if let path = TerminalViewModel.executablePath(for: pid),
+           (path as NSString).lastPathComponent == shellName {
+            return pid
+        }
+
+        // Check one level of children for the shell
+        var children = [pid_t](repeating: 0, count: 16)
+        let byteSize = Int32(children.count * MemoryLayout<pid_t>.size)
+        let count = Int(proc_listchildpids(pid, &children, byteSize))
+        for child in children.prefix(max(count, 0)) {
+            if let path = TerminalViewModel.executablePath(for: child),
+               (path as NSString).lastPathComponent == shellName {
+                return child
+            }
+        }
+
+        // Fallback: use the direct child (best effort)
+        return pid
     }
 
     static func buildEnvironment() -> [(String, String)] {
