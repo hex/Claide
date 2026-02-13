@@ -1,10 +1,11 @@
-// ABOUTME: Terminal color scheme model with built-in presets.
-// ABOUTME: Defines 16 ANSI colors, FG/BG, cursor, and selection colors per scheme.
+// ABOUTME: Chrome color scheme presets for UI theming (window, panes, dividers).
+// ABOUTME: Defines FG/BG, cursor, selection, and 16 ANSI colors per named preset.
 
 import Foundation
 
-/// A complete terminal color scheme defining all colors needed for rendering.
-struct TerminalColorScheme: Identifiable, Hashable {
+/// Named color scheme preset used to style application chrome (window appearance,
+/// pane title bars, dividers). Terminal content colors are managed by Ghostty's config.
+struct ChromeColorScheme: Identifiable, Hashable {
     let id: String
     let name: String
     let ansi: [RGB]         // 16 ANSI colors (indices 0-15)
@@ -14,7 +15,7 @@ struct TerminalColorScheme: Identifiable, Hashable {
     let cursorText: RGB
     let selection: RGB
 
-    static let builtIn: [TerminalColorScheme] = [
+    static let builtIn: [ChromeColorScheme] = [
         .hexed,
         .dracula,
         .nord,
@@ -29,13 +30,13 @@ struct TerminalColorScheme: Identifiable, Hashable {
     static let `default` = builtIn[0]
 
     /// Look up a scheme by id, falling back to the default.
-    static func named(_ id: String) -> TerminalColorScheme {
+    static func named(_ id: String) -> ChromeColorScheme {
         builtIn.first { $0.id == id } ?? .default
     }
 
     // MARK: - Hexed (default)
 
-    static let hexed = TerminalColorScheme(
+    static let hexed = ChromeColorScheme(
         id: "hexed",
         name: "Hexed",
         ansi: [
@@ -65,7 +66,7 @@ struct TerminalColorScheme: Identifiable, Hashable {
 
     // MARK: - Dracula
 
-    static let dracula = TerminalColorScheme(
+    static let dracula = ChromeColorScheme(
         id: "dracula",
         name: "Dracula",
         ansi: [
@@ -95,7 +96,7 @@ struct TerminalColorScheme: Identifiable, Hashable {
 
     // MARK: - Nord
 
-    static let nord = TerminalColorScheme(
+    static let nord = ChromeColorScheme(
         id: "nord",
         name: "Nord",
         ansi: [
@@ -125,7 +126,7 @@ struct TerminalColorScheme: Identifiable, Hashable {
 
     // MARK: - Catppuccin Frappe
 
-    static let catppuccinFrappe = TerminalColorScheme(
+    static let catppuccinFrappe = ChromeColorScheme(
         id: "catppuccin-frappe",
         name: "Catppuccin Frappe",
         ansi: [
@@ -155,7 +156,7 @@ struct TerminalColorScheme: Identifiable, Hashable {
 
     // MARK: - One Dark
 
-    static let oneDark = TerminalColorScheme(
+    static let oneDark = ChromeColorScheme(
         id: "one-dark",
         name: "One Dark",
         ansi: [
@@ -185,7 +186,7 @@ struct TerminalColorScheme: Identifiable, Hashable {
 
     // MARK: - Gruvbox Dark
 
-    static let gruvboxDark = TerminalColorScheme(
+    static let gruvboxDark = ChromeColorScheme(
         id: "gruvbox-dark",
         name: "Gruvbox Dark",
         ansi: [
@@ -215,7 +216,7 @@ struct TerminalColorScheme: Identifiable, Hashable {
 
     // MARK: - Tokyo Night
 
-    static let tokyoNight = TerminalColorScheme(
+    static let tokyoNight = ChromeColorScheme(
         id: "tokyo-night",
         name: "Tokyo Night",
         ansi: [
@@ -245,7 +246,7 @@ struct TerminalColorScheme: Identifiable, Hashable {
 
     // MARK: - Solarized Dark
 
-    static let solarizedDark = TerminalColorScheme(
+    static let solarizedDark = ChromeColorScheme(
         id: "solarized-dark",
         name: "Solarized Dark",
         ansi: [
@@ -275,7 +276,7 @@ struct TerminalColorScheme: Identifiable, Hashable {
 
     // MARK: - Solarized Light
 
-    static let solarizedLight = TerminalColorScheme(
+    static let solarizedLight = ChromeColorScheme(
         id: "solarized-light",
         name: "Solarized Light",
         ansi: [

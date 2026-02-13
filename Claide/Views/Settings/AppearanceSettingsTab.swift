@@ -37,7 +37,7 @@ struct AppearanceSettingsTab: View {
 
             Section("Colors") {
                 Picker("Color Scheme", selection: $schemeName) {
-                    ForEach(TerminalColorScheme.builtIn) { scheme in
+                    ForEach(ChromeColorScheme.builtIn) { scheme in
                         Text(scheme.name).tag(scheme.id)
                     }
                 }

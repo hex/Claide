@@ -60,7 +60,7 @@ final class PaneContainerView: NSView {
     }
 
     /// Update a pane title bar's colors to match a terminal color scheme.
-    func applyColorScheme(_ scheme: TerminalColorScheme, for paneID: PaneID) {
+    func applyColorScheme(_ scheme: ChromeColorScheme, for paneID: PaneID) {
         titleBars[paneID]?.applyColorScheme(scheme)
     }
 
@@ -161,7 +161,7 @@ final class PaneTitleBar: NSView {
         setupBorder()
 
         let schemeName = UserDefaults.standard.string(forKey: "terminalColorScheme") ?? "hexed"
-        applyColorScheme(TerminalColorScheme.named(schemeName))
+        applyColorScheme(ChromeColorScheme.named(schemeName))
     }
 
     @available(*, unavailable)
@@ -236,7 +236,7 @@ final class PaneTitleBar: NSView {
         ])
     }
 
-    func applyColorScheme(_ scheme: TerminalColorScheme) {
+    func applyColorScheme(_ scheme: ChromeColorScheme) {
         let bg = Palette.nsColor(scheme.background)
         layer?.backgroundColor = bg.blended(withFraction: 0.15, of: .black)?.cgColor ?? bg.cgColor
         foregroundColor = Palette.nsColor(scheme.foreground)

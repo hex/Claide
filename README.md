@@ -6,7 +6,7 @@
 
 [claide.hexul.com](https://claide.hexul.com)
 
-A GPU-accelerated macOS terminal emulator built with Swift, Metal, and Rust. Uses [alacritty_terminal](https://crates.io/crates/alacritty_terminal) for VT emulation and a custom Metal pipeline for rendering. Includes a project visualization sidebar for [Claude Code](https://docs.anthropic.com/en/docs/claude-code) sessions.
+A GPU-accelerated macOS terminal emulator built with Swift and [GhosttyKit](https://github.com/ghostty-org/ghostty). Ghostty provides VTE emulation, PTY management, and Metal rendering. Includes a project visualization sidebar for [Claude Code](https://docs.anthropic.com/en/docs/claude-code) sessions.
 
 Version 2026.2.1 | macOS 14.0+ | Swift 6.0 | MIT License
 
@@ -26,13 +26,10 @@ Or download the latest DMG from [GitHub Releases](https://github.com/hex/Claide/
 
 ### Terminal
 
-- **3-pass Metal rendering**: Background quads, R8 text glyphs, RGBA8 emoji — driven by CVDisplayLink
-- **Dual glyph atlas**: 2048x2048 R8 for text + 2048x2048 RGBA8 for emoji, shelf-packed with Core Text rasterization
+- **GhosttyKit rendering**: GPU-accelerated Metal rendering via libghostty — VTE parsing, glyph rasterization, and compositing handled by the Ghostty engine
 - **Tabs and splits**: Multiple tabs, horizontal/vertical pane splits, pane zoom
 - **Session persistence**: Saves and restores tabs, splits, and working directories
 - **9 color schemes**: Hexed, Dracula, Nord, Catppuccin Frappe, One Dark, Gruvbox Dark, Tokyo Night, Solarized Dark, Solarized Light
-- **Emoji**: Full emoji support including ZWJ sequences, via `CTFontCreateForString` font fallback
-- **Search**: In-terminal text search with match highlighting
 - **URL detection**: Clickable URLs
 - **IME**: Full `NSTextInputClient` implementation (marked text, candidate window)
 - **Process icons**: Recognizes 40+ executables in the tab bar
@@ -60,46 +57,19 @@ Or download the latest DMG from [GitHub Releases](https://github.com/hex/Claide/
 
 ## Architecture
 
-Two layers — a Rust terminal backend and a Swift/Metal rendering frontend — connected by a C FFI boundary.
+Two layers — a GhosttyKit terminal engine and a Swift application shell.
 
-### Rust Backend
+### GhosttyKit Engine
 
-The `claide-terminal` crate (`rust/claide-terminal/`) owns terminal emulation, PTY management, and grid state.
+`GhosttyApp` (`Infrastructure/Ghostty/GhosttyApp.swift`) is a singleton owning the `ghostty_app_t` handle. It creates a Ghostty config, registers runtime callbacks (wakeup, clipboard, close surface), and routes actions to surfaces.
 
-**Core structure**: `TerminalHandle` owns an `Arc<FairMutex<Term<Listener>>>`, an `OwnedFd`, a reader thread, and per-instance state (palette, search results, grid cache).
+`GhosttyTerminalView` (`Infrastructure/Ghostty/GhosttyTerminalView.swift`) is an NSView hosting a `ghostty_surface_t`. Ghostty owns the CAMetalLayer and rendering pipeline — the view is layer-hosting (Ghostty sets the layer, then enables `wantsLayer`). A 60fps timer forces Core Animation re-composition since Ghostty's async surface updates don't trigger it in layer-hosting views.
 
-**PTY creation**: Direct `fork()`+`execvp()` (not `posix_spawn`).
+All C callbacks are file-scope free functions to avoid Swift 6 MainActor isolation issues — closures defined in `@MainActor` methods inherit that isolation, causing assertions when Ghostty calls back from its IO thread.
 
-**Reader thread** (`pty_reader.rs`): Blocking read followed by a `poll()` drain loop that batches up to 1MB of data, then acquires the terminal lock once to feed the entire batch through the VTE parser. An OSC 7 byte-level scanner extracts directory changes during the read loop without waiting for full VTE processing.
+Terminal colors are managed by Ghostty's config (`~/.config/ghostty/config`). Chrome colors (window appearance, pane title bars, dividers) are derived from `ChromeColorScheme` presets.
 
-**FairMutex**: Dual `parking_lot` mutex pattern that prevents the reader thread from starving the main thread (or vice versa) during heavy output.
-
-**22 FFI functions** (`ffi.rs`): create, destroy, write (2), resize (4), snapshot (2), selection (5), search (3), scroll, row_text, free_string, shell_pid, set_colors, version.
-
-**Damage-based incremental snapshots** (`grid_snapshot.rs`): A `PersistentGrid` caches per-row data and only reprocesses rows the VTE parser has marked as damaged. Output uses a sparse cell format — blank cells with default background are skipped entirely, reducing data transferred across the FFI boundary. Each cell carries:
-- Glyph codepoint, foreground/background colors (resolved from Named/Indexed/RGB via per-instance palette)
-- Flags (bold, italic, underline, strikethrough, inverse)
-- `extra_offset`/`extra_count` for multi-codepoint sequences (emoji ZWJ)
-
-**Dependencies**: alacritty_terminal 0.25.1 (patched: adds `resize_no_reflow()` for powerline-safe resizing), vte 0.15, libc 0.2, rustix-openpty 0.2.
-
-### Swift/Metal Frontend
-
-```
-MetalTerminalView (NSView + CAMetalLayer)
-  -> CVDisplayLink render loop (needsRedraw flag)
-  -> GridRenderer: snapshot -> per-cell instance buffers
-  -> 3-pass Metal draw:
-       1. Background quads (instanced)
-       2. R8 text glyphs (alpha-blended)
-       3. RGBA8 emoji (premultiplied alpha)
-```
-
-**Dual atlas**: Two shelf-packed 2048x2048 atlases — R8 (single-channel) for text glyphs, RGBA8 (4-channel) for emoji. Text uses Core Text with `CGContextSetFontSmoothingStyle` for dark-background rendering. Emoji uses premultiplied alpha compositing.
-
-**Instance buffer strategy**: Buffers are built in heap-allocated arrays, then bulk `memcpy`'d into Metal `storageModeShared` buffers. Direct indexed writes to shared-mode Metal memory are 15-20% slower due to write-combining/uncached memory semantics.
-
-**Wakeup coalescing**: `os_unfair_lock`-based coalescing (macOS 14.0 target precludes `Synchronization.Atomic`).
+### Swift Application Shell
 
 **Window**: Chromeless `NSWindow` with repositioned traffic lights and a custom tab bar.
 
@@ -113,22 +83,14 @@ MetalTerminalView (NSView + CAMetalLayer)
 
 | ViewModel | Drives | Data Source |
 |---|---|---|
-| `TerminalViewModel` | Status bar, directory tracking | TerminalBridge event callbacks |
+| `TerminalViewModel` | Status bar, directory tracking | Ghostty action callbacks |
 | `GraphViewModel` | Board + Graph views, force layout | BeadsService or ClaudeTaskService |
 | `FileLogViewModel` | File change list | `changes.md` via FileWatcher |
 | `SessionStatusViewModel` | Context usage bar | Claude Code JSONL transcripts |
 
 ## Performance
 
-Claide is competitive with Alacritty and Ghostty on `cat`-throughput benchmarks. A benchmark script (`tools/termbench.sh`) tests sequential text, dense ASCII, ANSI colors, and Unicode throughput across terminals.
-
-Key factors:
-
-- **Rust opt-level**: Dev builds use `opt-level = 2` (not the default 0). VTE parsing is 5-7x faster with optimization — millions of small method calls need inlining.
-- **Release profile**: `opt-level = 3`, thin LTO, `codegen-units = 1`. Debug lib: 48MB. Release lib: 3.6MB.
-- **Batched PTY reads**: Up to 1MB per lock acquisition via `poll()` loop, minimizing lock contention.
-- **Sparse snapshots**: Only damaged rows are reprocessed; blank cells are skipped entirely.
-- **Heap-to-GPU memcpy**: Instance buffers built in cached heap memory, avoiding the write-combining penalty of direct Metal shared-buffer writes.
+A benchmark script (`tools/termbench.sh`) tests sequential text, dense ASCII, ANSI colors, and Unicode throughput across terminals (Claide, Ghostty, Alacritty, iTerm2, WezTerm, kitty, Terminal.app).
 
 ## Build
 
@@ -136,8 +98,8 @@ Key factors:
 
 - macOS 14.0+
 - Xcode (Swift 6.0)
-- [Rust toolchain](https://rustup.rs/) 1.85.0+
 - [XcodeGen](https://github.com/yonaskolb/XcodeGen)
+- GhosttyKit.xcframework in `Frameworks/` (built from `ThirdParty/ghostty/` via `tools/build-ghosttykit.sh`; requires [Zig](https://ziglang.org/) 0.14+)
 - [beads](https://github.com/hex/beads) (`bd` CLI) for issue tracking sidebar (optional; falls back to Claude Code tasks)
 
 ### Debug
@@ -148,8 +110,6 @@ xcodebuild -scheme Claide -destination 'platform=macOS' build
 ```
 
 Or open `Claide.xcodeproj` in Xcode after generating.
-
-The Rust library is built automatically by a pre-build script phase. Dev builds use `opt-level = 2` for acceptable VTE throughput.
 
 ### Release
 
@@ -164,17 +124,23 @@ Claide/
   ContentView.swift              # Root layout
   MainWindowController.swift     # Window chrome, traffic light positioning
   MainSplitViewController.swift  # Terminal/sidebar split
+  BridgingHeader.h               # System header imports (libproc)
+  Infrastructure/
+    Ghostty/
+      GhosttyApp.swift           # Singleton owning ghostty_app_t, config, callbacks
+      GhosttyTerminalView.swift  # NSView hosting ghostty_surface_t with Metal rendering
   HotkeyWindow/
     GlobalHotkey.swift           # Carbon RegisterEventHotKey wrapper
     HotkeyWindowController.swift # Dropdown window positioning, animation, fullscreen overlay
     HotkeyRecorderView.swift     # SwiftUI key recorder with modifier symbols
-  Theme.swift                    # Colors, fonts, spacing tokens
+  Features/
+    CommandPalette/              # Fuzzy command palette (items, registry, overlay)
+  Theme.swift                    # Colors, fonts, spacing tokens (derived from Ghostty BG/FG)
   Palette.swift                  # Color palette utilities
   FontSelection.swift            # Monospaced font enumeration
   NodeVisuals.swift              # Graph node rendering properties
   EdgeVisuals.swift              # Graph edge rendering properties
   KanbanColumn.swift             # Kanban column layout
-  BridgingHeader.h               # Rust C FFI header imports
   Updates/
     CheckForUpdatesView.swift    # "Check for Updates..." menu item (Sparkle)
   Models/
@@ -182,7 +148,7 @@ Claide/
     IssueDependency.swift        # Dependency edges
     FileChange.swift             # Change log entry
     SessionStatus.swift          # Claude Code context usage
-    TerminalColorScheme.swift    # 9 built-in color schemes
+    ChromeColorScheme.swift      # 9 named color presets for UI chrome
   ViewModels/
     GraphViewModel.swift         # Issues, positions, force layout
     FileLogViewModel.swift       # File watcher + parser
@@ -197,17 +163,11 @@ Claide/
     Kanban/KanbanPanel.swift
     FileLog/FileLogPanel.swift
     Terminal/
-      MetalTerminalView.swift    # NSView + CAMetalLayer, keyboard/mouse input
-      TerminalBridge.swift       # Swift wrapper over Rust C FFI
-      GlyphAtlas.swift           # Core Text -> MTLTexture shelf-packed atlas
-      GridRenderer.swift         # Snapshot -> Metal instance buffers
-      TerminalShaders.metal      # Vertex + fragment shaders (3 passes)
       TerminalPanel.swift        # NSViewRepresentable host
       TerminalTabBar.swift       # Tab strip with add/close
       TerminalTabManager.swift   # Tab lifecycle, shell spawning
-      TerminalTheme.swift        # Terminal color palette
+      TerminalTheme.swift        # Terminal color palette for AppKit views
       TerminalProfile.swift      # Per-terminal configuration
-      TerminalSearchBar.swift    # In-terminal search UI
       SessionStatusBar.swift     # Context usage indicator
       SessionState.swift         # Session save/restore
       PaneNode.swift             # Immutable N-ary tree for split layouts
@@ -231,26 +191,16 @@ Claide/
   Resources/
     shell-integration/zsh/       # Shell integration scripts
   Assets.xcassets/
-rust/
-  build-universal.sh         # Build script (debug/release via CONFIGURATION)
-  Cargo.toml                 # Workspace manifest with patched alacritty_terminal
-  claide-terminal/
-    include/
-      claide_terminal.h      # C header declaring FFI types and functions
-    src/
-      lib.rs                     # Crate root
-      ffi.rs                     # 22 C ABI entry points
-      handle.rs                  # PTY fork/exec, Term creation, palette
-      pty_reader.rs              # Reader thread: PTY -> VTE parser
-      listener.rs                # Event dispatch to Swift callbacks
-      grid_snapshot.rs           # Damage-based incremental snapshots
-  patches/                   # Patched alacritty_terminal crate
-scripts/                   # Local build scripts (gitignored)
+Frameworks/
+  GhosttyKit.xcframework/       # Pre-built universal binary (arm64 + x86_64)
+ThirdParty/
+  ghostty/                       # Ghostty source (reference for API patterns)
 tools/
-  termbench.sh               # Terminal throughput benchmark
-ClaideTests/                 # Unit and integration tests
-project.yml                  # XcodeGen spec
-appcast.xml                  # Sparkle update feed
+  build-ghosttykit.sh            # Builds GhosttyKit.xcframework from ThirdParty/ghostty
+  termbench.sh                   # Terminal throughput benchmark
+ClaideTests/                     # Unit and integration tests
+project.yml                      # XcodeGen spec
+appcast.xml                      # Sparkle update feed
 ```
 
 ## Updates
@@ -263,7 +213,7 @@ In-app update checking via [Sparkle](https://sparkle-project.org/). The "Check f
 xcodebuild -scheme Claide -destination 'platform=macOS' test
 ```
 
-Tests cover issue parsing, force layout convergence, node/edge visuals, kanban columns, font selection, file change parsing, Claude Code task parsing, terminal color schemes, pane node tree operations, pane tree controller lifecycle, pane container view layout, palette resolution, foreground process detection, main window controller, terminal view model, terminal tab manager, session status, and zoom-adaptive metrics.
+Tests cover issue parsing, force layout convergence, node/edge visuals, kanban columns, font selection, file change parsing, Claude Code task parsing, color schemes, pane node tree operations, pane tree controller lifecycle, pane container view layout, palette resolution, foreground process detection, main window controller, terminal view model, terminal tab manager, session status, and zoom-adaptive metrics.
 
 ## Vision
 

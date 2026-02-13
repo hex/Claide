@@ -341,7 +341,7 @@ final class TerminalTabManager {
         }
 
         // Color scheme for pane dividers
-        let scheme = TerminalColorScheme.named(profile.resolvedColorScheme)
+        let scheme = ChromeColorScheme.named(profile.resolvedColorScheme)
         controller.containerView.applyColorScheme(scheme, for: paneID)
     }
 
@@ -350,7 +350,7 @@ final class TerminalTabManager {
     func applyColorSchemeToAll() {
         for tab in tabs {
             for (paneID, vm) in tab.paneViewModels {
-                let scheme = TerminalColorScheme.named(vm.profile.resolvedColorScheme)
+                let scheme = ChromeColorScheme.named(vm.profile.resolvedColorScheme)
                 tab.paneController.containerView.applyColorScheme(scheme, for: paneID)
             }
         }
