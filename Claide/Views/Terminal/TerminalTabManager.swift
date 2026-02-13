@@ -477,17 +477,6 @@ final class TerminalTabManager {
         env.removeAll { $0.0 == "TERM_PROGRAM" }
         env.append(("TERM_PROGRAM", "Claide"))
 
-        // Point ZDOTDIR to our shell integration so zsh sources our OSC 7 hook.
-        // The integration .zshenv restores the original ZDOTDIR before continuing.
-        if let integrationDir = Bundle.main.resourceURL?
-            .appendingPathComponent("shell-integration/zsh").path,
-           FileManager.default.fileExists(atPath: integrationDir + "/.zshenv") {
-            let origZdotdir = env.first(where: { $0.0 == "ZDOTDIR" })?.1 ?? ""
-            env.removeAll { $0.0 == "ZDOTDIR" }
-            env.append(("CLAIDE_ORIG_ZDOTDIR", origZdotdir))
-            env.append(("ZDOTDIR", integrationDir))
-        }
-
         // Disable zsh session save/restore
         env.removeAll { $0.0 == "SHELL_SESSIONS_DISABLE" }
         env.append(("SHELL_SESSIONS_DISABLE", "1"))
