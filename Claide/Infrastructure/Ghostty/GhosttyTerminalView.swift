@@ -52,9 +52,8 @@ final class GhosttyTerminalView: NSView {
     /// Stored content size for backing property changes.
     private var contentSize: CGSize = .zero
 
-    /// Throttles PTY resize during live window resize to avoid SIGWINCH storms.
-    private var lastResizeTime: CFAbsoluteTime = 0
-    private static let liveResizeInterval: CFTimeInterval = 0.1
+    /// Coalesces rapid size changes into a single PTY resize.
+    private var pendingResizeWork: DispatchWorkItem?
 
     /// Drives layer redisplay for frames rendered by Ghostty's async path.
     /// In a layer-hosting view, setting layer.contents via dispatch_async
@@ -224,21 +223,30 @@ final class GhosttyTerminalView: NSView {
 
     override func setFrameSize(_ newSize: NSSize) {
         super.setFrameSize(newSize)
-        guard let surface, newSize.width > 0, newSize.height > 0 else { return }
+        guard surface != nil, newSize.width > 0, newSize.height > 0 else { return }
         contentSize = newSize
-
-        if inLiveResize {
-            let now = CFAbsoluteTimeGetCurrent()
-            guard now - lastResizeTime >= Self.liveResizeInterval else { return }
-            lastResizeTime = now
-        }
-
-        let scaled = convertToBacking(newSize)
-        ghostty_surface_set_size(surface, UInt32(scaled.width), UInt32(scaled.height))
+        scheduleResize()
     }
 
     override func viewDidEndLiveResize() {
         super.viewDidEndLiveResize()
+        // Flush immediately on resize end for a crisp final state.
+        flushResize()
+    }
+
+    /// Coalesce rapid frame size changes into a single PTY resize.
+    private func scheduleResize() {
+        pendingResizeWork?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            self?.flushResize()
+        }
+        pendingResizeWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05, execute: work)
+    }
+
+    private func flushResize() {
+        pendingResizeWork?.cancel()
+        pendingResizeWork = nil
         guard let surface, contentSize.width > 0, contentSize.height > 0 else { return }
         let scaled = convertToBacking(contentSize)
         ghostty_surface_set_size(surface, UInt32(scaled.width), UInt32(scaled.height))
@@ -255,8 +263,7 @@ final class GhosttyTerminalView: NSView {
         let yScale = fbFrame.size.height / frame.size.height
         ghostty_surface_set_content_scale(surface, xScale, yScale)
 
-        let scaled = convertToBacking(contentSize)
-        ghostty_surface_set_size(surface, UInt32(scaled.width), UInt32(scaled.height))
+        scheduleResize()
     }
 
     // MARK: - Occlusion
