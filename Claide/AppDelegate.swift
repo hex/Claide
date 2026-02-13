@@ -16,6 +16,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var globalHotkey: GlobalHotkey?
     private var settingsObserver: Any?
 
+    /// The terminal view for the currently focused pane.
+    private var activeTerminalView: GhosttyTerminalView? {
+        activeTabManager?.activeTab?.terminalView
+    }
+
     /// The tab manager for the currently active (key) window.
     private var activeTabManager: TerminalTabManager? {
         if let keyWindow = NSApp.keyWindow,
@@ -254,6 +259,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         menu.addItem(.separator())
 
+        let zoomIn = NSMenuItem(title: "Zoom In", action: #selector(fontZoomIn), keyEquivalent: "+")
+        zoomIn.target = self
+        menu.addItem(zoomIn)
+
+        let zoomOut = NSMenuItem(title: "Zoom Out", action: #selector(fontZoomOut), keyEquivalent: "-")
+        zoomOut.target = self
+        menu.addItem(zoomOut)
+
+        let zoomReset = NSMenuItem(title: "Reset Zoom", action: #selector(fontZoomReset), keyEquivalent: "0")
+        zoomReset.target = self
+        menu.addItem(zoomReset)
+
+        menu.addItem(.separator())
+
         for i in 1...9 {
             let item = NSMenuItem(
                 title: "Tab \(i)",
@@ -299,6 +318,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     return nil
                 case "p":
                     self.toggleCommandPalette()
+                    return nil
+                case "+", "=":
+                    self.activeTerminalView?.increaseFontSize()
+                    return nil
+                case "-":
+                    self.activeTerminalView?.decreaseFontSize()
+                    return nil
+                case "0":
+                    self.activeTerminalView?.resetFontSize()
                     return nil
                 default:
                     break
@@ -384,6 +412,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func splitVertical() {
         activeTabManager?.splitActivePane(axis: .vertical)
+    }
+
+    @objc private func fontZoomIn() {
+        activeTerminalView?.increaseFontSize()
+    }
+
+    @objc private func fontZoomOut() {
+        activeTerminalView?.decreaseFontSize()
+    }
+
+    @objc private func fontZoomReset() {
+        activeTerminalView?.resetFontSize()
     }
 
     @objc private func showCommandPalette() {

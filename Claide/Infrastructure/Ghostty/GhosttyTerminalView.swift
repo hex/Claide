@@ -141,6 +141,7 @@ final class GhosttyTerminalView: NSView {
 
         registerSurface()
         updateTrackingAreas()
+        setupDragAndDrop()
         logger.info("Ghostty surface created")
     }
 
@@ -219,6 +220,38 @@ final class GhosttyTerminalView: NSView {
         ghostty_surface_set_occlusion(surface, occluded)
     }
 
+    // MARK: - Actions (Copy/Paste/Select/Font)
+
+    /// Dispatch a Ghostty binding action by name.
+    private func bindingAction(_ action: String) -> Bool {
+        guard let surface else { return false }
+        return ghostty_surface_binding_action(surface, action, UInt(action.count))
+    }
+
+    @IBAction func copy(_ sender: Any?) {
+        _ = bindingAction("copy_to_clipboard")
+    }
+
+    @IBAction func paste(_ sender: Any?) {
+        _ = bindingAction("paste_from_clipboard")
+    }
+
+    @IBAction override func selectAll(_ sender: Any?) {
+        _ = bindingAction("select_all")
+    }
+
+    func increaseFontSize(amount: Int = 1) {
+        _ = bindingAction("increase_font_size:\(amount)")
+    }
+
+    func decreaseFontSize(amount: Int = 1) {
+        _ = bindingAction("decrease_font_size:\(amount)")
+    }
+
+    func resetFontSize() {
+        _ = bindingAction("reset_font_size")
+    }
+
     // MARK: - Mouse Cursor
 
     func updateMouseCursor(_ shape: ghostty_action_mouse_shape_e) {
@@ -234,6 +267,39 @@ final class GhosttyTerminalView: NSView {
         default:
             NSCursor.arrow.set()
         }
+    }
+
+    // MARK: - Drag and Drop
+
+    func setupDragAndDrop() {
+        registerForDraggedTypes([.fileURL])
+    }
+
+    override func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
+        guard sender.draggingPasteboard.canReadObject(forClasses: [NSURL.self], options: nil) else {
+            return []
+        }
+        return .copy
+    }
+
+    override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
+        guard let surface,
+              let urls = sender.draggingPasteboard.readObjects(
+                forClasses: [NSURL.self],
+                options: [.urlReadingFileURLsOnly: true]
+              ) as? [URL] else { return false }
+
+        let paths = urls.map { shellEscape($0.path) }
+        let text = paths.joined(separator: " ")
+        text.withCString { ptr in
+            ghostty_surface_text(surface, ptr, UInt(text.utf8.count))
+        }
+        return true
+    }
+
+    private func shellEscape(_ path: String) -> String {
+        // Single-quote wrapping with internal single-quote escaping
+        "'" + path.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 
     // MARK: - Tracking Areas
@@ -358,6 +424,21 @@ final class GhosttyTerminalView: NSView {
         guard let surface else { return }
         let mods = ghosttyMods(from: event.modifierFlags)
         _ = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_RELEASE, GHOSTTY_MOUSE_RIGHT, mods)
+    }
+
+    override func menu(for event: NSEvent) -> NSMenu? {
+        let menu = NSMenu()
+        let copyItem = NSMenuItem(title: "Copy", action: #selector(copy(_:)), keyEquivalent: "")
+        copyItem.target = self
+        menu.addItem(copyItem)
+        let pasteItem = NSMenuItem(title: "Paste", action: #selector(paste(_:)), keyEquivalent: "")
+        pasteItem.target = self
+        menu.addItem(pasteItem)
+        menu.addItem(.separator())
+        let selectAllItem = NSMenuItem(title: "Select All", action: #selector(selectAll(_:)), keyEquivalent: "")
+        selectAllItem.target = self
+        menu.addItem(selectAllItem)
+        return menu
     }
 
     override func mouseMoved(with event: NSEvent) {
