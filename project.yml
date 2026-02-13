@@ -21,13 +21,7 @@ targets:
     platform: macOS
     sources:
       - path: Claide
-        excludes:
-          - Resources/ghostty/**
-          - Resources/terminfo/**
-      - path: Claide/Resources/ghostty
-        buildPhase: resources
-        type: folder
-      - path: Claide/Resources/terminfo
+      - path: Claide/Resources/shell-integration
         buildPhase: resources
         type: folder
     dependencies:
