@@ -63,6 +63,14 @@ final class GhosttyApp {
     }
     private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.hexul.claide", category: "ghostty")
 
+    /// Terminal background color read from Ghostty's finalized config.
+    /// Used by Theme and TerminalTheme so chrome colors match the terminal.
+    /// nonisolated(unsafe) because it's written once during start() and then only read.
+    nonisolated(unsafe) static var backgroundColor: NSColor = NSColor(srgbRed: 0x28/255.0, green: 0x2C/255.0, blue: 0x34/255.0, alpha: 1)
+
+    /// Terminal foreground color read from Ghostty's finalized config.
+    nonisolated(unsafe) static var foregroundColor: NSColor = NSColor(srgbRed: 0xAB/255.0, green: 0xB2/255.0, blue: 0xBF/255.0, alpha: 1)
+
     private init() {}
 
     // MARK: - Lifecycle
@@ -87,6 +95,9 @@ final class GhosttyApp {
         ghostty_config_load_default_files(config)
         ghostty_config_load_recursive_files(config)
         ghostty_config_finalize(config)
+
+        // Read terminal colors from finalized config so chrome matches.
+        readConfigColors(config)
 
         // Log any config diagnostics
         let diagCount = ghostty_config_diagnostics_count(config)
@@ -126,6 +137,33 @@ final class GhosttyApp {
             ghostty_app_free(app)
         }
         self.app = nil
+    }
+
+    // MARK: - Config Colors
+
+    /// Read background and foreground from Ghostty's finalized config.
+    /// Must be called after ghostty_config_finalize and before ghostty_app_new
+    /// consumes the config.
+    private func readConfigColors(_ config: ghostty_config_t) {
+        var bg = ghostty_config_color_s(r: 0, g: 0, b: 0)
+        if ghostty_config_get(config, &bg, "background", 10) {
+            Self.backgroundColor = NSColor(
+                srgbRed: CGFloat(bg.r) / 255,
+                green: CGFloat(bg.g) / 255,
+                blue: CGFloat(bg.b) / 255,
+                alpha: 1
+            )
+        }
+
+        var fg = ghostty_config_color_s(r: 0, g: 0, b: 0)
+        if ghostty_config_get(config, &fg, "foreground", 10) {
+            Self.foregroundColor = NSColor(
+                srgbRed: CGFloat(fg.r) / 255,
+                green: CGFloat(fg.g) / 255,
+                blue: CGFloat(fg.b) / 255,
+                alpha: 1
+            )
+        }
     }
 
     // MARK: - Action Routing

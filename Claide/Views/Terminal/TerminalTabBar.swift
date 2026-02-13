@@ -1,5 +1,5 @@
 // ABOUTME: Horizontal tab bar for terminal tabs with add/close controls.
-// ABOUTME: Active tab is full height; inactive tabs are 1pt shorter with a bottom border.
+// ABOUTME: Active tab has no bottom border; inactive tabs and empty areas show the border line.
 
 import SwiftUI
 import AppKit
@@ -154,6 +154,11 @@ struct TerminalTabBar: View {
                             .onChange(of: geo.size.width) { _, newWidth in containerWidth = newWidth }
                     }
                 )
+                .background(alignment: .bottom) {
+                    Rectangle()
+                        .fill(Theme.border)
+                        .frame(height: Theme.borderWidth)
+                }
                 .overlay(alignment: .leading) {
                     TerminalTabsOverflowShadow(
                         width: TerminalTabBarMetrics.overflowShadowWidth,
@@ -172,12 +177,6 @@ struct TerminalTabBar: View {
                     .opacity(canScrollRight ? 1 : 0)
                     .animation(.easeInOut(duration: 0.15), value: canScrollRight)
                 }
-                .overlay(alignment: .bottom) {
-                    Rectangle()
-                        .fill(Theme.border)
-                        .frame(height: Theme.borderWidth)
-                }
-
                 if singleTab {
                     WindowDragArea()
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -189,11 +188,6 @@ struct TerminalTabBar: View {
                 }
 
                 AddTabButton(action: onAdd)
-                .overlay(alignment: .bottom) {
-                    Rectangle()
-                        .fill(Theme.border)
-                        .frame(height: Theme.borderWidth)
-                }
             }
         }
         .fixedSize(horizontal: false, vertical: true)
@@ -483,6 +477,11 @@ private struct AddTabButton: View {
         }
         .buttonStyle(.plain)
         .background(Theme.backgroundHover.opacity(isHovered ? 1 : 0))
+        .overlay(alignment: .bottom) {
+            Rectangle()
+                .fill(Theme.border)
+                .frame(height: Theme.borderWidth)
+        }
         .onHover { hovering in
             withAnimation(.easeOut(duration: 0.15)) { isHovered = hovering }
         }
@@ -630,7 +629,6 @@ private struct TabButton: View {
             .padding(.trailing, 12)
             .padding(.vertical, 10)
         }
-        .padding(.bottom, isActive ? 0 : 1)
         .fixedSize(horizontal: false, vertical: true)
         .contentShape(Rectangle())
         .overlay {
