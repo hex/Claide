@@ -20,12 +20,20 @@ targets:
     type: application
     platform: macOS
     sources:
-      - Claide
+      - path: Claide
+        excludes:
+          - Views/Terminal/MetalTerminalView.swift
+          - Views/Terminal/TerminalBridge.swift
+          - Views/Terminal/GridRenderer.swift
+          - Views/Terminal/GlyphAtlas.swift
+          - Views/Terminal/TerminalShaders.metal
       - path: Claide/Resources/shell-integration
         buildPhase: resources
         type: folder
     dependencies:
       - package: Sparkle
+      - framework: Frameworks/GhosttyKit.xcframework
+        embed: false
     info:
       path: Claide/Info.plist
       properties:
@@ -34,10 +42,6 @@ targets:
         LSUIElement: false
         SUFeedURL: "https://raw.githubusercontent.com/hex/Claide/main/appcast.xml"
         SUPublicEDKey: "VJR0Igvi956+S07119jBXK+/rt1QjpUB//YJYx7ZAHs="
-    preBuildScripts:
-      - name: Build Rust Library
-        script: '"${PROJECT_DIR}/rust/build-universal.sh"'
-        basedOnDependencyAnalysis: false
     settings:
       base:
         CODE_SIGN_ENTITLEMENTS: Claide/Claide.entitlements
@@ -48,9 +52,8 @@ targets:
         SWIFT_VERSION: "6.0"
         MACOSX_DEPLOYMENT_TARGET: "14.0"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
-        LIBRARY_SEARCH_PATHS: "$(PROJECT_DIR)/rust/target/lib"
         SWIFT_OBJC_BRIDGING_HEADER: Claide/BridgingHeader.h
-        OTHER_LDFLAGS: "-lclaide_terminal"
+        OTHER_LDFLAGS: "-lstdc++"
       configs:
         Release:
           CODE_SIGN_STYLE: Manual

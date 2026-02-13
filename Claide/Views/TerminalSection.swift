@@ -9,8 +9,7 @@ struct TerminalSection: View {
     var showDragArea: Bool = true
     @State private var sessionStatusVM = SessionStatusViewModel()
     @AppStorage("fontFamily") private var fontFamily: String = ""
-    @AppStorage("cursorStyle") private var cursorStyle: String = "bar"
-    @AppStorage("cursorBlink") private var cursorBlink: Bool = true
+    // Cursor style is managed by Ghostty config (cursor-style, cursor-style-blink)
     @AppStorage("terminalColorScheme") private var schemeName: String = "hexed"
     @AppStorage("paneFocusIndicator") private var paneFocusIndicator = true
     @AppStorage("dimUnfocusedPanes") private var dimUnfocusedPanes = true
@@ -34,20 +33,13 @@ struct TerminalSection: View {
             if tabManager.tabs.isEmpty {
                 tabManager.addTab(initialDirectory: Self.initialDirectory, fontFamily: fontFamily)
             }
-            let shellPid = pid_t(tabManager.activeTab?.terminalView.shellPid ?? 0)
-            sessionStatusVM.startWatching(sessionDirectory: Self.initialDirectory, shellPid: shellPid)
+            // TODO: Shell PID not exposed by Ghostty yet — pass 0 to use fallback discovery
+            sessionStatusVM.startWatching(sessionDirectory: Self.initialDirectory)
         }
         .onChange(of: tabManager.activeViewModel?.currentDirectory) { _, newDir in
-            if let dir = newDir.flatMap({ $0 }) {
-                let shellPid = pid_t(tabManager.activeTab?.terminalView.shellPid ?? 0)
-                sessionStatusVM.startWatching(sessionDirectory: dir, shellPid: shellPid)
+            if let dir = newDir ?? nil {
+                sessionStatusVM.startWatching(sessionDirectory: dir)
             }
-        }
-        .onChange(of: cursorStyle) {
-            tabManager.applyCursorStyleToAll()
-        }
-        .onChange(of: cursorBlink) {
-            tabManager.applyCursorStyleToAll()
         }
         .onChange(of: schemeName) {
             tabManager.applyColorSchemeToAll()

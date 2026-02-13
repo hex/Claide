@@ -2,6 +2,7 @@
 // ABOUTME: Handles input, resize, focus, and routes terminal events to callbacks.
 
 import AppKit
+import GhosttyKit
 import os
 
 /// Terminal view backed by Ghostty's Metal renderer and VTE engine.
@@ -90,7 +91,6 @@ final class GhosttyTerminalView: NSView {
             nsview: Unmanaged.passUnretained(self).toOpaque()
         ))
         config.userdata = Unmanaged.passUnretained(self).toOpaque()
-        config.context = GHOSTTY_SURFACE_CONTEXT_TAB
 
         // Scale factor from current screen
         if let screen = window?.screen ?? NSScreen.main {
@@ -154,9 +154,13 @@ final class GhosttyTerminalView: NSView {
     }
 
     deinit {
-        unregisterSurface()
-        if let surface {
-            ghostty_surface_free(surface)
+        // terminate() must be called before deallocation.
+        // NSView always deallocates on main thread; this is a safety net.
+        MainActor.assumeIsolated {
+            if surface != nil {
+                unregisterSurface()
+                ghostty_surface_free(surface!)
+            }
         }
     }
 
@@ -335,25 +339,25 @@ final class GhosttyTerminalView: NSView {
     override func mouseDown(with event: NSEvent) {
         guard let surface else { return }
         let mods = ghosttyMods(from: event.modifierFlags)
-        ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_LEFT, mods)
+        _ = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_LEFT, mods)
     }
 
     override func mouseUp(with event: NSEvent) {
         guard let surface else { return }
         let mods = ghosttyMods(from: event.modifierFlags)
-        ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_RELEASE, GHOSTTY_MOUSE_LEFT, mods)
+        _ = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_RELEASE, GHOSTTY_MOUSE_LEFT, mods)
     }
 
     override func rightMouseDown(with event: NSEvent) {
         guard let surface else { return }
         let mods = ghosttyMods(from: event.modifierFlags)
-        ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_RIGHT, mods)
+        _ = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_RIGHT, mods)
     }
 
     override func rightMouseUp(with event: NSEvent) {
         guard let surface else { return }
         let mods = ghosttyMods(from: event.modifierFlags)
-        ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_RELEASE, GHOSTTY_MOUSE_RIGHT, mods)
+        _ = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_RELEASE, GHOSTTY_MOUSE_RIGHT, mods)
     }
 
     override func mouseMoved(with event: NSEvent) {
@@ -411,7 +415,7 @@ final class GhosttyTerminalView: NSView {
 
 // MARK: - NSTextInputClient
 
-extension GhosttyTerminalView: NSTextInputClient {
+extension GhosttyTerminalView: @preconcurrency NSTextInputClient {
 
     func insertText(_ string: Any, replacementRange: NSRange) {
         var chars = ""
@@ -432,7 +436,7 @@ extension GhosttyTerminalView: NSTextInputClient {
         // Direct text insertion (e.g. paste via IME)
         guard let surface else { return }
         chars.withCString { ptr in
-            ghostty_surface_text(surface, ptr, chars.utf8.count)
+            ghostty_surface_text(surface, ptr, UInt(chars.utf8.count))
         }
     }
 
@@ -486,6 +490,10 @@ extension GhosttyTerminalView: NSTextInputClient {
 
     func characterIndex(for point: NSPoint) -> Int {
         0
+    }
+
+    func validAttributesForMarkedText() -> [NSAttributedString.Key] {
+        []
     }
 
     func attributedString() -> NSAttributedString {

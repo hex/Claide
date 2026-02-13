@@ -10,8 +10,8 @@ GHOSTTY_DIR="$PROJECT_DIR/ThirdParty/ghostty"
 FRAMEWORK_DIR="$PROJECT_DIR/Frameworks"
 OUTPUT_FRAMEWORK="$FRAMEWORK_DIR/GhosttyKit.xcframework"
 
-# Pinned Ghostty commit for reproducible builds
-GHOSTTY_COMMIT="main"
+# Pinned Ghostty version for reproducible builds
+GHOSTTY_COMMIT="v1.2.3"
 
 usage() {
     echo "Usage: $0 [--clean] [--commit <sha>]"
@@ -32,8 +32,14 @@ done
 
 # --- Preflight checks ---
 
-if ! command -v zig &>/dev/null; then
-    echo "Error: zig not found. Install with: brew install zig"
+# Use local Zig from ThirdParty if available, otherwise fall back to PATH
+LOCAL_ZIG="$PROJECT_DIR/ThirdParty/zig/zig"
+if [ -x "$LOCAL_ZIG" ]; then
+    export PATH="$(dirname "$LOCAL_ZIG"):$PATH"
+elif ! command -v zig &>/dev/null; then
+    echo "Error: zig not found."
+    echo "  Option 1: Extract Zig 0.14+ to ThirdParty/zig/"
+    echo "  Option 2: Install with: brew install zig"
     exit 1
 fi
 
@@ -81,13 +87,14 @@ zig build \
 
 # --- Locate and install XCFramework ---
 
-# Zig build produces the XCFramework at a known location
-BUILT_FRAMEWORK="$GHOSTTY_DIR/zig-out/macos/GhosttyKit.xcframework"
+# Ghostty's build system places the XCFramework at macos/ (used as an
+# intermediate by xcodebuild), not inside zig-out/.
+BUILT_FRAMEWORK="$GHOSTTY_DIR/macos/GhosttyKit.xcframework"
 
 if [ ! -d "$BUILT_FRAMEWORK" ]; then
     echo "Error: XCFramework not found at $BUILT_FRAMEWORK"
     echo "Searching for it..."
-    find "$GHOSTTY_DIR/zig-out" -name "GhosttyKit.xcframework" -type d 2>/dev/null
+    find "$GHOSTTY_DIR" -name "GhosttyKit.xcframework" -type d 2>/dev/null
     exit 1
 fi
 

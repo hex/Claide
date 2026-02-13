@@ -2,6 +2,7 @@
 // ABOUTME: Creates config, registers runtime callbacks, and routes actions to surfaces.
 
 import AppKit
+import GhosttyKit
 import os
 
 @MainActor
@@ -16,8 +17,8 @@ final class GhosttyApp {
 
     // MARK: - Lifecycle
 
-    /// Initialize the Ghostty engine with the given configuration overrides.
-    func start(fontFamily: String = "", fontSize: Float = 0, colorScheme: TerminalColorScheme? = nil) {
+    /// Initialize the Ghostty engine with default configuration.
+    func start() {
         guard app == nil else { return }
 
         guard let config = ghostty_config_new() else {
@@ -25,21 +26,23 @@ final class GhosttyApp {
             return
         }
 
-        // Write a temp config file with our settings, then load it.
-        // Ghostty config is file-based — there's no programmatic setter API.
-        let configPath = writeConfigFile(
-            fontFamily: fontFamily,
-            fontSize: fontSize,
-            colorScheme: colorScheme
-        )
-        if let path = configPath {
-            path.withCString { cPath in
-                ghostty_config_load_file(config, cPath)
+        // Load default config from ~/.config/ghostty/config if it exists
+        ghostty_config_load_default_files(config)
+        ghostty_config_load_recursive_files(config)
+        ghostty_config_finalize(config)
+
+        // Log any config diagnostics
+        let diagCount = ghostty_config_diagnostics_count(config)
+        for i in 0..<diagCount {
+            let diag = ghostty_config_get_diagnostic(config, i)
+            if let msg = diag.message {
+                logger.warning("Config: \(String(cString: msg))")
             }
         }
 
-        ghostty_config_finalize(config)
-
+        // The runtime config defines how Ghostty communicates with the host app.
+        // wakeup_cb receives the app userdata; clipboard/close callbacks receive
+        // the surface userdata (the GhosttyTerminalView).
         var runtimeConfig = ghostty_runtime_config_s(
             userdata: Unmanaged.passUnretained(self).toOpaque(),
             supports_selection_clipboard: false,
@@ -56,8 +59,8 @@ final class GhosttyApp {
                 GhosttyApp.readClipboard(userdata, location: location, state: state)
             },
             confirm_read_clipboard_cb: nil,
-            write_clipboard_cb: { userdata, location, content, count, confirm in
-                GhosttyApp.writeClipboard(userdata, location: location, content: content, count: count, confirm: confirm)
+            write_clipboard_cb: { userdata, string, location, confirm in
+                GhosttyApp.writeClipboard(userdata, string: string, location: location, confirm: confirm)
             },
             close_surface_cb: { userdata, processAlive in
                 GhosttyApp.closeSurface(userdata, processAlive: processAlive)
@@ -88,59 +91,9 @@ final class GhosttyApp {
         ghostty_app_tick(app)
     }
 
-    // MARK: - Config File
-
-    /// Writes Ghostty config to a temporary file and returns the path.
-    private func writeConfigFile(
-        fontFamily: String,
-        fontSize: Float,
-        colorScheme: TerminalColorScheme?
-    ) -> String? {
-        var lines: [String] = []
-
-        // Disable Ghostty's built-in keybindings so Claide controls all shortcuts
-        lines.append("keybind = clear")
-
-        // Terminal identification
-        lines.append("term = xterm-256color")
-
-        // Disable features we handle ourselves
-        lines.append("confirm-close-surface = false")
-        lines.append("quit-after-last-window-closed = false")
-        lines.append("window-decoration = false")
-
-        // Font
-        if !fontFamily.isEmpty {
-            lines.append("font-family = \(fontFamily)")
-        }
-        if fontSize > 0 {
-            lines.append("font-size = \(fontSize)")
-        }
-
-        // Colors
-        if let scheme = colorScheme {
-            lines.append("background = \(scheme.background.hexString)")
-            lines.append("foreground = \(scheme.foreground.hexString)")
-            for (i, color) in scheme.ansi.enumerated() {
-                lines.append("palette = \(i)=\(color.hexString)")
-            }
-        }
-
-        let content = lines.joined(separator: "\n") + "\n"
-        let tempDir = FileManager.default.temporaryDirectory
-        let configFile = tempDir.appendingPathComponent("claide-ghostty.conf")
-        do {
-            try content.write(to: configFile, atomically: true, encoding: .utf8)
-            return configFile.path
-        } catch {
-            logger.error("Failed to write Ghostty config: \(error)")
-            return nil
-        }
-    }
-
     // MARK: - Action Routing
 
-    private static func handleAction(
+    private nonisolated static func handleAction(
         _ appHandle: ghostty_app_t,
         target: ghostty_target_s,
         action: ghostty_action_s
@@ -153,23 +106,40 @@ final class GhosttyApp {
             switch action.tag {
             case GHOSTTY_ACTION_SET_TITLE:
                 let title = action.action.set_title.title.map { String(cString: $0) }
-                if let title { view.onTitle?(title) }
+                if let title {
+                    DispatchQueue.main.async { view.onTitle?(title) }
+                }
+                return true
+
+            case GHOSTTY_ACTION_PWD:
+                let pwd = action.action.pwd.pwd.map { String(cString: $0) }
+                if let pwd {
+                    DispatchQueue.main.async { view.onDirectoryChange?(pwd) }
+                }
                 return true
 
             case GHOSTTY_ACTION_RING_BELL:
-                view.onBell?()
+                DispatchQueue.main.async { view.onBell?() }
                 return true
 
             case GHOSTTY_ACTION_MOUSE_SHAPE:
-                view.updateMouseCursor(action.action.mouse_shape)
+                DispatchQueue.main.async { view.updateMouseCursor(action.action.mouse_shape) }
                 return true
 
             case GHOSTTY_ACTION_RENDER:
                 // Ghostty handles rendering internally
                 return true
 
-            case GHOSTTY_ACTION_CLOSE_SURFACE:
-                view.onChildExit?(0)
+            case GHOSTTY_ACTION_SHOW_CHILD_EXITED:
+                let exitCode = Int32(action.action.child_exited.exit_code)
+                DispatchQueue.main.async { view.onChildExit?(exitCode) }
+                return true
+
+            case GHOSTTY_ACTION_PROGRESS_REPORT:
+                let report = action.action.progress_report
+                DispatchQueue.main.async {
+                    view.onProgressReport?(UInt8(report.state.rawValue), Int32(report.progress))
+                }
                 return true
 
             case GHOSTTY_ACTION_COLOR_CHANGE:
@@ -181,60 +151,61 @@ final class GhosttyApp {
             }
         }
 
-        // App-level actions
+        // App-level actions — we handle window/tab management ourselves
         switch action.tag {
-        case GHOSTTY_ACTION_QUIT:
-            return true  // We handle quit ourselves
-
-        case GHOSTTY_ACTION_NEW_WINDOW, GHOSTTY_ACTION_NEW_TAB, GHOSTTY_ACTION_NEW_SPLIT:
-            return true  // We handle window/tab/split management ourselves
+        case GHOSTTY_ACTION_QUIT,
+             GHOSTTY_ACTION_NEW_WINDOW,
+             GHOSTTY_ACTION_NEW_TAB,
+             GHOSTTY_ACTION_NEW_SPLIT:
+            return true
 
         default:
             return false
         }
     }
 
-    // MARK: - Clipboard
+    // MARK: - Clipboard Callbacks
+    //
+    // Clipboard and close callbacks receive surface userdata (GhosttyTerminalView),
+    // NOT app userdata.
 
-    private static func readClipboard(
+    private nonisolated static func readClipboard(
         _ userdata: UnsafeMutableRawPointer?,
         location: ghostty_clipboard_e,
         state: UnsafeMutableRawPointer?
     ) {
-        guard let state else { return }
+        guard let userdata else { return }
+        let view = Unmanaged<GhosttyTerminalView>.fromOpaque(userdata).takeUnretainedValue()
+        guard let surface = view.surface else { return }
+
         let pasteboard = NSPasteboard.general
-        guard let content = pasteboard.string(forType: .string) else {
-            // The clipboard request API takes (surface_t, string, state, confirmed)
-            // state is an opaque pointer from Ghostty that we pass back
-            ghostty_surface_complete_clipboard_request(state, nil, nil, true)
-            return
-        }
-        content.withCString { ptr in
-            ghostty_surface_complete_clipboard_request(state, ptr, nil, true)
+        let str = pasteboard.string(forType: .string) ?? ""
+        str.withCString { ptr in
+            ghostty_surface_complete_clipboard_request(surface, ptr, state, false)
         }
     }
 
-    private static func writeClipboard(
+    private nonisolated static func writeClipboard(
         _ userdata: UnsafeMutableRawPointer?,
+        string: UnsafePointer<CChar>?,
         location: ghostty_clipboard_e,
-        content: UnsafePointer<ghostty_clipboard_content_s>?,
-        count: Int,
         confirm: Bool
     ) {
-        guard let content, count > 0 else { return }
-        let item = content.pointee
-        if let data = item.data {
-            let text = String(cString: data)
-            let pasteboard = NSPasteboard.general
-            pasteboard.clearContents()
-            pasteboard.setString(text, forType: .string)
-        }
+        guard let string else { return }
+        let text = String(cString: string)
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(text, forType: .string)
     }
 
-    private static func closeSurface(
+    private nonisolated static func closeSurface(
         _ userdata: UnsafeMutableRawPointer?,
         processAlive: Bool
     ) {
-        // Surface close is handled via the action callback
+        guard let userdata else { return }
+        let view = Unmanaged<GhosttyTerminalView>.fromOpaque(userdata).takeUnretainedValue()
+        DispatchQueue.main.async {
+            view.onChildExit?(0)
+        }
     }
 }

@@ -34,6 +34,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        GhosttyApp.shared.start()
+
         if !restoreSession() {
             createNewWindow()
         }
@@ -51,6 +53,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         saveSession()
         hotkeyWindowController?.teardown()
         globalHotkey = nil
+        GhosttyApp.shared.shutdown()
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
