@@ -131,6 +131,21 @@ else
     echo "Warning: Theme files not found at $THEMES_SRC"
 fi
 
+# --- Copy terminfo to app resources ---
+
+TERMINFO_SRC="$GHOSTTY_DIR/zig-out/share/terminfo"
+TERMINFO_DST="$PROJECT_DIR/Claide/Resources/terminfo"
+
+if [ -d "$TERMINFO_SRC" ]; then
+    echo "Installing terminfo..."
+    mkdir -p "$TERMINFO_DST"
+    cp -R "$TERMINFO_SRC/78" "$TERMINFO_DST/78"
+    cp -R "$TERMINFO_SRC/67" "$TERMINFO_DST/67"
+    echo "  xterm-ghostty + ghostty terminfo entries installed"
+else
+    echo "Warning: Terminfo files not found at $TERMINFO_SRC"
+fi
+
 echo ""
 echo "GhosttyKit.xcframework installed at:"
 echo "  $OUTPUT_FRAMEWORK"
