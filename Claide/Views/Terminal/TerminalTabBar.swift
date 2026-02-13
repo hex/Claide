@@ -346,36 +346,65 @@ private struct ProcessIcon: View {
     let isRunning: Bool
     var colorOverride: Color?
 
-    var body: some View {
-        let info = Self.lookup(path)
-
-        Image(systemName: info.symbol)
-            .font(.system(size: 13, weight: .medium))
-            .foregroundStyle(colorOverride ?? info.color)
-            .frame(width: 16, height: 16)
-            .opacity(isRunning ? 1.0 : 0.4)
+    private enum IconSource {
+        case sfSymbol(String, Color)
+        case appIcon(NSImage)
     }
 
-    private static func lookup(_ path: String?) -> (symbol: String, color: Color) {
-        guard let path else { return ("gearshape", .gray) }
+    var body: some View {
+        switch Self.lookup(path) {
+        case .sfSymbol(let symbol, let color):
+            Image(systemName: symbol)
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(colorOverride ?? color)
+                .frame(width: 16, height: 16)
+                .opacity(isRunning ? 1.0 : 0.4)
+        case .appIcon(let nsImage):
+            Image(nsImage: nsImage)
+                .resizable()
+                .aspectRatio(contentMode: .fit)
+                .frame(width: 16, height: 16)
+                .opacity(isRunning ? 1.0 : 0.4)
+        }
+    }
+
+    private static func lookup(_ path: String?) -> IconSource {
+        guard let path else { return .sfSymbol("gearshape", .gray) }
         let command = (path as NSString).lastPathComponent
 
-        if let match = iconMap[command] { return match }
+        if let match = iconMap[command] { return .sfSymbol(match.0, match.1) }
         // Normalize: "python3.12" → "python", "Emacs-29" → "emacs"
         let normalized = command.lowercased().replacingOccurrences(
             of: #"[\d._-]+$"#, with: "", options: .regularExpression
         )
-        if let match = iconMap[normalized] { return match }
+        if let match = iconMap[normalized] { return .sfSymbol(match.0, match.1) }
 
         // Some tools use versioned paths (e.g. ~/.local/share/claude/versions/2.1.34).
         // Check parent directory names for a known command.
         let components = path.components(separatedBy: "/")
         for component in components.reversed().dropFirst() {
             let lower = component.lowercased()
-            if let match = iconMap[lower] { return match }
+            if let match = iconMap[lower] { return .sfSymbol(match.0, match.1) }
         }
 
-        return ("gearshape", .gray)
+        // GUI apps inside .app bundles get their real icon.
+        if let appPath = appBundlePath(for: path) {
+            return .appIcon(NSWorkspace.shared.icon(forFile: appPath))
+        }
+
+        return .sfSymbol("gearshape", .gray)
+    }
+
+    /// Extracts the .app bundle path from an executable path.
+    /// e.g. "/Applications/Safari.app/Contents/MacOS/Safari" → "/Applications/Safari.app"
+    private static func appBundlePath(for executablePath: String) -> String? {
+        let components = executablePath.components(separatedBy: "/")
+        for (i, component) in components.enumerated() {
+            if component.hasSuffix(".app") {
+                return components[0...i].joined(separator: "/")
+            }
+        }
+        return nil
     }
 
     private static let iconMap: [String: (symbol: String, color: Color)] = [
