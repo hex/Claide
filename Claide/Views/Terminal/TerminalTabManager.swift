@@ -24,14 +24,14 @@ final class TerminalTabManager {
         }
 
         /// The active pane's terminal view.
-        var terminalView: MetalTerminalView {
-            (paneController.paneView(for: paneController.activePaneID) as? MetalTerminalView)!
+        var terminalView: GhosttyTerminalView {
+            (paneController.paneView(for: paneController.activePaneID) as? GhosttyTerminalView)!
         }
 
         /// All terminal views across all panes in this tab.
-        var allTerminalViews: [MetalTerminalView] {
+        var allTerminalViews: [GhosttyTerminalView] {
             paneController.paneTree.allPaneIDs.compactMap {
-                paneController.paneView(for: $0) as? MetalTerminalView
+                paneController.paneView(for: $0) as? GhosttyTerminalView
             }
         }
     }
@@ -72,14 +72,14 @@ final class TerminalTabManager {
         let directory = initialDirectory ?? NSHomeDirectory()
 
         let controller = PaneTreeController { _ in
-            MetalTerminalView(frame: .zero)
+            GhosttyTerminalView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
         }
         controller.onPaneCloseRequested = { [weak self] paneID in
             self?.closePane(paneID)
         }
 
         let initialID = controller.activePaneID
-        guard let view = controller.paneView(for: initialID) as? MetalTerminalView else { return }
+        guard let view = controller.paneView(for: initialID) as? GhosttyTerminalView else { return }
 
         let vm = TerminalViewModel()
         setupPane(paneID: initialID, controller: controller, view: view, viewModel: vm, directory: directory, environment: environment)
@@ -114,7 +114,7 @@ final class TerminalTabManager {
             restoredTree: state.paneTree,
             activePaneID: state.activePaneID
         ) { _ in
-            MetalTerminalView(frame: .zero)
+            GhosttyTerminalView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
         }
         controller.onPaneCloseRequested = { [weak self] paneID in
             self?.closePane(paneID)
@@ -122,7 +122,7 @@ final class TerminalTabManager {
 
         var viewModels: [PaneID: TerminalViewModel] = [:]
         for paneID in state.paneTree.allPaneIDs {
-            guard let view = controller.paneView(for: paneID) as? MetalTerminalView else { continue }
+            guard let view = controller.paneView(for: paneID) as? GhosttyTerminalView else { continue }
             let vm = TerminalViewModel()
             viewModels[paneID] = vm
 
@@ -138,7 +138,7 @@ final class TerminalTabManager {
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak controller] in
             guard let controller else { return }
-            guard let view = controller.paneView(for: controller.activePaneID) as? MetalTerminalView else { return }
+            guard let view = controller.paneView(for: controller.activePaneID) as? GhosttyTerminalView else { return }
             view.window?.makeFirstResponder(view)
         }
     }
@@ -237,7 +237,7 @@ final class TerminalTabManager {
         let environment = Self.buildEnvironment()
 
         guard let newID = tabs[index].paneController.splitActivePane(axis: axis) else { return }
-        guard let newView = tabs[index].paneController.paneView(for: newID) as? MetalTerminalView else { return }
+        guard let newView = tabs[index].paneController.paneView(for: newID) as? GhosttyTerminalView else { return }
 
         let vm = TerminalViewModel()
         tabs[index].paneViewModels[newID] = vm
@@ -251,7 +251,7 @@ final class TerminalTabManager {
         guard let index = tabs.firstIndex(where: { $0.id == activeTabID }) else { return }
 
         if tabs[index].paneController.paneTree.paneCount > 1 {
-            let closingView = tabs[index].paneController.paneView(for: paneID) as? MetalTerminalView
+            let closingView = tabs[index].paneController.paneView(for: paneID) as? GhosttyTerminalView
 
             if tabs[index].paneController.closePane(paneID) {
                 closingView?.terminate()
@@ -294,7 +294,7 @@ final class TerminalTabManager {
     private func setupPane(
         paneID: PaneID,
         controller: PaneTreeController,
-        view: MetalTerminalView,
+        view: GhosttyTerminalView,
         viewModel: TerminalViewModel,
         directory: String,
         environment: [(String, String)],
@@ -303,37 +303,34 @@ final class TerminalTabManager {
         viewModel.profile = profile
         let shell = profile.resolvedShell
 
-        view.terminalFont = FontSelection.terminalFont(
-            family: profile.resolvedFontFamily.isEmpty ? lastFontFamily : profile.resolvedFontFamily,
-            size: profile.resolvedFontSize
-        )
+        // Override SHELL in the environment if the profile specifies a custom shell.
+        // Ghostty reads SHELL to determine which shell to launch via login(1).
+        var env = environment
+        if profile.shell != nil {
+            env.removeAll { $0.0 == "SHELL" }
+            env.append(("SHELL", shell))
+        }
 
-        view.startShell(
-            executable: shell,
-            args: ["-l"],
-            environment: environment,
-            directory: directory
-        )
-        viewModel.processStarted(executable: shell, args: ["-l"])
+        view.startShell(environment: env, directory: directory)
+        viewModel.processStarted(executable: shell, args: [])
 
-        view.bridge?.onTitle = { [weak viewModel, weak controller] title in
+        view.onTitle = { [weak viewModel, weak controller] title in
             viewModel?.titleChanged(title)
             controller?.setPaneTitle(title, for: paneID)
         }
-        view.bridge?.onDirectoryChange = { [weak viewModel] dir in
+        view.onDirectoryChange = { [weak viewModel] dir in
             viewModel?.directoryChanged(dir)
         }
-        view.bridge?.onChildExit = { [weak viewModel] code in
+        view.onChildExit = { [weak viewModel] code in
             viewModel?.processTerminated(exitCode: code)
         }
-        view.bridge?.onBell = { [weak view] in
-            view?.flashBell()
+        view.onBell = {
             NSSound.beep()
             if !NSApp.isActive {
                 NSApp.requestUserAttention(.informationalRequest)
             }
         }
-        view.bridge?.onProgressReport = { [weak viewModel] state, progress in
+        view.onProgressReport = { [weak viewModel] state, progress in
             Task { @MainActor in
                 viewModel?.progressReported(state: state, progress: progress)
             }
@@ -343,54 +340,17 @@ final class TerminalTabManager {
             controller?.focusPane(paneID)
         }
 
-        if let shellPid = view.bridge.map({ pid_t($0.shellPid) }), shellPid > 0 {
-            viewModel.startTrackingForeground(shellPid: shellPid)
-        }
-
-        applyCursorStyle(to: view, profile: profile)
-        applyColorScheme(to: view, profile: profile)
+        // Color scheme for pane dividers
         let scheme = TerminalColorScheme.named(profile.resolvedColorScheme)
         controller.containerView.applyColorScheme(scheme, for: paneID)
     }
 
-    // MARK: - Cursor Style
-
-    func applyCursorStyle(to view: MetalTerminalView, profile: TerminalProfile = .default) {
-        let pref = profile.resolvedCursorStyle
-        let blink = profile.resolvedCursorBlink
-
-        let shape: MetalTerminalView.CursorShape = switch pref {
-        case "block": .block
-        case "underline": .underline
-        default: .beam
-        }
-
-        view.applyCursorPreferences(shape: shape, blinking: blink)
-    }
-
-    func applyCursorStyleToAll() {
-        for tab in tabs {
-            for (paneID, vm) in tab.paneViewModels {
-                guard let view = tab.paneController.paneView(for: paneID) as? MetalTerminalView else { continue }
-                applyCursorStyle(to: view, profile: vm.profile)
-            }
-        }
-    }
-
     // MARK: - Color Scheme
-
-    func applyColorScheme(to view: MetalTerminalView, profile: TerminalProfile = .default) {
-        let schemeName = profile.resolvedColorScheme
-        let scheme = TerminalColorScheme.named(schemeName)
-        view.applyColorScheme(scheme)
-    }
 
     func applyColorSchemeToAll() {
         for tab in tabs {
             for (paneID, vm) in tab.paneViewModels {
-                guard let view = tab.paneController.paneView(for: paneID) as? MetalTerminalView else { continue }
                 let scheme = TerminalColorScheme.named(vm.profile.resolvedColorScheme)
-                applyColorScheme(to: view, profile: vm.profile)
                 tab.paneController.containerView.applyColorScheme(scheme, for: paneID)
             }
         }
@@ -403,8 +363,8 @@ final class TerminalTabManager {
         for tab in tabs {
             tab.paneController.containerView.setActivePaneID(tab.paneController.activePaneID)
             for (paneID, _) in tab.paneViewModels {
-                guard let view = tab.paneController.paneView(for: paneID) as? MetalTerminalView else { continue }
-                let isFocused = (view == view.window?.firstResponder as? MetalTerminalView)
+                guard let view = tab.paneController.paneView(for: paneID) as? GhosttyTerminalView else { continue }
+                let isFocused = (view == view.window?.firstResponder as? GhosttyTerminalView)
                 let dim = UserDefaults.standard.bool(forKey: "dimUnfocusedPanes")
                 view.alphaValue = (isFocused || !dim) ? 1.0 : 0.6
             }

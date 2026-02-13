@@ -32,13 +32,6 @@ struct TerminalPanel: NSViewRepresentable {
             ])
         }
 
-        // Apply font family changes to the active pane
-        if let activeView = tabManager.activeTab?.terminalView {
-            let currentSize = activeView.terminalFont.pointSize
-            let desired = FontSelection.terminalFont(family: fontFamily, size: currentSize)
-            if activeView.terminalFont != desired {
-                activeView.terminalFont = desired
-            }
-        }
+        // Font is managed by Ghostty config — no per-view font assignment needed
     }
 }

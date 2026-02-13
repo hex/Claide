@@ -17,7 +17,7 @@ final class PaneContainerView: NSView {
     /// Rebuild the view hierarchy to match the given pane tree.
     ///
     /// The `viewProvider` closure supplies the NSView for each terminal pane ID.
-    /// Views are detached (not destroyed) before rebuilding, so MetalTerminalView
+    /// Views are detached (not destroyed) before rebuilding, so terminal view
     /// instances survive across tree changes.
     func applyTree(_ tree: PaneNode, viewProvider: (PaneID) -> NSView?) {
         let preservedTitles = titleBars.mapValues { $0.title }

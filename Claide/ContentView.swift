@@ -10,8 +10,7 @@ struct ContentView: View {
     @State private var sessionStatusVM = SessionStatusViewModel()
     @State private var sidebarTab: SidebarTab = .board
     @AppStorage("fontFamily") private var fontFamily: String = ""
-    @AppStorage("cursorStyle") private var cursorStyle: String = "bar"
-    @AppStorage("cursorBlink") private var cursorBlink: Bool = true
+    // Cursor style is managed by Ghostty config (cursor-style, cursor-style-blink)
 
     /// Initial directory — from CLAIDE_DIR env var (for cs integration) or home.
     private static let initialDirectory: String = {
@@ -47,26 +46,19 @@ struct ContentView: View {
             Task { @MainActor in
                 await vm.loadIssues(workingDirectory: Self.initialDirectory)
             }
-            let shellPid = pid_t(tabManager.activeTab?.terminalView.shellPid ?? 0)
-            fileLogVM.startWatching(sessionDirectory: Self.initialDirectory, shellPid: shellPid)
-            sessionStatusVM.startWatching(sessionDirectory: Self.initialDirectory, shellPid: shellPid)
+            // TODO: Shell PID not exposed by Ghostty yet — pass 0 to use fallback discovery
+            fileLogVM.startWatching(sessionDirectory: Self.initialDirectory)
+            sessionStatusVM.startWatching(sessionDirectory: Self.initialDirectory)
         }
         .onChange(of: tabManager.activeViewModel?.currentDirectory) { _, newDir in
-            if let dir = newDir.flatMap({ $0 }) {
+            if let dir = newDir ?? nil {
                 let vm = graphVM
                 Task { @MainActor in
                     await vm.loadIssues(workingDirectory: dir)
                 }
-                let shellPid = pid_t(tabManager.activeTab?.terminalView.shellPid ?? 0)
-                fileLogVM.startWatching(sessionDirectory: dir, shellPid: shellPid)
-                sessionStatusVM.startWatching(sessionDirectory: dir, shellPid: shellPid)
+                fileLogVM.startWatching(sessionDirectory: dir)
+                sessionStatusVM.startWatching(sessionDirectory: dir)
             }
-        }
-        .onChange(of: cursorStyle) {
-            tabManager.applyCursorStyleToAll()
-        }
-        .onChange(of: cursorBlink) {
-            tabManager.applyCursorStyleToAll()
         }
     }
 

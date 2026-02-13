@@ -9,12 +9,9 @@ enum TerminalTheme {
     static let cursorText  = Palette.nsColor(.cursorText)
     static let selection   = Palette.nsColor(.selection)
 
-    /// Background color derived from the active color scheme.
-    /// Reads UserDefaults on each access so SwiftUI views that reference this
-    /// automatically pick up the correct color when the scheme changes.
+    /// Background color read from Ghostty's finalized config so chrome
+    /// matches the actual terminal rendering.
     static var background: NSColor {
-        let schemeName = UserDefaults.standard.string(forKey: "terminalColorScheme") ?? "hexed"
-        let scheme = TerminalColorScheme.named(schemeName)
-        return Palette.nsColor(scheme.background)
+        GhosttyApp.backgroundColor
     }
 }

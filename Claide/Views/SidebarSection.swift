@@ -81,11 +81,11 @@ struct SidebarSection: View {
                     await vm.loadIssues(workingDirectory: Self.initialDirectory)
                 }
             }
-            let shellPid = pid_t(tabManager.activeTab?.terminalView.shellPid ?? 0)
-            fileLogVM.startWatching(sessionDirectory: Self.initialDirectory, shellPid: shellPid)
+            // TODO: Shell PID not exposed by Ghostty yet — pass 0 to use fallback discovery
+            fileLogVM.startWatching(sessionDirectory: Self.initialDirectory)
         }
         .onChange(of: tabManager.activeViewModel?.currentDirectory) { _, newDir in
-            if let dir = newDir.flatMap({ $0 }) {
+            if let dir = newDir ?? nil {
                 updateTaskContext(for: dir)
                 if hasTaskContext {
                     let vm = graphVM
@@ -93,8 +93,7 @@ struct SidebarSection: View {
                         await vm.loadIssues(workingDirectory: dir)
                     }
                 }
-                let shellPid = pid_t(tabManager.activeTab?.terminalView.shellPid ?? 0)
-                fileLogVM.startWatching(sessionDirectory: dir, shellPid: shellPid)
+                fileLogVM.startWatching(sessionDirectory: dir)
             }
         }
     }

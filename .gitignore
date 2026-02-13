@@ -17,6 +17,10 @@ DerivedData/
 # Rust
 rust/target/
 
+# Ghostty / GhosttyKit
+ThirdParty/
+Frameworks/
+
 # Local build/release
 scripts/release.sh
 ExportOptions.plist

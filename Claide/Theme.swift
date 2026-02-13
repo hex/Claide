@@ -4,13 +4,9 @@
 import SwiftUI
 
 enum Theme {
-    // Active terminal color scheme for chrome derivation.
-    private static var activeScheme: TerminalColorScheme {
-        let name = UserDefaults.standard.string(forKey: "terminalColorScheme") ?? "hexed"
-        return TerminalColorScheme.named(name)
-    }
-    private static var schemeBG: NSColor { Palette.nsColor(activeScheme.background) }
-    private static var schemeFG: NSColor { Palette.nsColor(activeScheme.foreground) }
+    // Terminal colors read from Ghostty's config so chrome matches the terminal.
+    private static var schemeBG: NSColor { GhosttyApp.backgroundColor }
+    private static var schemeFG: NSColor { GhosttyApp.foregroundColor }
 
     // Background layers (derived from terminal color scheme)
     static var backgroundPrimary: Color { Color(nsColor: schemeBG) }
