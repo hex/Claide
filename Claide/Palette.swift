@@ -18,6 +18,21 @@ struct RGB: Equatable, Hashable, Sendable {
         self.b = UInt8(round(c.blueComponent * 255))
     }
 
+    /// Parse a hex color string like "#RRGGBB" or "RRGGBB".
+    init?(hex: String) {
+        var h = hex
+        if h.hasPrefix("#") { h.removeFirst() }
+        guard h.count == 6, let value = UInt32(h, radix: 16) else { return nil }
+        self.r = UInt8((value >> 16) & 0xFF)
+        self.g = UInt8((value >> 8) & 0xFF)
+        self.b = UInt8(value & 0xFF)
+    }
+
+    /// ITU-R BT.601 luma: 0 (black) to 255 (white).
+    var perceivedBrightness: Int {
+        (Int(r) * 299 + Int(g) * 587 + Int(b) * 114) / 1000
+    }
+
     /// Hex string like "#1a1b26" for use in terminal config APIs.
     var hexString: String {
         String(format: "#%02x%02x%02x", r, g, b)

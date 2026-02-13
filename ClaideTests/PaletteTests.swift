@@ -91,4 +91,57 @@ struct PaletteTests {
         #expect(RGB.typeFeature == RGB(81, 203, 67))
         #expect(RGB.typeChore == RGB(102, 102, 102))
     }
+
+    // MARK: - Hex parsing
+
+    @Test("RGB from hex string with hash prefix")
+    func hexWithHash() {
+        let c = RGB(hex: "#ff5c57")
+        #expect(c == RGB(255, 92, 87))
+    }
+
+    @Test("RGB from hex string without hash prefix")
+    func hexWithoutHash() {
+        let c = RGB(hex: "282a36")
+        #expect(c == RGB(40, 42, 54))
+    }
+
+    @Test("RGB from hex is case-insensitive")
+    func hexCaseInsensitive() {
+        #expect(RGB(hex: "#FF5C57") == RGB(hex: "#ff5c57"))
+    }
+
+    @Test("RGB from invalid hex returns nil")
+    func hexInvalid() {
+        #expect(RGB(hex: "nope") == nil)
+        #expect(RGB(hex: "#gg0000") == nil)
+        #expect(RGB(hex: "") == nil)
+        #expect(RGB(hex: "#ff") == nil)
+    }
+
+    // MARK: - Perceived brightness
+
+    @Test("Black has zero brightness")
+    func brightnessBlack() {
+        #expect(RGB(0, 0, 0).perceivedBrightness == 0)
+    }
+
+    @Test("White has max brightness")
+    func brightnessWhite() {
+        #expect(RGB(255, 255, 255).perceivedBrightness == 255)
+    }
+
+    @Test("Dark background classified correctly")
+    func brightnessDark() {
+        // Dracula background #282a36
+        let bg = RGB(hex: "#282a36")!
+        #expect(bg.perceivedBrightness <= 128)
+    }
+
+    @Test("Light background classified correctly")
+    func brightnessLight() {
+        // 3024 Day background #f7f7f7
+        let bg = RGB(hex: "#f7f7f7")!
+        #expect(bg.perceivedBrightness > 128)
+    }
 }

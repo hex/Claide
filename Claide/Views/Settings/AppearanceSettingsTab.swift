@@ -35,15 +35,8 @@ struct AppearanceSettingsTab: View {
                 }
             }
 
-            Section("Colors") {
-                Picker("Color Scheme", selection: $schemeName) {
-                    Text(ChromeColorScheme.hexed.name)
-                        .tag(ChromeColorScheme.hexed.id)
-                    Divider()
-                    ForEach(ChromeColorScheme.ghosttyThemeNames, id: \.self) { name in
-                        Text(name).tag(name)
-                    }
-                }
+            Section("Color Scheme") {
+                ThemeBrowser(selection: $schemeName)
             }
 
             Section("UI") {
