@@ -11,6 +11,13 @@ struct RGB: Equatable, Hashable, Sendable {
         self.r = r; self.g = g; self.b = b
     }
 
+    init(_ color: NSColor) {
+        let c = color.usingColorSpace(.sRGB) ?? color
+        self.r = UInt8(round(c.redComponent * 255))
+        self.g = UInt8(round(c.greenComponent * 255))
+        self.b = UInt8(round(c.blueComponent * 255))
+    }
+
     /// Hex string like "#1a1b26" for use in terminal config APIs.
     var hexString: String {
         String(format: "#%02x%02x%02x", r, g, b)

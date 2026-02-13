@@ -202,21 +202,21 @@ final class GhosttyApp {
 
         // Terminal color theme
         let schemeName = defaults.string(forKey: "terminalColorScheme") ?? "hexed"
-        let scheme = ChromeColorScheme.named(schemeName)
-        applyColorScheme(scheme, to: config)
+        applyColorScheme(schemeName, to: config)
     }
 
-    /// Set terminal colors from a ChromeColorScheme. Uses Ghostty's built-in
-    /// theme when available, falls back to individual palette/fg/bg keys.
-    private func applyColorScheme(_ scheme: ChromeColorScheme, to config: ghostty_config_t) {
-        if let themeName = scheme.ghosttyThemeName {
-            configSet(config, key: "theme", value: themeName)
-        } else {
+    /// Set terminal colors by scheme name. "hexed" uses individual palette keys;
+    /// all other names resolve to a bundled Ghostty theme file.
+    private func applyColorScheme(_ name: String, to config: ghostty_config_t) {
+        if name == ChromeColorScheme.hexed.id {
+            let scheme = ChromeColorScheme.hexed
             configSet(config, key: "background", value: scheme.background.hexString)
             configSet(config, key: "foreground", value: scheme.foreground.hexString)
             for (i, color) in scheme.ansi.enumerated() {
                 configSet(config, key: "palette", value: "\(i)=\(color.hexString)")
             }
+        } else {
+            configSet(config, key: "theme", value: name)
         }
     }
 

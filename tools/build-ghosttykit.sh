@@ -117,6 +117,20 @@ mkdir -p "$FRAMEWORK_DIR"
 rm -rf "$OUTPUT_FRAMEWORK"
 cp -R "$BUILT_FRAMEWORK" "$OUTPUT_FRAMEWORK"
 
+# --- Copy themes to app resources ---
+
+THEMES_SRC="$GHOSTTY_DIR/zig-out/share/ghostty/themes"
+THEMES_DST="$PROJECT_DIR/Claide/Resources/ghostty/themes"
+
+if [ -d "$THEMES_SRC" ]; then
+    echo "Installing themes..."
+    rm -rf "$THEMES_DST"
+    cp -R "$THEMES_SRC" "$THEMES_DST"
+    echo "  $(ls "$THEMES_DST" | wc -l | tr -d ' ') themes installed"
+else
+    echo "Warning: Theme files not found at $THEMES_SRC"
+fi
+
 echo ""
 echo "GhosttyKit.xcframework installed at:"
 echo "  $OUTPUT_FRAMEWORK"
