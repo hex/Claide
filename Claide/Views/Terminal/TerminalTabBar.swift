@@ -576,6 +576,8 @@ private struct ProcessIcon: View {
         "chown":      ("lock",            Color(hex: 0xAAAAAA)),
         // AI
         "claude":     ("brain",           Color(hex: 0xDA7756)),
+        "codex":      ("brain",           Color(hex: 0x10A37F)),
+        "gemini":     ("brain",           Color(hex: 0x4285F4)),
         // Misc
         "sleep":      ("moon.zzz",        Color(hex: 0x8888AA)),
         "watch":      ("clock.arrow.2.circlepath", Color(hex: 0x00AEFF)),
