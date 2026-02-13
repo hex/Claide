@@ -357,7 +357,7 @@ private struct ProcessIcon: View {
     }
 
     private static func lookup(_ path: String?) -> (symbol: String, color: Color) {
-        guard let path else { return ("questionmark.circle", .gray) }
+        guard let path else { return ("gearshape", .gray) }
         let command = (path as NSString).lastPathComponent
 
         if let match = iconMap[command] { return match }
@@ -375,7 +375,7 @@ private struct ProcessIcon: View {
             if let match = iconMap[lower] { return match }
         }
 
-        return ("questionmark.circle", .gray)
+        return ("gearshape", .gray)
     }
 
     private static let iconMap: [String: (symbol: String, color: Color)] = [
@@ -449,6 +449,10 @@ private struct ProcessIcon: View {
         "gzip":   ("doc.zipper",           Color(hex: 0xFD9126)),
         // AI
         "claude": ("brain",                Color(hex: 0xDA7756)),
+        // Misc
+        "sleep":  ("moon.zzz",             Color(hex: 0x8888AA)),
+        "watch":  ("clock.arrow.2.circlepath", Color(hex: 0x00AEFF)),
+        "man":    ("book",                 Color(hex: 0xAAAAAA)),
     ]
 }
 
