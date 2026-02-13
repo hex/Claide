@@ -65,114 +65,117 @@ struct TerminalTabBar: View {
                         }
                 }
 
-                GeometryReader { containerGeo in
-                    ScrollViewReader { scrollReader in
-                        ScrollView(.horizontal, showsIndicators: false) {
-                            HStack(spacing: 0) {
-                                ForEach(Array(tabManager.tabs.enumerated()), id: \.element.id) { index, tab in
-                                    let isActive = tab.id == tabManager.activeTabID
-                                    let isLast = index == tabManager.tabs.count - 1
-                                    let nextIsActive = !isLast && tabManager.tabs[index + 1].id == tabManager.activeTabID
+                ScrollViewReader { scrollReader in
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 0) {
+                            ForEach(Array(tabManager.tabs.enumerated()), id: \.element.id) { index, tab in
+                                let isActive = tab.id == tabManager.activeTabID
+                                let isLast = index == tabManager.tabs.count - 1
+                                let nextIsActive = !isLast && tabManager.tabs[index + 1].id == tabManager.activeTabID
 
-                                    TabButton(
-                                        tabId: tab.id,
-                                        title: tab.viewModel.displayTitle,
-                                        isActive: isActive,
-                                        isRunning: tab.viewModel.isRunning,
-                                        executablePath: tab.viewModel.executablePath,
-                                        tabColor: tab.viewModel.tabColor,
-                                        paneCount: tab.paneController.paneTree.paneCount,
-                                        tabCount: tabManager.tabs.count,
-                                        isLastTab: isLast,
-                                        showDivider: !isLast && !isActive && !nextIsActive,
-                                        index: index + 1,
-                                        showIndex: cmdKeyObserver.isPressed,
-                                        onSelect: { tabManager.switchTo(id: tab.id) },
-                                        onClose: { tabManager.closeTab(id: tab.id) },
-                                        onRename: { name in
-                                            let trimmed = name.trimmingCharacters(in: .whitespaces)
-                                            tab.viewModel.customTitle = trimmed.isEmpty ? nil : trimmed
-                                        },
-                                        onSetColor: { tab.viewModel.tabColor = $0 },
-                                        onCloseOthers: { tabManager.closeOthersKeeping(id: tab.id) },
-                                        onCloseToRight: { tabManager.closeToRight(afterId: tab.id) },
-                                        onCloseAll: {
-                                            tabManager.closeAll()
-                                            onAdd()
+                                TabButton(
+                                    tabId: tab.id,
+                                    title: tab.viewModel.displayTitle,
+                                    isActive: isActive,
+                                    isRunning: tab.viewModel.isRunning,
+                                    executablePath: tab.viewModel.executablePath,
+                                    tabColor: tab.viewModel.tabColor,
+                                    paneCount: tab.paneController.paneTree.paneCount,
+                                    tabCount: tabManager.tabs.count,
+                                    isLastTab: isLast,
+                                    showDivider: !isLast && !isActive && !nextIsActive,
+                                    index: index + 1,
+                                    showIndex: cmdKeyObserver.isPressed,
+                                    onSelect: { tabManager.switchTo(id: tab.id) },
+                                    onClose: { tabManager.closeTab(id: tab.id) },
+                                    onRename: { name in
+                                        let trimmed = name.trimmingCharacters(in: .whitespaces)
+                                        tab.viewModel.customTitle = trimmed.isEmpty ? nil : trimmed
+                                    },
+                                    onSetColor: { tab.viewModel.tabColor = $0 },
+                                    onCloseOthers: { tabManager.closeOthersKeeping(id: tab.id) },
+                                    onCloseToRight: { tabManager.closeToRight(afterId: tab.id) },
+                                    onCloseAll: {
+                                        tabManager.closeAll()
+                                        onAdd()
+                                    }
+                                )
+                                .frame(width: effectiveTabWidth)
+                                .id(tab.id)
+                                .offset(x: draggedTabID == tab.id ? dragOffset : 0)
+                                .opacity(draggedTabID == tab.id ? 0.85 : 1)
+                                .zIndex(draggedTabID == tab.id ? 1 : 0)
+                                .shadow(color: draggedTabID == tab.id ? .black.opacity(0.4) : .clear, radius: 4, y: 2)
+                                .simultaneousGesture(
+                                    singleTab ? nil : DragGesture(minimumDistance: 5, coordinateSpace: .global)
+                                        .onChanged { value in
+                                            handleDragChanged(tabID: tab.id, translation: value.translation.width)
                                         }
-                                    )
-                                    .frame(width: effectiveTabWidth)
-                                    .id(tab.id)
-                                    .offset(x: draggedTabID == tab.id ? dragOffset : 0)
-                                    .opacity(draggedTabID == tab.id ? 0.85 : 1)
-                                    .zIndex(draggedTabID == tab.id ? 1 : 0)
-                                    .shadow(color: draggedTabID == tab.id ? .black.opacity(0.4) : .clear, radius: 4, y: 2)
-                                    .simultaneousGesture(
-                                        singleTab ? nil : DragGesture(minimumDistance: 5, coordinateSpace: .global)
-                                            .onChanged { value in
-                                                handleDragChanged(tabID: tab.id, translation: value.translation.width)
-                                            }
-                                            .onEnded { _ in handleDragEnded() }
-                                    )
-                                    .highPriorityGesture(
-                                        singleTab ? DragGesture(minimumDistance: 5, coordinateSpace: .global)
-                                            .onChanged { _ in handleWindowDrag() }
-                                            .onEnded { _ in
-                                                windowDragStartOrigin = nil
-                                                windowDragStartMouse = nil
-                                            } : nil
-                                    )
-                                }
-                            }
-                            .background(
-                                GeometryReader { contentGeo in
-                                    Color.clear
-                                        .onChange(of: contentGeo.frame(in: .named("tabScroll"))) { _, newFrame in
-                                            scrollOffset = -newFrame.minX
-                                            contentWidth = newFrame.width
-                                        }
-                                        .onAppear {
-                                            let frame = contentGeo.frame(in: .named("tabScroll"))
-                                            scrollOffset = -frame.minX
-                                            contentWidth = frame.width
-                                        }
-                                }
-                            )
-                        }
-                        .coordinateSpace(name: "tabScroll")
-                        .onChange(of: tabManager.activeTabID) { _, newID in
-                            if let id = newID {
-                                withAnimation(.easeInOut(duration: 0.15)) {
-                                    scrollReader.scrollTo(id, anchor: .center)
-                                }
+                                        .onEnded { _ in handleDragEnded() }
+                                )
+                                .highPriorityGesture(
+                                    singleTab ? DragGesture(minimumDistance: 5, coordinateSpace: .global)
+                                        .onChanged { _ in handleWindowDrag() }
+                                        .onEnded { _ in
+                                            windowDragStartOrigin = nil
+                                            windowDragStartMouse = nil
+                                        } : nil
+                                )
                             }
                         }
-                    }
-                    .overlay(alignment: .leading) {
-                        TerminalTabsOverflowShadow(
-                            width: TerminalTabBarMetrics.overflowShadowWidth,
-                            startPoint: .leading,
-                            endPoint: .trailing
+                        .background(
+                            GeometryReader { contentGeo in
+                                Color.clear
+                                    .onChange(of: contentGeo.frame(in: .named("tabScroll"))) { _, newFrame in
+                                        scrollOffset = -newFrame.minX
+                                        contentWidth = newFrame.width
+                                    }
+                                    .onAppear {
+                                        let frame = contentGeo.frame(in: .named("tabScroll"))
+                                        scrollOffset = -frame.minX
+                                        contentWidth = frame.width
+                                    }
+                            }
                         )
-                        .opacity(canScrollLeft ? 1 : 0)
-                        .animation(.easeInOut(duration: 0.15), value: canScrollLeft)
                     }
-                    .overlay(alignment: .trailing) {
-                        TerminalTabsOverflowShadow(
-                            width: TerminalTabBarMetrics.overflowShadowWidth,
-                            startPoint: .trailing,
-                            endPoint: .leading
-                        )
-                        .opacity(canScrollRight ? 1 : 0)
-                        .animation(.easeInOut(duration: 0.15), value: canScrollRight)
+                    .coordinateSpace(name: "tabScroll")
+                    .onChange(of: tabManager.activeTabID) { _, newID in
+                        if let id = newID {
+                            withAnimation(.easeInOut(duration: 0.15)) {
+                                scrollReader.scrollTo(id, anchor: .center)
+                            }
+                        }
                     }
-                    .overlay(alignment: .bottom) {
-                        Rectangle()
-                            .fill(Theme.border)
-                            .frame(height: Theme.borderWidth)
+                }
+                .background(
+                    GeometryReader { geo in
+                        Color.clear
+                            .onAppear { containerWidth = geo.size.width }
+                            .onChange(of: geo.size.width) { _, newWidth in containerWidth = newWidth }
                     }
-                    .onAppear { containerWidth = containerGeo.size.width }
-                    .onChange(of: containerGeo.size.width) { _, newWidth in containerWidth = newWidth }
+                )
+                .overlay(alignment: .leading) {
+                    TerminalTabsOverflowShadow(
+                        width: TerminalTabBarMetrics.overflowShadowWidth,
+                        startPoint: .leading,
+                        endPoint: .trailing
+                    )
+                    .opacity(canScrollLeft ? 1 : 0)
+                    .animation(.easeInOut(duration: 0.15), value: canScrollLeft)
+                }
+                .overlay(alignment: .trailing) {
+                    TerminalTabsOverflowShadow(
+                        width: TerminalTabBarMetrics.overflowShadowWidth,
+                        startPoint: .trailing,
+                        endPoint: .leading
+                    )
+                    .opacity(canScrollRight ? 1 : 0)
+                    .animation(.easeInOut(duration: 0.15), value: canScrollRight)
+                }
+                .overlay(alignment: .bottom) {
+                    Rectangle()
+                        .fill(Theme.border)
+                        .frame(height: Theme.borderWidth)
                 }
 
                 if singleTab {
