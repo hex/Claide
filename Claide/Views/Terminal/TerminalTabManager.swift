@@ -487,10 +487,6 @@ final class TerminalTabManager {
             env.append(("PATH", "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"))
         }
 
-        if !env.contains(where: { $0.0 == "TERM" }) {
-            env.append(("TERM", "xterm-256color"))
-        }
-
         env.removeAll { $0.0 == "TERM_PROGRAM" }
         env.append(("TERM_PROGRAM", "Claide"))
 
