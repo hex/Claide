@@ -52,11 +52,20 @@ final class GhosttyTerminalView: NSView {
     /// Stored content size for backing property changes.
     private var contentSize: CGSize = .zero
 
+    /// Drives layer redisplay for frames rendered by Ghostty's async path.
+    /// In a layer-hosting view, setting layer.contents via dispatch_async
+    /// does not automatically trigger Core Animation composition.
+    private var displayRefreshTimer: Timer?
+
     // MARK: - Init
 
     override init(frame: NSRect) {
         super.init(frame: frame)
-        wantsLayer = true
+        // Do NOT set wantsLayer here. Ghostty's Metal renderer creates an
+        // IOSurfaceLayer and assigns it to view.layer BEFORE setting
+        // wantsLayer = true, making this a "layer-hosting" view. Pre-setting
+        // wantsLayer would make it "layer-backed" instead, which prevents
+        // Ghostty from properly owning the Metal layer.
     }
 
     @available(*, unavailable)
@@ -70,9 +79,11 @@ final class GhosttyTerminalView: NSView {
     ///
     /// Ghostty owns the PTY and shell process — there's no separate startShell step.
     /// Call this once after the view is laid out with a non-zero frame.
+    ///
+    /// Ghostty determines the shell from the SHELL environment variable (pass it
+    /// in `environment`). On macOS it launches via `login(1)` for a proper login
+    /// shell with hushlogin support.
     func startShell(
-        executable: String,
-        args: [String],
         environment: [(String, String)],
         directory: String
     ) {
@@ -99,9 +110,6 @@ final class GhosttyTerminalView: NSView {
             config.scale_factor = 2.0
         }
 
-        // Shell command: combine executable and args into a single command string
-        let command = ([executable] + args).joined(separator: " ")
-
         // Convert environment to ghostty_env_var_s array
         var envVars: [ghostty_env_var_s] = []
         var envKeyStorage: [UnsafeMutablePointer<CChar>] = []
@@ -120,17 +128,14 @@ final class GhosttyTerminalView: NSView {
             envValueStorage.forEach { free($0) }
         }
 
-        command.withCString { cCommand in
-            directory.withCString { cDir in
-                config.command = cCommand
-                config.working_directory = cDir
+        directory.withCString { cDir in
+            config.working_directory = cDir
 
-                envVars.withUnsafeMutableBufferPointer { envBuf in
-                    config.env_vars = envBuf.baseAddress
-                    config.env_var_count = envBuf.count
+            envVars.withUnsafeMutableBufferPointer { envBuf in
+                config.env_vars = envBuf.baseAddress
+                config.env_var_count = envBuf.count
 
-                    self.surface = ghostty_surface_new(app, &config)
-                }
+                self.surface = ghostty_surface_new(app, &config)
             }
         }
 
@@ -142,11 +147,13 @@ final class GhosttyTerminalView: NSView {
         registerSurface()
         updateTrackingAreas()
         setupDragAndDrop()
-        logger.info("Ghostty surface created")
+        startDisplayRefresh()
     }
 
     /// Destroy the terminal surface and clean up.
     func terminate() {
+        displayRefreshTimer?.invalidate()
+        displayRefreshTimer = nil
         unregisterSurface()
         if let surface {
             ghostty_surface_free(surface)
@@ -158,6 +165,7 @@ final class GhosttyTerminalView: NSView {
         // terminate() must be called before deallocation.
         // NSView always deallocates on main thread; this is a safety net.
         MainActor.assumeIsolated {
+            displayRefreshTimer?.invalidate()
             if surface != nil {
                 unregisterSurface()
                 ghostty_surface_free(surface!)
@@ -166,6 +174,26 @@ final class GhosttyTerminalView: NSView {
     }
 
     // MARK: - View Lifecycle
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if let surface = self.surface, let window = self.window {
+            let fbFrame = self.convertToBacking(self.frame)
+            ghostty_surface_set_size(surface, UInt32(fbFrame.width), UInt32(fbFrame.height))
+        }
+    }
+
+    /// Tell Core Animation to re-composite the layer at display refresh rate.
+    ///
+    /// Ghostty's renderer thread draws frames to IOSurface objects and sets
+    /// them as layer.contents via dispatch_async. In a layer-hosting view,
+    /// this does not automatically trigger a composition pass. We compensate
+    /// by periodically marking the layer as needing display.
+    private func startDisplayRefresh() {
+        displayRefreshTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 60.0, repeats: true) { [weak self] _ in
+            self?.layer?.setNeedsDisplay()
+        }
+    }
 
     override var acceptsFirstResponder: Bool { true }
 
@@ -340,6 +368,12 @@ final class GhosttyTerminalView: NSView {
             _ = sendKeyEvent(action, event: event, composing: markedText.length > 0 || markedBefore)
         }
     }
+
+    // Absorb command selectors (moveUp:, deleteBackward:, etc.) dispatched
+    // by interpretKeyEvents for arrow keys, backspace, etc. Without this
+    // override, NSView forwards to noResponder(for:) which plays the
+    // system alert sound.
+    override func doCommand(by selector: Selector) {}
 
     override func keyUp(with event: NSEvent) {
         guard surface != nil else { return }

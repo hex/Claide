@@ -72,7 +72,7 @@ final class TerminalTabManager {
         let directory = initialDirectory ?? NSHomeDirectory()
 
         let controller = PaneTreeController { _ in
-            GhosttyTerminalView(frame: .zero)
+            GhosttyTerminalView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
         }
         controller.onPaneCloseRequested = { [weak self] paneID in
             self?.closePane(paneID)
@@ -114,7 +114,7 @@ final class TerminalTabManager {
             restoredTree: state.paneTree,
             activePaneID: state.activePaneID
         ) { _ in
-            GhosttyTerminalView(frame: .zero)
+            GhosttyTerminalView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
         }
         controller.onPaneCloseRequested = { [weak self] paneID in
             self?.closePane(paneID)
@@ -303,13 +303,16 @@ final class TerminalTabManager {
         viewModel.profile = profile
         let shell = profile.resolvedShell
 
-        view.startShell(
-            executable: shell,
-            args: ["-l"],
-            environment: environment,
-            directory: directory
-        )
-        viewModel.processStarted(executable: shell, args: ["-l"])
+        // Override SHELL in the environment if the profile specifies a custom shell.
+        // Ghostty reads SHELL to determine which shell to launch via login(1).
+        var env = environment
+        if profile.shell != nil {
+            env.removeAll { $0.0 == "SHELL" }
+            env.append(("SHELL", shell))
+        }
+
+        view.startShell(environment: env, directory: directory)
+        viewModel.processStarted(executable: shell, args: [])
 
         view.onTitle = { [weak viewModel, weak controller] title in
             viewModel?.titleChanged(title)

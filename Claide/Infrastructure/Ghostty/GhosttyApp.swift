@@ -128,21 +128,6 @@ final class GhosttyApp {
         self.app = nil
     }
 
-    // MARK: - Tick
-
-    private func tick() {
-        guard let app else { return }
-        ghostty_app_tick(app)
-    }
-
-    /// Called from Zig IO thread — must not touch @MainActor state.
-    fileprivate nonisolated static func wakeup() {
-        DispatchQueue.main.async {
-            guard let handle = appHandle else { return }
-            ghostty_app_tick(handle)
-        }
-    }
-
     // MARK: - Action Routing
 
     fileprivate nonisolated static func handleAction(
