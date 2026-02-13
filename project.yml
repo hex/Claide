@@ -21,12 +21,6 @@ targets:
     platform: macOS
     sources:
       - path: Claide
-        excludes:
-          - Views/Terminal/MetalTerminalView.swift
-          - Views/Terminal/TerminalBridge.swift
-          - Views/Terminal/GridRenderer.swift
-          - Views/Terminal/GlyphAtlas.swift
-          - Views/Terminal/TerminalShaders.metal
       - path: Claide/Resources/shell-integration
         buildPhase: resources
         type: folder
