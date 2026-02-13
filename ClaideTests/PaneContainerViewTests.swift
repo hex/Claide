@@ -11,7 +11,7 @@ struct PaneContainerViewTests {
 
     // MARK: - Helpers
 
-    /// Create a plain NSView as a stand-in for MetalTerminalView.
+    /// Create a plain NSView as a stand-in for the terminal view.
     private func testView() -> NSView {
         NSView(frame: NSRect(x: 0, y: 0, width: 100, height: 100))
     }
