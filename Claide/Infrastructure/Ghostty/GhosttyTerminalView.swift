@@ -180,7 +180,28 @@ final class GhosttyTerminalView: NSView {
         if let surface = self.surface, let window = self.window {
             let fbFrame = self.convertToBacking(self.frame)
             ghostty_surface_set_size(surface, UInt32(fbFrame.width), UInt32(fbFrame.height))
+            syncDisplayId()
+
+            NotificationCenter.default.removeObserver(self, name: NSWindow.didChangeScreenNotification, object: nil)
+            NotificationCenter.default.addObserver(
+                self,
+                selector: #selector(windowDidChangeScreen),
+                name: NSWindow.didChangeScreenNotification,
+                object: window
+            )
         }
+    }
+
+    @objc private func windowDidChangeScreen(_ notification: Notification) {
+        syncDisplayId()
+    }
+
+    /// Tell Ghostty which physical display this surface is on so the
+    /// Metal renderer can match the display's refresh rate and color profile.
+    private func syncDisplayId() {
+        guard let surface, let screen = window?.screen else { return }
+        let displayId = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID ?? CGMainDisplayID()
+        ghostty_surface_set_display_id(surface, displayId)
     }
 
     /// Tell Core Animation to re-composite the layer at display refresh rate.

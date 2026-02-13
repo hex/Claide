@@ -130,6 +130,18 @@ final class GhosttyApp {
 
         self.app = newApp
         logger.info("Ghostty engine started")
+
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(keyboardLayoutChanged),
+            name: NSTextInputContext.keyboardSelectionDidChangeNotification,
+            object: nil
+        )
+    }
+
+    @objc private func keyboardLayoutChanged(_ notification: Notification) {
+        guard let app else { return }
+        ghostty_app_keyboard_changed(app)
     }
 
     func shutdown() {
