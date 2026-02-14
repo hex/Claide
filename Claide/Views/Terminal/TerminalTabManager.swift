@@ -496,8 +496,8 @@ final class TerminalTabManager {
 
     /// Claide-specific env vars to inject into child shells.
     /// Ghostty inherits the process environment automatically via getEnvMap();
-    /// these are applied as overrides on top. Vars that need removal (CLAUDECODE
-    /// etc.) are unsetenv'd at process level in AppDelegate.
+    /// these are applied as overrides on top. The process environment is clean
+    /// because Claide is launched via launchd (not `open`).
     static func buildEnvironment() -> [(String, String)] {
         [
             ("TERM_PROGRAM", "Claide"),

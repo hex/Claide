@@ -16,15 +16,10 @@ final class SessionStatusViewModel {
     /// Tail read size — one assistant entry is typically a few KB
     nonisolated(unsafe) private static let tailBytes = 65_536
 
-    /// Start watching the transcript for the Claude Code session in the given directory.
-    /// Uses the session directory (not the Claude process CWD) to find the right project.
+    /// Start polling for Claude Code session status.
+    /// The project directory is derived from the Claude process's environment
+    /// (PWD at exec time), not from the session directory passed here.
     func startWatching(sessionDirectory: String) {
-        let newProjectDir = Self.projectDirectory(for: sessionDirectory)
-        if newProjectDir != projectDir {
-            unwatchFiles()
-            watchedPath = nil
-            projectDir = newProjectDir
-        }
         guard pollTask == nil else { return }
         poll()
         startPolling()
@@ -56,14 +51,24 @@ final class SessionStatusViewModel {
     }
 
     /// Core poll: find the Claude process, locate its active transcript, and update status.
-    /// Uses the project directory from startWatching (stable) rather than the Claude
-    /// process CWD (which changes during tool execution).
+    /// Derives the project directory from Claude's PWD env var (frozen at exec time via
+    /// KERN_PROCARGS2), which is stable even when chdir() is called during tool execution.
     private func poll() {
-        guard Self.findClaudeForClaide() != nil else {
+        guard let claudePid = Self.findClaudeForClaide() else {
             if status != nil { status = nil }
             unwatchFiles()
             watchedPath = nil
             return
+        }
+
+        // Derive project directory from Claude's startup working directory.
+        if let pwd = Self.processEnvValue(pid: claudePid, key: "PWD") {
+            let derived = Self.projectDirectory(for: pwd)
+            if derived != projectDir {
+                unwatchFiles()
+                watchedPath = nil
+                projectDir = derived
+            }
         }
 
         guard let projectDir else { return }
@@ -171,10 +176,11 @@ final class SessionStatusViewModel {
     }
 
     /// Find the project directory for the Claude process affiliated with this Claide instance.
+    /// Uses PWD from the process's initial environment (stable) rather than the live CWD.
     nonisolated static func projectDirectoryForClaide() -> String? {
         guard let claude = findClaudeForClaide() else { return nil }
-        guard let cwd = processWorkingDirectory(pid: claude) else { return nil }
-        return projectDirectory(for: cwd)
+        guard let pwd = processEnvValue(pid: claude, key: "PWD") else { return nil }
+        return projectDirectory(for: pwd)
     }
 
     // MARK: - Process Discovery
@@ -209,6 +215,38 @@ final class SessionStatusViewModel {
             if Array(part) == needleBytes { return true }
         }
         return false
+    }
+
+    /// Read the value of an environment variable from a process's initial environment.
+    /// KERN_PROCARGS2 captures the environment at exec() time, so the value is stable
+    /// even if the process later calls setenv() or chdir().
+    nonisolated static func processEnvValue(pid: pid_t, key: String) -> String? {
+        var mib: [Int32] = [CTL_KERN, KERN_PROCARGS2, Int32(pid)]
+        var size: size_t = 0
+        guard sysctl(&mib, 3, nil, &size, nil, 0) == 0, size > 0 else { return nil }
+
+        var buffer = [UInt8](repeating: 0, count: size)
+        guard sysctl(&mib, 3, &buffer, &size, nil, 0) == 0 else { return nil }
+
+        guard size >= MemoryLayout<Int32>.size else { return nil }
+        let argc: Int32 = buffer.withUnsafeBufferPointer {
+            $0.baseAddress!.withMemoryRebound(to: Int32.self, capacity: 1) { $0.pointee }
+        }
+
+        let bodyStart = MemoryLayout<Int32>.size
+        let parts = buffer[bodyStart..<size].split(separator: 0, omittingEmptySubsequences: true)
+
+        let envStart = 1 + Int(argc)
+        guard parts.count > envStart else { return nil }
+
+        let prefix = Array("\(key)=".utf8)
+        for part in parts[envStart...] {
+            let bytes = Array(part)
+            if bytes.starts(with: prefix) {
+                return String(bytes: bytes.dropFirst(prefix.count), encoding: .utf8)
+            }
+        }
+        return nil
     }
 
     /// Extract the basename of argv[0] for a process via KERN_PROCARGS2.
