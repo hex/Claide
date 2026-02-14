@@ -3,9 +3,6 @@
 
 import Foundation
 import Darwin
-import os.log
-
-private let statusLog = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.hexul.claide", category: "StatusBar")
 
 @MainActor @Observable
 final class SessionStatusViewModel {
@@ -13,48 +10,19 @@ final class SessionStatusViewModel {
 
     private var watcher: FileWatcher?
     private var directoryWatcher: FileWatcher?
-    private var retryTask: Task<Void, Never>?
+    private var pollTask: Task<Void, Never>?
     private var watchedPath: String?
-    private var watchedSessionDir: String?
+    private var watchedProjectDir: String?
     /// Tail read size — one assistant entry is typically a few KB
-    private static let tailBytes = 65_536
+    nonisolated(unsafe) private static let tailBytes = 65_536
 
     /// Start watching the transcript for the Claude Code session in the given directory.
     /// Scans for a Claude process affiliated with this Claide instance via CLAIDE_PID.
-    /// Clears status when no affiliated Claude process is running.
     func startWatching(sessionDirectory: String) {
-        guard let path = Self.findTranscriptForClaide() else {
-            // No affiliated Claude process — clear stale status and poll for one to appear
-            status = nil
-            stopWatching()
-            watchedSessionDir = sessionDirectory
-            startRetryPolling()
-            return
-        }
-
-        guard path != watchedPath else { return }
-        stopWatching()
-        watchedPath = path
-        watchedSessionDir = sessionDirectory
-
-        reload(from: path)
-
-        let fileCallback: @Sendable () -> Void = { [weak self] in
-            MainActor.assumeIsolated {
-                self?.reload(from: path)
-            }
-        }
-        watcher = FileWatcher(path: path, onChange: fileCallback)
-        watcher?.start()
-
-        // Watch the transcript's parent directory for new files
-        let projectDir = (path as NSString).deletingLastPathComponent
-        watchDirectoryForNewFiles(projectDir)
-
-        // Keep polling even after finding a transcript — the initial match may be
-        // a file-history-snapshot stub; polling detects when the real transcript
-        // gets modified and switches to it.
-        startRetryPolling()
+        // Only start once — polling handles everything after initial call
+        guard pollTask == nil else { return }
+        poll()
+        startPolling()
     }
 
     func stopWatching() {
@@ -62,77 +30,94 @@ final class SessionStatusViewModel {
         watcher = nil
         directoryWatcher?.stop()
         directoryWatcher = nil
-        stopRetryPolling()
+        pollTask?.cancel()
+        pollTask = nil
         watchedPath = nil
-        watchedSessionDir = nil
+        watchedProjectDir = nil
     }
 
-    // MARK: - Retry Polling
+    // MARK: - Polling
 
-    /// Poll every 3 seconds for a Claude process affiliated with this Claide instance.
-    /// Covers the case where Claude starts after Claide or resumes a transcript
-    /// (no directory event for existing file modifications).
-    private func startRetryPolling() {
-        stopRetryPolling()
-        retryTask = Task { [weak self] in
+    /// Poll every 3 seconds for transcript changes.
+    private func startPolling() {
+        pollTask?.cancel()
+        pollTask = Task { [weak self] in
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(3))
                 guard !Task.isCancelled, let self else { return }
-                self.recheckTranscript()
+                self.poll()
             }
         }
     }
 
-    private func stopRetryPolling() {
-        retryTask?.cancel()
-        retryTask = nil
+    /// Core poll: find the Claude process, locate its active transcript, and update status.
+    private func poll() {
+        guard let projectDir = Self.projectDirectoryForClaide() else {
+            // No affiliated Claude process running
+            if status != nil { status = nil }
+            unwatchFiles()
+            return
+        }
+
+        let transcript = Self.findActiveTranscript(in: projectDir)
+
+        if transcript != watchedPath {
+            unwatchFiles()
+            watchedPath = transcript
+            watchedProjectDir = projectDir
+            if let transcript {
+                watchFile(transcript)
+                watchDirectory(projectDir)
+            }
+        }
+
+        if let transcript {
+            reload(from: transcript)
+        } else if status != nil {
+            status = nil
+        }
     }
 
-    // MARK: - Directory & Transcript Watching
+    // MARK: - File & Directory Watching
 
-    private func watchDirectoryForNewFiles(_ projectDir: String) {
-        directoryWatcher?.stop()
-        let dirCallback: @Sendable () -> Void = { [weak self] in
+    private func watchFile(_ path: String) {
+        let callback: @Sendable () -> Void = { [weak self] in
             MainActor.assumeIsolated {
-                self?.recheckTranscript()
+                self?.reload(from: path)
             }
         }
-        directoryWatcher = FileWatcher(path: projectDir, onChange: dirCallback)
+        watcher = FileWatcher(path: path, onChange: callback)
+        watcher?.start()
+    }
+
+    private func watchDirectory(_ projectDir: String) {
+        let callback: @Sendable () -> Void = { [weak self] in
+            MainActor.assumeIsolated {
+                self?.poll()
+            }
+        }
+        directoryWatcher = FileWatcher(path: projectDir, onChange: callback)
         directoryWatcher?.start()
     }
 
-    /// Called by the directory watcher and retry timer.
-    /// Uses env-var-based detection to find the right transcript, or clears status
-    /// when no affiliated Claude process is running.
-    private func recheckTranscript() {
-        guard let dir = watchedSessionDir else { return }
-
-        guard let newest = Self.findTranscriptForClaide() else {
-            // No affiliated Claude process — clear stale status
-            status = nil
-            return
-        }
-
-        guard newest != watchedPath else { return }
-        startWatching(sessionDirectory: dir)
+    private func unwatchFiles() {
+        watcher?.stop()
+        watcher = nil
+        directoryWatcher?.stop()
+        directoryWatcher = nil
     }
 
+    // MARK: - Transcript Reading
+
     private func reload(from path: String) {
-        guard let data = Self.readTail(path: path, bytes: Self.tailBytes) else {
-            statusLog.debug("reload: readTail returned nil for \((path as NSString).lastPathComponent)")
-            return
-        }
-        statusLog.debug("reload: read \(data.count) bytes from \((path as NSString).lastPathComponent)")
+        guard let data = Self.readTail(path: path, bytes: Self.tailBytes) else { return }
         if let parsed = SessionStatus.fromTranscriptTail(data) {
-            statusLog.debug("reload: parsed status model=\(parsed.modelId) input=\(parsed.totalInputTokens)")
             status = parsed
-        } else {
-            statusLog.debug("reload: fromTranscriptTail returned nil")
         }
     }
 
     /// Read the last N bytes of a file without loading the whole thing.
-    private static func readTail(path: String, bytes: Int) -> Data? {
+    nonisolated private static func readTail(path: String, bytes: Int) -> Data? {
         guard let handle = FileHandle(forReadingAtPath: path) else { return nil }
         defer { try? handle.close() }
 
@@ -142,7 +127,47 @@ final class SessionStatusViewModel {
         return handle.readDataToEndOfFile()
     }
 
-    // MARK: - Process-Based Transcript Discovery
+    // MARK: - Transcript Discovery
+
+    /// Find the most recently modified .jsonl in a project directory that contains
+    /// parseable assistant data. Tries files newest-first and stops at the first hit.
+    nonisolated static func findActiveTranscript(in projectDir: String) -> String? {
+        let fm = FileManager.default
+        guard let contents = try? fm.contentsOfDirectory(atPath: projectDir) else { return nil }
+
+        let files = contents
+            .filter { $0.hasSuffix(".jsonl") }
+            .compactMap { name -> (path: String, modified: Date)? in
+                let full = (projectDir as NSString).appendingPathComponent(name)
+                guard let attrs = try? fm.attributesOfItem(atPath: full),
+                      let modified = attrs[.modificationDate] as? Date else { return nil }
+                return (full, modified)
+            }
+            .sorted { $0.modified > $1.modified }
+
+        for file in files {
+            guard let data = readTail(path: file.path, bytes: tailBytes) else { continue }
+            if SessionStatus.fromTranscriptTail(data) != nil {
+                return file.path
+            }
+        }
+        return nil
+    }
+
+    /// Find the active transcript for the Claude process affiliated with this Claide instance.
+    nonisolated static func findTranscriptForClaide() -> String? {
+        guard let projectDir = projectDirectoryForClaide() else { return nil }
+        return findActiveTranscript(in: projectDir)
+    }
+
+    /// Find the project directory for the Claude process affiliated with this Claide instance.
+    nonisolated static func projectDirectoryForClaide() -> String? {
+        guard let claude = findClaudeForClaide() else { return nil }
+        guard let cwd = processWorkingDirectory(pid: claude) else { return nil }
+        return projectDirectory(for: cwd)
+    }
+
+    // MARK: - Process Discovery
 
     /// Check whether a process's environment contains a specific KEY=VALUE pair.
     /// Uses sysctl KERN_PROCARGS2 to read the process's argument+environment buffer.
@@ -203,10 +228,10 @@ final class SessionStatusViewModel {
     }
 
     /// Scan the process table for a Claude Code process whose environment contains
-    /// CLAIDE_PID matching this Claide instance. Returns the PID and start time.
+    /// CLAIDE_PID matching this Claide instance. Returns the PID.
     /// Uses argv[0] instead of kp_proc.p_comm because the claude binary is a symlink
     /// (e.g., claude -> versions/2.1.42) and p_comm reflects the resolved target name.
-    nonisolated static func findClaudeForClaide() -> (pid: pid_t, startTime: Date)? {
+    nonisolated static func findClaudeForClaide() -> pid_t? {
         let myPid = getpid()
         let myPidStr = "\(myPid)"
         let procs = snapshotProcessTable()
@@ -229,7 +254,7 @@ final class SessionStatusViewModel {
 
                 guard processArgv0Basename(pid: child.pid) == "claude" else { continue }
                 if processHasEnvVar(pid: child.pid, key: "CLAIDE_PID", value: myPidStr) {
-                    return (pid: child.pid, startTime: child.startTime)
+                    return child.pid
                 }
             }
         }
@@ -249,27 +274,6 @@ final class SessionStatusViewModel {
                 String(cString: $0)
             }
         }
-    }
-
-    /// Find the transcript for the Claude process affiliated with this Claide instance.
-    /// Derives the project directory from Claude's actual working directory rather than
-    /// the caller's session directory, since the shell may start in a different directory.
-    nonisolated static func findTranscriptForClaide() -> String? {
-        guard let claude = findClaudeForClaide() else {
-            statusLog.debug("findTranscriptForClaide: no Claude process found")
-            return nil
-        }
-        statusLog.debug("findTranscriptForClaide: Claude pid=\(claude.pid) started=\(claude.startTime.description)")
-        guard let cwd = processWorkingDirectory(pid: claude.pid) else {
-            statusLog.debug("findTranscriptForClaide: no CWD for pid=\(claude.pid)")
-            return nil
-        }
-        statusLog.debug("findTranscriptForClaide: cwd=\(cwd)")
-        let projectDir = projectDirectory(for: cwd)
-        statusLog.debug("findTranscriptForClaide: projectDir=\(projectDir)")
-        let result = findTranscriptByStartTime(claude.startTime, in: projectDir)
-        statusLog.debug("findTranscriptForClaide: result=\(result ?? "nil")")
-        return result
     }
 
     /// Snapshot the kernel process table via sysctl.
@@ -294,84 +298,8 @@ final class SessionStatusViewModel {
                 String(cString: UnsafeRawPointer($0).assumingMemoryBound(to: CChar.self))
             }
 
-            let tv = info.kp_proc.p_starttime
-            let startTime = Date(
-                timeIntervalSince1970: TimeInterval(tv.tv_sec) + TimeInterval(tv.tv_usec) / 1_000_000
-            )
-
-            return ProcessEntry(pid: pid, ppid: ppid, name: processName, startTime: startTime)
+            return ProcessEntry(pid: pid, ppid: ppid, name: processName)
         }
-    }
-
-    /// Find the JSONL file whose creation time is closest to a process start time.
-    /// Handles both new sessions (file created shortly after process start) and
-    /// resumed sessions (file modified after process start but created earlier).
-    /// Minimum file size for a transcript with usable data.
-    /// file-history-snapshot-only files are typically under 20KB;
-    /// transcripts with assistant responses are much larger.
-    nonisolated(unsafe) private static let minTranscriptSize: UInt64 = 20_000
-
-    nonisolated private static func findTranscriptByStartTime(_ startTime: Date, in projectDir: String) -> String? {
-        let fm = FileManager.default
-        guard let contents = try? fm.contentsOfDirectory(atPath: projectDir) else {
-            statusLog.debug("findTranscriptByStartTime: cannot list \(projectDir)")
-            return nil
-        }
-
-        let files = contents
-            .filter { $0.hasSuffix(".jsonl") }
-            .compactMap { name -> (path: String, created: Date, modified: Date, size: UInt64)? in
-                let full = (projectDir as NSString).appendingPathComponent(name)
-                guard let attrs = try? fm.attributesOfItem(atPath: full),
-                      let created = attrs[.creationDate] as? Date,
-                      let modified = attrs[.modificationDate] as? Date,
-                      let size = attrs[.size] as? UInt64 else { return nil }
-                return (full, created, modified, size)
-            }
-
-        // Write debug info to a temp file (os_log redacts dates as <private>)
-        let df = ISO8601DateFormatter()
-        var dbg = "startTime=\(df.string(from: startTime))\nfiles=\(files.count)\n"
-        for f in files {
-            let name = (f.path as NSString).lastPathComponent
-            let cdiff = f.created.timeIntervalSince(startTime)
-            let mdiff = f.modified.timeIntervalSince(startTime)
-            dbg += "  \(name): size=\(f.size) created=\(df.string(from: f.created)) (cdiff=\(Int(cdiff))s) modified=\(df.string(from: f.modified)) (mdiff=\(Int(mdiff))s)\n"
-        }
-
-        // New session: file created within 60s after process started.
-        // Skip small files (file-history-snapshot stubs written at startup).
-        let window: TimeInterval = 60
-        let pass1 = files.filter({ $0.created >= startTime && $0.created.timeIntervalSince(startTime) <= window && $0.size >= minTranscriptSize })
-        dbg += "pass1 (new, >=20KB): \(pass1.count)\n"
-        if let match = pass1.min(by: { $0.created.timeIntervalSince(startTime) < $1.created.timeIntervalSince(startTime) }) {
-            dbg += "pass1 matched: \((match.path as NSString).lastPathComponent)\n"
-            try? dbg.write(toFile: "/tmp/claide-status-debug.txt", atomically: true, encoding: .utf8)
-            return match.path
-        }
-
-        // Resumed session: file modified after process started (but created earlier)
-        let pass2 = files.filter({ $0.modified >= startTime && $0.size >= minTranscriptSize })
-        dbg += "pass2 (resumed, >=20KB): \(pass2.count)\n"
-        if let match = pass2.max(by: { $0.modified < $1.modified }) {
-            dbg += "pass2 matched: \((match.path as NSString).lastPathComponent)\n"
-            try? dbg.write(toFile: "/tmp/claide-status-debug.txt", atomically: true, encoding: .utf8)
-            return match.path
-        }
-
-        // Last resort: accept small files (session just started, no responses yet)
-        let pass3 = files.filter({ $0.created >= startTime && $0.created.timeIntervalSince(startTime) <= window })
-        dbg += "pass3 (small files): \(pass3.count)\n"
-        if let match = pass3.min(by: { $0.created.timeIntervalSince(startTime) < $1.created.timeIntervalSince(startTime) }) {
-            dbg += "pass3 matched: \((match.path as NSString).lastPathComponent)\n"
-            try? dbg.write(toFile: "/tmp/claide-status-debug.txt", atomically: true, encoding: .utf8)
-            return match.path
-        }
-
-        dbg += "NO MATCH\n"
-        try? dbg.write(toFile: "/tmp/claide-status-debug.txt", atomically: true, encoding: .utf8)
-
-        return nil
     }
 
     // MARK: - Path Helpers
@@ -415,5 +343,4 @@ private struct ProcessEntry {
     let pid: pid_t
     let ppid: pid_t
     let name: String
-    let startTime: Date
 }
