@@ -40,22 +40,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        // Ghostty shells inherit the process environment via getEnvMap(),
-        // so vars that shouldn't leak into child shells must be removed here.
-        unsetenv("CLAUDECODE")
-        unsetenv("CLAUDE_CODE_ENTRYPOINT")
-
-        // Strip cs session vars and Claude Code config that leak when
-        // Claide is launched from within a Claude Code session.
-        for key in ProcessInfo.processInfo.environment.keys {
-            if key.hasPrefix("CLAUDE_SESSION_") ||
-               key.hasPrefix("CLAUDE_ARTIFACT_") ||
-               (key.hasPrefix("CLAUDE_CODE_") && key != "CLAUDE_CODE_BIN") ||
-               key == "ANTHROPIC_DEFAULT_HAIKU_MODEL" {
-                unsetenv(key)
-            }
-        }
-
         GhosttyApp.shared.start()
 
         if !restoreSession() {
