@@ -280,32 +280,46 @@ final class SessionStatusViewModel {
     /// Find the JSONL file whose creation time is closest to a process start time.
     /// Handles both new sessions (file created shortly after process start) and
     /// resumed sessions (file modified after process start but created earlier).
+    /// Minimum file size for a transcript with usable data.
+    /// file-history-snapshot-only files are typically under 20KB;
+    /// transcripts with assistant responses are much larger.
+    nonisolated(unsafe) private static let minTranscriptSize: UInt64 = 20_000
+
     nonisolated private static func findTranscriptByStartTime(_ startTime: Date, in projectDir: String) -> String? {
         let fm = FileManager.default
         guard let contents = try? fm.contentsOfDirectory(atPath: projectDir) else { return nil }
 
         let files = contents
             .filter { $0.hasSuffix(".jsonl") }
-            .compactMap { name -> (path: String, created: Date, modified: Date)? in
+            .compactMap { name -> (path: String, created: Date, modified: Date, size: UInt64)? in
                 let full = (projectDir as NSString).appendingPathComponent(name)
                 guard let attrs = try? fm.attributesOfItem(atPath: full),
                       let created = attrs[.creationDate] as? Date,
-                      let modified = attrs[.modificationDate] as? Date else { return nil }
-                return (full, created, modified)
+                      let modified = attrs[.modificationDate] as? Date,
+                      let size = attrs[.size] as? UInt64 else { return nil }
+                return (full, created, modified, size)
             }
 
-        // New session: file created within 60s after process started
+        // New session: file created within 60s after process started.
+        // Skip small files (file-history-snapshot stubs written at startup).
         let window: TimeInterval = 60
         if let match = files
-            .filter({ $0.created >= startTime && $0.created.timeIntervalSince(startTime) <= window })
+            .filter({ $0.created >= startTime && $0.created.timeIntervalSince(startTime) <= window && $0.size >= minTranscriptSize })
             .min(by: { $0.created.timeIntervalSince(startTime) < $1.created.timeIntervalSince(startTime) }) {
             return match.path
         }
 
         // Resumed session: file modified after process started (but created earlier)
         if let match = files
-            .filter({ $0.modified >= startTime })
+            .filter({ $0.modified >= startTime && $0.size >= minTranscriptSize })
             .max(by: { $0.modified < $1.modified }) {
+            return match.path
+        }
+
+        // Last resort: accept small files (session just started, no responses yet)
+        if let match = files
+            .filter({ $0.created >= startTime && $0.created.timeIntervalSince(startTime) <= window })
+            .min(by: { $0.created.timeIntervalSince(startTime) < $1.created.timeIntervalSince(startTime) }) {
             return match.path
         }
 
