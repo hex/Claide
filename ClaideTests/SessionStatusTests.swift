@@ -147,6 +147,19 @@ struct SessionStatusTests {
         #expect(found == false)
     }
 
+    @Test("processArgv0Basename returns non-nil for own process")
+    func argv0BasenameForOwnProcess() {
+        let name = SessionStatusViewModel.processArgv0Basename(pid: getpid())
+        #expect(name != nil)
+        #expect(name?.isEmpty == false)
+    }
+
+    @Test("processArgv0Basename returns nil for invalid PID")
+    func argv0BasenameForInvalidPid() {
+        let name = SessionStatusViewModel.processArgv0Basename(pid: -1)
+        #expect(name == nil)
+    }
+
     @Test("findClaudeForClaide returns nil when no Claude is running")
     func findClaudeReturnsNilWhenNoneRunning() {
         // During tests, no Claude Code process with our CLAIDE_PID should exist

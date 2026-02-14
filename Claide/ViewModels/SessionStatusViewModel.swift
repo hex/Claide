@@ -163,17 +163,64 @@ final class SessionStatusViewModel {
         return false
     }
 
-    /// Scan the process table for a "claude" process whose environment contains
+    /// Extract the basename of argv[0] for a process via KERN_PROCARGS2.
+    /// Unlike kp_proc.p_comm, argv[0] preserves the original invocation name
+    /// even when the executable is reached via symlink.
+    nonisolated static func processArgv0Basename(pid: pid_t) -> String? {
+        var mib: [Int32] = [CTL_KERN, KERN_PROCARGS2, Int32(pid)]
+        var size: size_t = 0
+        guard sysctl(&mib, 3, nil, &size, nil, 0) == 0, size > 0 else { return nil }
+
+        var buffer = [UInt8](repeating: 0, count: size)
+        guard sysctl(&mib, 3, &buffer, &size, nil, 0) == 0 else { return nil }
+
+        guard size >= MemoryLayout<Int32>.size else { return nil }
+        let argc: Int32 = buffer.withUnsafeBufferPointer {
+            $0.baseAddress!.withMemoryRebound(to: Int32.self, capacity: 1) { $0.pointee }
+        }
+        guard argc > 0 else { return nil }
+
+        let bodyStart = MemoryLayout<Int32>.size
+        let parts = buffer[bodyStart..<size].split(separator: 0, omittingEmptySubsequences: true)
+        // parts layout: exec_path, argv[0], argv[1], ..., env vars
+        guard parts.count >= 2 else { return nil }
+
+        guard let argv0 = String(bytes: parts[1], encoding: .utf8) else { return nil }
+        return (argv0 as NSString).lastPathComponent
+    }
+
+    /// Scan the process table for a Claude Code process whose environment contains
     /// CLAIDE_PID matching this Claide instance. Returns the PID and start time.
+    /// Uses argv[0] instead of kp_proc.p_comm because the claude binary is a symlink
+    /// (e.g., claude -> versions/2.1.42) and p_comm reflects the resolved target name.
     nonisolated static func findClaudeForClaide() -> (pid: pid_t, startTime: Date)? {
-        let myPid = "\(getpid())"
+        let myPid = getpid()
+        let myPidStr = "\(myPid)"
         let procs = snapshotProcessTable()
 
-        for proc in procs where proc.name == "claude" {
-            if processHasEnvVar(pid: proc.pid, key: "CLAIDE_PID", value: myPid) {
-                return (pid: proc.pid, startTime: proc.startTime)
+        // BFS from our PID to find all descendant processes
+        var childrenOf: [pid_t: [ProcessEntry]] = [:]
+        for proc in procs {
+            childrenOf[proc.ppid, default: []].append(proc)
+        }
+
+        var queue: [pid_t] = [myPid]
+        var visited: Set<pid_t> = [myPid]
+
+        while !queue.isEmpty {
+            let current = queue.removeFirst()
+            for child in childrenOf[current] ?? [] {
+                guard !visited.contains(child.pid) else { continue }
+                visited.insert(child.pid)
+                queue.append(child.pid)
+
+                guard processArgv0Basename(pid: child.pid) == "claude" else { continue }
+                if processHasEnvVar(pid: child.pid, key: "CLAIDE_PID", value: myPidStr) {
+                    return (pid: child.pid, startTime: child.startTime)
+                }
             }
         }
+
         return nil
     }
 
