@@ -386,7 +386,12 @@ final class GhosttyTerminalView: NSView {
                 _ = sendKeyEvent(action, event: event, text: text)
             }
         } else {
-            _ = sendKeyEvent(action, event: event, composing: markedText.length > 0 || markedBefore)
+            _ = sendKeyEvent(
+                action,
+                event: event,
+                text: ghosttyCharacters(from: event),
+                composing: markedText.length > 0 || markedBefore
+            )
         }
     }
 
@@ -445,7 +450,24 @@ final class GhosttyTerminalView: NSView {
         keyEvent.keycode = UInt32(event.keyCode)
         keyEvent.composing = composing
 
-        if let text, !text.isEmpty {
+        // Control and command never contribute to text translation
+        keyEvent.consumed_mods = ghosttyMods(
+            from: event.modifierFlags.subtracting([.control, .command])
+        )
+
+        // Unshifted codepoint: the character with no modifiers applied.
+        // Ghostty uses this for keybinding matching and encoding.
+        if event.type == .keyDown || event.type == .keyUp {
+            if let chars = event.characters(byApplyingModifiers: []),
+               let codepoint = chars.unicodeScalars.first {
+                keyEvent.unshifted_codepoint = codepoint.value
+            }
+        }
+
+        // Only pass text if the first byte is not a control character —
+        // Ghostty's KeyEncoder handles control character encoding internally.
+        if let text, !text.isEmpty,
+           let firstByte = text.utf8.first, firstByte >= 0x20 {
             return text.withCString { ptr in
                 keyEvent.text = ptr
                 return ghostty_surface_key(surface, keyEvent)
@@ -453,6 +475,25 @@ final class GhosttyTerminalView: NSView {
         }
 
         return ghostty_surface_key(surface, keyEvent)
+    }
+
+    /// Compute the text to send with a key event.
+    /// For control characters (value < 0x20), returns the character without Ctrl
+    /// applied so Ghostty's KeyEncoder can handle control encoding itself.
+    /// Returns nil for function keys in the Private Use Area.
+    private func ghosttyCharacters(from event: NSEvent) -> String? {
+        guard let characters = event.characters else { return nil }
+
+        if characters.count == 1, let scalar = characters.unicodeScalars.first {
+            if scalar.value < 0x20 {
+                return event.characters(byApplyingModifiers: event.modifierFlags.subtracting(.control))
+            }
+            if scalar.value >= 0xF700 && scalar.value <= 0xF8FF {
+                return nil
+            }
+        }
+
+        return characters
     }
 
     // MARK: - Mouse Input

@@ -145,28 +145,26 @@ final class SessionStatusViewModel {
     // MARK: - Transcript Discovery
 
     /// Find the most recently modified .jsonl in a project directory that contains
-    /// parseable assistant data. Tries files newest-first and stops at the first hit.
+    /// parseable assistant data. Only checks the newest file — never falls back to
+    /// older transcripts, which would show stale data from previous sessions.
     nonisolated static func findActiveTranscript(in projectDir: String) -> String? {
         let fm = FileManager.default
         guard let contents = try? fm.contentsOfDirectory(atPath: projectDir) else { return nil }
 
-        let files = contents
-            .filter { $0.hasSuffix(".jsonl") }
-            .compactMap { name -> (path: String, modified: Date)? in
+        guard let newest = contents
+            .filter({ $0.hasSuffix(".jsonl") })
+            .compactMap({ name -> (path: String, modified: Date)? in
                 let full = (projectDir as NSString).appendingPathComponent(name)
                 guard let attrs = try? fm.attributesOfItem(atPath: full),
                       let modified = attrs[.modificationDate] as? Date else { return nil }
                 return (full, modified)
-            }
-            .sorted { $0.modified > $1.modified }
+            })
+            .max(by: { $0.modified < $1.modified })
+        else { return nil }
 
-        for file in files {
-            guard let data = readTail(path: file.path, bytes: tailBytes) else { continue }
-            if SessionStatus.fromTranscriptTail(data) != nil {
-                return file.path
-            }
-        }
-        return nil
+        guard let data = readTail(path: newest.path, bytes: tailBytes),
+              SessionStatus.fromTranscriptTail(data) != nil else { return nil }
+        return newest.path
     }
 
     /// Find the active transcript for the Claude process affiliated with this Claide instance.
