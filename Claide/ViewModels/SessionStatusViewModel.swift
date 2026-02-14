@@ -3,26 +3,10 @@
 
 import Foundation
 import Darwin
-import os.log
-
-private func statusLog(_ msg: String) {
-    let path = "/tmp/claide-status.log"
-    let line = "\(Date()) \(msg)\n"
-    if let data = line.data(using: .utf8) {
-        if let handle = FileHandle(forWritingAtPath: path) {
-            handle.seekToEndOfFile()
-            handle.write(data)
-            try? handle.close()
-        } else {
-            FileManager.default.createFile(atPath: path, contents: data)
-        }
-    }
-}
 
 @MainActor @Observable
 final class SessionStatusViewModel {
     var status: SessionStatus?
-    private var reloadCount = 0
 
     private var watcher: FileWatcher?
     private var directoryWatcher: FileWatcher?
@@ -76,24 +60,19 @@ final class SessionStatusViewModel {
     /// process CWD (which changes during tool execution).
     private func poll() {
         guard Self.findClaudeForClaide() != nil else {
-            statusLog("poll: no Claude process found")
             if status != nil { status = nil }
             unwatchFiles()
             watchedPath = nil
             return
         }
 
-        guard let projectDir else {
-            statusLog("poll: no project directory")
-            return
-        }
+        guard let projectDir else { return }
 
         // Always re-check for the active transcript — new files may appear
         // when sessions are resumed or compacted.
         let transcript = Self.findActiveTranscript(in: projectDir)
 
         if transcript != watchedPath {
-            statusLog("poll: transcript changed to \(transcript.map { ($0 as NSString).lastPathComponent } ?? "nil")")
             unwatchFiles()
             watchedPath = transcript
             if let transcript {
@@ -112,10 +91,8 @@ final class SessionStatusViewModel {
     // MARK: - File & Directory Watching
 
     private func watchFile(_ path: String) {
-        statusLog("watchFile: watching \((path as NSString).lastPathComponent)")
         let callback: @Sendable () -> Void = { [weak self] in
             MainActor.assumeIsolated {
-                statusLog("fileWatcher: file changed, reloading")
                 self?.reload(from: path)
             }
         }
@@ -143,17 +120,9 @@ final class SessionStatusViewModel {
     // MARK: - Transcript Reading
 
     private func reload(from path: String) {
-        guard let data = Self.readTail(path: path, bytes: Self.tailBytes) else {
-            statusLog("reload: readTail returned nil")
-            return
-        }
+        guard let data = Self.readTail(path: path, bytes: Self.tailBytes) else { return }
         if let parsed = SessionStatus.fromTranscriptTail(data) {
-            reloadCount += 1
-            let changed = status?.totalInputTokens != parsed.totalInputTokens
-            statusLog("reload #\(reloadCount): input=\(parsed.totalInputTokens) output=\(parsed.outputTokens) remaining=\(parsed.remainingTokens) changed=\(changed)")
             status = parsed
-        } else {
-            statusLog("reload: parse returned nil from \(data.count) bytes")
         }
     }
 
