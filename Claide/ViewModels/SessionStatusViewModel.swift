@@ -50,6 +50,11 @@ final class SessionStatusViewModel {
         // Watch the transcript's parent directory for new files
         let projectDir = (path as NSString).deletingLastPathComponent
         watchDirectoryForNewFiles(projectDir)
+
+        // Keep polling even after finding a transcript — the initial match may be
+        // a file-history-snapshot stub; polling detects when the real transcript
+        // gets modified and switches to it.
+        startRetryPolling()
     }
 
     func stopWatching() {
