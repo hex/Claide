@@ -89,7 +89,7 @@ final class TerminalTabManager {
         let fileLogVM = FileLogViewModel()
 
         let vm = TerminalViewModel()
-        setupPane(paneID: initialID, controller: controller, view: view, viewModel: vm, directory: directory, environment: environment, sessionStatusVM: sessionStatusVM)
+        setupPane(paneID: initialID, controller: controller, view: view, viewModel: vm, directory: directory, environment: environment, sessionStatusVM: sessionStatusVM, fileLogVM: fileLogVM)
 
         sessionStatusVM.startWatching(sessionDirectory: directory)
         fileLogVM.startWatching(sessionDirectory: directory)
@@ -149,7 +149,7 @@ final class TerminalTabManager {
 
             let dir = state.paneDirectories[paneID.uuidString] ?? NSHomeDirectory()
             let profile = state.paneProfiles?[paneID.uuidString] ?? .default
-            setupPane(paneID: paneID, controller: controller, view: view, viewModel: vm, directory: dir, environment: environment, profile: profile, sessionStatusVM: sessionStatusVM)
+            setupPane(paneID: paneID, controller: controller, view: view, viewModel: vm, directory: dir, environment: environment, profile: profile, sessionStatusVM: sessionStatusVM, fileLogVM: fileLogVM)
         }
 
         // Derive the directory for VM initialization from the active pane's saved directory.
@@ -276,7 +276,7 @@ final class TerminalTabManager {
 
         let vm = TerminalViewModel()
         tabs[index].paneViewModels[newID] = vm
-        setupPane(paneID: newID, controller: tabs[index].paneController, view: newView, viewModel: vm, directory: dir, environment: environment, sessionStatusVM: tabs[index].sessionStatusVM)
+        setupPane(paneID: newID, controller: tabs[index].paneController, view: newView, viewModel: vm, directory: dir, environment: environment, sessionStatusVM: tabs[index].sessionStatusVM, fileLogVM: tabs[index].fileLogVM)
 
         focusActiveTab()
     }
@@ -334,7 +334,8 @@ final class TerminalTabManager {
         directory: String,
         environment: [(String, String)],
         profile: TerminalProfile = .default,
-        sessionStatusVM: SessionStatusViewModel? = nil
+        sessionStatusVM: SessionStatusViewModel? = nil,
+        fileLogVM: FileLogViewModel? = nil
     ) {
         viewModel.profile = profile
         let shell = profile.resolvedShell
@@ -355,7 +356,7 @@ final class TerminalTabManager {
         // walk the child tree to find the process matching our target shell.
         // Once found, foreground tracking polls the shell's children to detect
         // when a command is actively running (shows spinner in the tab bar).
-        Task { @MainActor [weak viewModel, weak sessionStatusVM] in
+        Task { @MainActor [weak viewModel, weak sessionStatusVM, weak fileLogVM] in
             var directChild: pid_t?
             for _ in 0..<10 {
                 try? await Task.sleep(for: .milliseconds(100))
@@ -372,6 +373,7 @@ final class TerminalTabManager {
             let shellPid = Self.resolveShellPid(from: directChild, shell: shell)
             viewModel?.startTrackingForeground(shellPid: shellPid)
             sessionStatusVM?.addShellPid(shellPid)
+            fileLogVM?.addShellPid(shellPid)
         }
 
         view.onTitle = { [weak viewModel, weak controller] title in

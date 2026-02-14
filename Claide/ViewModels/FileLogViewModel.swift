@@ -16,6 +16,13 @@ final class FileLogViewModel {
     private var watchedSessionDir: String?
     private var transcriptChanges: [FileChange] = []
     private var gitChanges: [FileChange] = []
+    /// Shell PIDs belonging to this tab. Transcript discovery is scoped to these subtrees.
+    private var shellPids: Set<pid_t> = []
+
+    /// Register a shell PID for this tab's Claude process search scope.
+    func addShellPid(_ pid: pid_t) {
+        shellPids.insert(pid)
+    }
 
     /// Start watching the transcript and working directory for file operations.
     /// Uses env-var-based discovery to find the Claude process affiliated with this Claide.
@@ -27,7 +34,7 @@ final class FileLogViewModel {
 
         let path: String
         var foundViaProcess = false
-        if let processPath = SessionStatusViewModel.findTranscriptForClaide() {
+        if let processPath = findTranscriptForTab() {
             path = processPath
             foundViaProcess = true
         } else if let newestPath = SessionStatusViewModel.findNewestJsonl(in: projectDir) {
@@ -122,7 +129,7 @@ final class FileLogViewModel {
         let projectDir = SessionStatusViewModel.projectDirectory(for: dir)
 
         let newest: String?
-        if let processPath = SessionStatusViewModel.findTranscriptForClaide() {
+        if let processPath = findTranscriptForTab() {
             newest = processPath
         } else {
             newest = SessionStatusViewModel.findNewestJsonl(in: projectDir)
@@ -131,6 +138,15 @@ final class FileLogViewModel {
 
         guard let newest, newest != watchedPath else { return }
         startWatching(sessionDirectory: dir)
+    }
+
+    /// Find the transcript for the Claude process running in this tab's shell subtree.
+    private func findTranscriptForTab() -> String? {
+        guard !shellPids.isEmpty,
+              let claude = SessionStatusViewModel.findClaudeInSubtree(rootPids: shellPids),
+              let pwd = SessionStatusViewModel.processEnvValue(pid: claude, key: "PWD") else { return nil }
+        let projectDir = SessionStatusViewModel.projectDirectory(for: pwd)
+        return SessionStatusViewModel.findActiveTranscript(in: projectDir)
     }
 
     // MARK: - Git Watching
