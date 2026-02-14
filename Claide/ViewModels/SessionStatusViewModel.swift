@@ -14,8 +14,11 @@ final class SessionStatusViewModel {
     private var watchedPath: String?
     private var watchedProjectDir: String?
     private var watchedClaudePid: pid_t = 0
+    private var systemOverhead: Int = 0
     /// Tail read size — one assistant entry is typically a few KB
     nonisolated(unsafe) private static let tailBytes = 65_536
+    /// Head read size — enough to find first assistant entry past file-history-snapshot stubs
+    nonisolated(unsafe) private static let headBytes = 16_384
 
     /// Start watching the transcript for the Claude Code session in the given directory.
     /// Scans for a Claude process affiliated with this Claide instance via CLAIDE_PID.
@@ -36,6 +39,7 @@ final class SessionStatusViewModel {
         watchedPath = nil
         watchedProjectDir = nil
         watchedClaudePid = 0
+        systemOverhead = 0
     }
 
     // MARK: - Polling
@@ -123,15 +127,36 @@ final class SessionStatusViewModel {
         watcher = nil
         directoryWatcher?.stop()
         directoryWatcher = nil
+        systemOverhead = 0
     }
 
     // MARK: - Transcript Reading
 
     private func reload(from path: String) {
+        // Compute system overhead once per transcript
+        if systemOverhead == 0 {
+            if let headData = Self.readHead(path: path, bytes: Self.headBytes) {
+                systemOverhead = SessionStatus.systemOverheadFromTranscriptHead(headData) ?? 0
+            }
+        }
+
         guard let data = Self.readTail(path: path, bytes: Self.tailBytes) else { return }
         if let parsed = SessionStatus.fromTranscriptTail(data) {
-            status = parsed
+            let conversationTokens = max(parsed.totalInputTokens - systemOverhead, 0)
+            status = SessionStatus(
+                modelId: parsed.modelId,
+                totalInputTokens: conversationTokens,
+                outputTokens: parsed.outputTokens,
+                contextWindowSize: parsed.contextWindowSize
+            )
         }
+    }
+
+    /// Read the first N bytes of a file.
+    nonisolated private static func readHead(path: String, bytes: Int) -> Data? {
+        guard let handle = FileHandle(forReadingAtPath: path) else { return nil }
+        defer { try? handle.close() }
+        return handle.readData(ofLength: bytes)
     }
 
     /// Read the last N bytes of a file without loading the whole thing.

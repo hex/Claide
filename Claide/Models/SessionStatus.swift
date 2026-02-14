@@ -87,6 +87,36 @@ struct SessionStatus {
         return nil
     }
 
+    /// Estimate system overhead tokens from the first assistant entry in a transcript.
+    /// For continued sessions, cache_read holds the cached system prompt + tools.
+    /// For fresh sessions, cache_read is 0 so we use the full total as an approximation.
+    static func systemOverheadFromTranscriptHead(_ data: Data) -> Int? {
+        guard let text = String(data: data, encoding: .utf8) else { return nil }
+        let lines = text.components(separatedBy: "\n")
+
+        for line in lines {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            guard !trimmed.isEmpty else { continue }
+            guard let lineData = trimmed.data(using: .utf8) else { continue }
+
+            guard let entry = try? JSONDecoder().decode(TranscriptEntry.self, from: lineData),
+                  entry.type == "assistant",
+                  let usage = entry.message?.usage else {
+                continue
+            }
+
+            if usage.cacheReadInputTokens > 0 {
+                return usage.cacheReadInputTokens
+            }
+
+            // Fresh session — total is mostly system overhead
+            return usage.inputTokens
+                + usage.cacheCreationInputTokens
+                + usage.cacheReadInputTokens
+        }
+        return nil
+    }
+
     /// Context window size per model family. All current Claude models use 200K.
     private static func contextWindowSize(for model: String) -> Int {
         200_000
