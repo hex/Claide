@@ -37,8 +37,8 @@ struct ThemeBrowser: View {
         }
         .focusable()
         .focusEffectDisabled()
-        .onKeyPress(.upArrow) { moveSelection(by: -1); return .handled }
-        .onKeyPress(.downArrow) { moveSelection(by: 1); return .handled }
+        .onKeyPress(.upArrow, phases: [.down, .repeat]) { _ in moveSelection(by: -1); return .handled }
+        .onKeyPress(.downArrow, phases: [.down, .repeat]) { _ in moveSelection(by: 1); return .handled }
         .frame(height: 280)
         .background(Color(nsColor: .controlBackgroundColor))
         .clipShape(RoundedRectangle(cornerRadius: 6))
