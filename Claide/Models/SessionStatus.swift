@@ -1,5 +1,5 @@
-// ABOUTME: Context window usage extracted from Claude Code's session transcript.
-// ABOUTME: Parses the last assistant entry in the JSONL to get current token counts.
+// ABOUTME: Token usage extracted from Claude Code's session transcript.
+// ABOUTME: Parses the last assistant entry in the JSONL to get current API token counts.
 
 import Foundation
 
@@ -26,6 +26,10 @@ struct SessionStatus {
 
     /// Parse the last assistant message from a JSONL transcript chunk.
     /// The chunk should be the tail of the file (last ~64KB is sufficient).
+    ///
+    /// If a `compact_boundary` entry appears after the last assistant entry,
+    /// the usage data is stale (compaction reduced the context). Returns nil
+    /// so the UI can clear until the next assistant response arrives.
     static func fromTranscriptTail(_ data: Data) -> SessionStatus? {
         guard let text = String(data: data, encoding: .utf8) else { return nil }
         let lines = text.components(separatedBy: "\n").reversed()
@@ -35,8 +39,17 @@ struct SessionStatus {
             guard !trimmed.isEmpty else { continue }
             guard let lineData = trimmed.data(using: .utf8) else { continue }
 
-            guard let entry = try? JSONDecoder().decode(TranscriptEntry.self, from: lineData),
-                  entry.type == "assistant",
+            guard let entry = try? JSONDecoder().decode(TranscriptEntry.self, from: lineData) else {
+                continue
+            }
+
+            // A compact_boundary before any assistant entry means the last
+            // usage data is from before compaction — stale.
+            if entry.type == "system" && entry.subtype == "compact_boundary" {
+                return nil
+            }
+
+            guard entry.type == "assistant",
                   let usage = entry.message?.usage,
                   let model = entry.message?.model else {
                 continue
@@ -65,6 +78,7 @@ struct SessionStatus {
 
 struct TranscriptEntry: Decodable {
     let type: String
+    let subtype: String?
     let timestamp: String?
     let message: TranscriptMessage?
 }
