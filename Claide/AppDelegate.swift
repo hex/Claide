@@ -456,7 +456,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
            keyWindow === hotkeyWindowController?.window {
             hotkeyWindowController?.splitViewController?.toggleSidebarPanel()
         } else {
-            activeWindowController?.splitViewController.toggleSidebarPanel()
+            activeWindowController?.layout.toggleEdge(.right)
         }
     }
 
