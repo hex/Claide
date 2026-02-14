@@ -266,13 +266,26 @@ struct WindowDragArea: NSViewRepresentable {
     func updateNSView(_ nsView: DragAreaView, context: Context) {}
 
     final class DragAreaView: NSView {
+        /// Saved frame before zoom so double-click can toggle back.
+        private var preZoomFrame: NSRect?
+
         override func resetCursorRects() {
             addCursorRect(bounds, cursor: .openHand)
         }
 
         override func mouseDown(with event: NSEvent) {
             if event.clickCount == 2 {
-                window?.zoom(nil)
+                // Non-animated frame change — zoom(nil) hangs during the animated
+                // resize with Ghostty's Metal layer-hosting view.
+                guard let window, let screen = window.screen else { return }
+                let visibleFrame = screen.visibleFrame
+                if window.frame == visibleFrame, let saved = preZoomFrame {
+                    window.setFrame(saved, display: true)
+                    preZoomFrame = nil
+                } else {
+                    preZoomFrame = window.frame
+                    window.setFrame(visibleFrame, display: true)
+                }
                 return
             }
 
