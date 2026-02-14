@@ -41,7 +41,7 @@ struct SidebarSection: View {
                         Theme.border.frame(height: Theme.borderWidth)
                     }
 
-                if hasTaskContext {
+                if !graphVM.issues.isEmpty {
                     if tasksExpanded && filesExpanded {
                         // Headers stay outside the resizable area so they
                         // are always visible regardless of split position.
@@ -264,7 +264,7 @@ struct SidebarSection: View {
 
     private func updateTaskContext(for directory: String) {
         let hasBeads = BeadsService.findBinary() != nil
-            && FileManager.default.fileExists(atPath: (directory as NSString).appendingPathComponent(".beads"))
+            && FileManager.default.fileExists(atPath: (directory as NSString).appendingPathComponent(".beads/beads.db"))
         let hasClaude = ClaudeTaskService.isAvailable
         hasTaskContext = hasBeads || hasClaude
 
