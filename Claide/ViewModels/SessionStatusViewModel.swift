@@ -20,15 +20,12 @@ final class SessionStatusViewModel {
     /// Scans for a Claude process affiliated with this Claide instance via CLAIDE_PID.
     /// Clears status when no affiliated Claude process is running.
     func startWatching(sessionDirectory: String) {
-        let projectDir = Self.projectDirectory(for: sessionDirectory)
-
-        guard let path = Self.findTranscriptForClaide(in: projectDir) else {
+        guard let path = Self.findTranscriptForClaide() else {
             // No affiliated Claude process — clear stale status and poll for one to appear
             status = nil
             stopWatching()
             watchedSessionDir = sessionDirectory
             startRetryPolling()
-            watchDirectoryForNewFiles(projectDir)
             return
         }
 
@@ -47,6 +44,8 @@ final class SessionStatusViewModel {
         watcher = FileWatcher(path: path, onChange: fileCallback)
         watcher?.start()
 
+        // Watch the transcript's parent directory for new files
+        let projectDir = (path as NSString).deletingLastPathComponent
         watchDirectoryForNewFiles(projectDir)
     }
 
@@ -99,9 +98,8 @@ final class SessionStatusViewModel {
     /// when no affiliated Claude process is running.
     private func recheckTranscript() {
         guard let dir = watchedSessionDir else { return }
-        let projectDir = Self.projectDirectory(for: dir)
 
-        guard let newest = Self.findTranscriptForClaide(in: projectDir) else {
+        guard let newest = Self.findTranscriptForClaide() else {
             // No affiliated Claude process — clear stale status
             status = nil
             return
@@ -224,9 +222,27 @@ final class SessionStatusViewModel {
         return nil
     }
 
+    /// Get a process's current working directory via proc_pidinfo.
+    nonisolated static func processWorkingDirectory(pid: pid_t) -> String? {
+        var vpi = proc_vnodepathinfo()
+        let size = Int32(MemoryLayout<proc_vnodepathinfo>.size)
+        let ret = proc_pidinfo(pid, PROC_PIDVNODEPATHINFO, 0, &vpi, size)
+        guard ret == size else { return nil }
+
+        return withUnsafePointer(to: &vpi.pvi_cdir.vip_path) {
+            $0.withMemoryRebound(to: CChar.self, capacity: Int(MAXPATHLEN)) {
+                String(cString: $0)
+            }
+        }
+    }
+
     /// Find the transcript for the Claude process affiliated with this Claide instance.
-    nonisolated static func findTranscriptForClaide(in projectDir: String) -> String? {
+    /// Derives the project directory from Claude's actual working directory rather than
+    /// the caller's session directory, since the shell may start in a different directory.
+    nonisolated static func findTranscriptForClaide() -> String? {
         guard let claude = findClaudeForClaide() else { return nil }
+        guard let cwd = processWorkingDirectory(pid: claude.pid) else { return nil }
+        let projectDir = projectDirectory(for: cwd)
         return findTranscriptByStartTime(claude.startTime, in: projectDir)
     }
 

@@ -27,7 +27,7 @@ final class FileLogViewModel {
 
         let path: String
         var foundViaProcess = false
-        if let processPath = SessionStatusViewModel.findTranscriptForClaide(in: projectDir) {
+        if let processPath = SessionStatusViewModel.findTranscriptForClaide() {
             path = processPath
             foundViaProcess = true
         } else if let newestPath = SessionStatusViewModel.findNewestJsonl(in: projectDir) {
@@ -122,7 +122,7 @@ final class FileLogViewModel {
         let projectDir = SessionStatusViewModel.projectDirectory(for: dir)
 
         let newest: String?
-        if let processPath = SessionStatusViewModel.findTranscriptForClaide(in: projectDir) {
+        if let processPath = SessionStatusViewModel.findTranscriptForClaide() {
             newest = processPath
         } else {
             newest = SessionStatusViewModel.findNewestJsonl(in: projectDir)

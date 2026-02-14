@@ -160,6 +160,19 @@ struct SessionStatusTests {
         #expect(name == nil)
     }
 
+    @Test("processWorkingDirectory returns cwd for own process")
+    func cwdForOwnProcess() {
+        let cwd = SessionStatusViewModel.processWorkingDirectory(pid: getpid())
+        #expect(cwd != nil)
+        #expect(cwd?.isEmpty == false)
+    }
+
+    @Test("processWorkingDirectory returns nil for invalid PID")
+    func cwdForInvalidPid() {
+        let cwd = SessionStatusViewModel.processWorkingDirectory(pid: -1)
+        #expect(cwd == nil)
+    }
+
     @Test("findClaudeForClaide returns nil when no Claude is running")
     func findClaudeReturnsNilWhenNoneRunning() {
         // During tests, no Claude Code process with our CLAIDE_PID should exist
