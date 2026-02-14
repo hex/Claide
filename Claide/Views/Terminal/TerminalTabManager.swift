@@ -490,6 +490,9 @@ final class TerminalTabManager {
         env.removeAll { $0.0 == "TERM_PROGRAM" }
         env.append(("TERM_PROGRAM", "Claide"))
 
+        // Prevent Claude Code nesting detection when Claide itself runs inside a Claude session
+        env.removeAll { $0.0 == "CLAUDECODE" }
+
         // Disable zsh session save/restore
         env.removeAll { $0.0 == "SHELL_SESSIONS_DISABLE" }
         env.append(("SHELL_SESSIONS_DISABLE", "1"))
