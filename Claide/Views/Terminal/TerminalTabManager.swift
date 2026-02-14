@@ -336,11 +336,10 @@ final class TerminalTabManager {
         viewModel.profile = profile
         let shell = profile.resolvedShell
 
-        // Override SHELL in the environment if the profile specifies a custom shell.
+        // Override SHELL if the profile specifies a custom shell.
         // Ghostty reads SHELL to determine which shell to launch via login(1).
         var env = environment
         if profile.shell != nil {
-            env.removeAll { $0.0 == "SHELL" }
             env.append(("SHELL", shell))
         }
 
@@ -495,46 +494,15 @@ final class TerminalTabManager {
         return pid
     }
 
+    /// Claide-specific env vars to inject into child shells.
+    /// Ghostty inherits the process environment automatically via getEnvMap();
+    /// these are applied as overrides on top. Vars that need removal (CLAUDECODE
+    /// etc.) are unsetenv'd at process level in AppDelegate.
     static func buildEnvironment() -> [(String, String)] {
-        var env: [(String, String)] = []
-        let currentEnv = ProcessInfo.processInfo.environment
-        for (key, value) in currentEnv {
-            if key == "PATH" {
-                let paths = ["/opt/homebrew/bin", "/usr/local/bin"]
-                let existing = value.components(separatedBy: ":")
-                let combined = (paths + existing).uniqued()
-                env.append((key, combined.joined(separator: ":")))
-            } else {
-                env.append((key, value))
-            }
-        }
-
-        if !env.contains(where: { $0.0 == "PATH" }) {
-            env.append(("PATH", "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"))
-        }
-
-        env.removeAll { $0.0 == "TERM_PROGRAM" }
-        env.append(("TERM_PROGRAM", "Claide"))
-
-        // Prevent Claude Code nesting detection when Claide itself runs inside a Claude session
-        env.removeAll { $0.0 == "CLAUDECODE" || $0.0 == "CLAUDE_CODE_ENTRYPOINT" }
-
-        // Disable zsh session save/restore
-        env.removeAll { $0.0 == "SHELL_SESSIONS_DISABLE" }
-        env.append(("SHELL_SESSIONS_DISABLE", "1"))
-
-        // Tag shells so we can identify affiliated Claude processes
-        env.removeAll { $0.0 == "CLAIDE_PID" }
-        env.append(("CLAIDE_PID", "\(getpid())"))
-
-        return env
-    }
-}
-
-// Utility to deduplicate arrays while preserving order
-private extension Array where Element: Hashable {
-    func uniqued() -> [Element] {
-        var seen = Set<Element>()
-        return filter { seen.insert($0).inserted }
+        [
+            ("TERM_PROGRAM", "Claide"),
+            ("SHELL_SESSIONS_DISABLE", "1"),
+            ("CLAIDE_PID", "\(getpid())"),
+        ]
     }
 }
