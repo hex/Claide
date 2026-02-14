@@ -1,5 +1,5 @@
 // ABOUTME: Narrow button strip along a window edge showing icons for docked tool windows.
-// ABOUTME: Left/right stripes use rotated text; bottom uses horizontal text. Click toggles panels.
+// ABOUTME: Left/right stripes use rotated text; bottom uses horizontal text. Supports drag-and-drop.
 
 import SwiftUI
 
@@ -20,6 +20,7 @@ struct ToolStripe: View {
                 ) {
                     layout.toggleWindow(id)
                 }
+                .draggable(id)
             }
         }
 
@@ -34,6 +35,11 @@ struct ToolStripe: View {
                 .overlay(alignment: edge == .left ? .trailing : .leading) {
                     Theme.border.frame(width: Theme.borderWidth)
                 }
+                .dropDestination(for: ToolWindowID.self) { items, _ in
+                    guard let id = items.first else { return false }
+                    layout.moveWindow(id, to: edge)
+                    return true
+                }
             )
         } else {
             return AnyView(
@@ -45,6 +51,11 @@ struct ToolStripe: View {
                 .background(Theme.backgroundSunken)
                 .overlay(alignment: .top) {
                     Theme.border.frame(height: Theme.borderWidth)
+                }
+                .dropDestination(for: ToolWindowID.self) { items, _ in
+                    guard let id = items.first else { return false }
+                    layout.moveWindow(id, to: edge)
+                    return true
                 }
             )
         }
@@ -77,7 +88,6 @@ private struct StripeButton: View {
         .foregroundStyle(isActive ? Theme.textPrimary : Theme.textMuted)
         .padding(.horizontal, 6)
         .padding(.vertical, 4)
-        .frame(maxWidth: edge.isVertical ? nil : nil)
         .background(isActive ? Theme.backgroundHover : .clear)
 
         switch edge {
