@@ -5,7 +5,7 @@ import Foundation
 import Darwin
 import os.log
 
-private let statusLog = Logger(subsystem: "com.hexlab.Claide", category: "StatusBar")
+private let statusLog = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.hexul.claide", category: "StatusBar")
 
 @MainActor @Observable
 final class SessionStatusViewModel {
