@@ -13,37 +13,37 @@ final class SessionStatusViewModel {
     private var retryTask: Task<Void, Never>?
     private var watchedPath: String?
     private var watchedSessionDir: String?
-    private var storedShellPid: pid_t = 0
-
     /// Tail read size — one assistant entry is typically a few KB
     private static let tailBytes = 65_536
 
+    /// Freshness window — transcripts modified within this many seconds are
+    /// considered "fresh" even when no Claude process is found yet (startup race).
+    nonisolated(unsafe) private static let freshnessWindow: TimeInterval = 30
+
     /// Start watching the transcript for the Claude Code session in the given directory.
-    /// When shellPid is provided, uses process tree walking to identify the correct
-    /// transcript even when multiple sessions share the same project directory.
-    /// Polls periodically until a Claude descendant appears under the shell.
-    func startWatching(sessionDirectory: String, shellPid: pid_t = 0) {
+    /// Scans for a Claude process affiliated with this Claide instance via CLAIDE_PID.
+    /// Falls back to the most recently modified transcript if it's fresh enough.
+    /// Clears status when no Claude process is running and no fresh transcript exists.
+    func startWatching(sessionDirectory: String) {
         let projectDir = Self.projectDirectory(for: sessionDirectory)
 
         // Try process-based lookup first (reliable with concurrent sessions)
         let path: String
         var foundViaProcess = false
-        if shellPid > 0,
-           let processPath = Self.findTranscriptByProcess(shellPid: shellPid, projectDir: projectDir) {
+        if let processPath = Self.findTranscriptForClaide(in: projectDir) {
             path = processPath
             foundViaProcess = true
-        } else if let newestPath = Self.findNewestJsonl(in: projectDir) {
-            // Process lookup failed (or no shellPid) — use most recently modified transcript
+        } else if let newestPath = Self.findFreshJsonl(in: projectDir) {
+            // No affiliated Claude process yet, but a recently-modified transcript exists
+            // (covers the startup race where Claude hasn't fully spawned)
             path = newestPath
         } else {
-            // No transcripts found — poll until one appears
-            if shellPid > 0 {
-                stopWatching()
-                watchedSessionDir = sessionDirectory
-                storedShellPid = shellPid
-                startRetryPolling()
-                watchDirectoryForNewFiles(projectDir)
-            }
+            // No active Claude and no fresh transcript — clear stale status and poll
+            status = nil
+            stopWatching()
+            watchedSessionDir = sessionDirectory
+            startRetryPolling()
+            watchDirectoryForNewFiles(projectDir)
             return
         }
 
@@ -54,7 +54,6 @@ final class SessionStatusViewModel {
         stopWatching()
         watchedPath = path
         watchedSessionDir = sessionDirectory
-        storedShellPid = shellPid
 
         reload(from: path)
 
@@ -70,7 +69,7 @@ final class SessionStatusViewModel {
 
         if foundViaProcess {
             stopRetryPolling()
-        } else if shellPid > 0 {
+        } else {
             startRetryPolling()
         }
     }
@@ -87,7 +86,7 @@ final class SessionStatusViewModel {
 
     // MARK: - Retry Polling
 
-    /// Poll every 3 seconds for a Claude descendant of the shell process.
+    /// Poll every 3 seconds for a Claude process affiliated with this Claide instance.
     /// Covers the case where Claude starts after Claide or resumes a transcript
     /// (no directory event for existing file modifications).
     private func startRetryPolling() {
@@ -120,23 +119,25 @@ final class SessionStatusViewModel {
     }
 
     /// Called by the directory watcher and retry timer.
-    /// When a shell PID is known, only switches to a process-matched transcript.
+    /// Uses env-var-based detection to find the right transcript, or clears status
+    /// when no affiliated Claude process is running.
     private func recheckTranscript() {
         guard let dir = watchedSessionDir else { return }
         let projectDir = Self.projectDirectory(for: dir)
 
         let newest: String?
-        if storedShellPid > 0,
-           let processPath = Self.findTranscriptByProcess(shellPid: storedShellPid, projectDir: projectDir) {
+        if let processPath = Self.findTranscriptForClaide(in: projectDir) {
             newest = processPath
-            stopRetryPolling()
+        } else if let freshPath = Self.findFreshJsonl(in: projectDir) {
+            newest = freshPath
         } else {
-            newest = Self.findNewestJsonl(in: projectDir)
-            if newest == nil { return }
+            // No Claude running and no fresh transcript — clear stale status
+            status = nil
+            return
         }
 
         guard let newest, newest != watchedPath else { return }
-        startWatching(sessionDirectory: dir, shellPid: storedShellPid)
+        startWatching(sessionDirectory: dir)
     }
 
     private func reload(from path: String) {
@@ -159,35 +160,56 @@ final class SessionStatusViewModel {
 
     // MARK: - Process-Based Transcript Discovery
 
-    /// Find the JSONL transcript for a Claude Code session running under a specific shell.
-    /// Walks the process tree to find a "claude" descendant, then matches its start time
-    /// to the JSONL file that was created at that moment.
-    nonisolated static func findTranscriptByProcess(shellPid: pid_t, projectDir: String) -> String? {
-        guard let claude = findClaudeDescendant(of: shellPid) else { return nil }
-        return findTranscriptByStartTime(claude.startTime, in: projectDir)
+    /// Check whether a process's environment contains a specific KEY=VALUE pair.
+    /// Uses sysctl KERN_PROCARGS2 to read the process's argument+environment buffer.
+    nonisolated static func processHasEnvVar(pid: pid_t, key: String, value: String) -> Bool {
+        var mib: [Int32] = [CTL_KERN, KERN_PROCARGS2, Int32(pid)]
+        var size: size_t = 0
+        guard sysctl(&mib, 3, nil, &size, nil, 0) == 0, size > 0 else { return false }
+
+        var buffer = [UInt8](repeating: 0, count: size)
+        guard sysctl(&mib, 3, &buffer, &size, nil, 0) == 0 else { return false }
+
+        // Buffer layout: argc (int32) | exec_path\0 | argv[0]\0 ... argv[argc-1]\0 | env[0]\0 ...
+        guard size >= MemoryLayout<Int32>.size else { return false }
+        let argc: Int32 = buffer.withUnsafeBufferPointer {
+            $0.baseAddress!.withMemoryRebound(to: Int32.self, capacity: 1) { $0.pointee }
+        }
+
+        // Split everything after the argc int on null bytes
+        let bodyStart = MemoryLayout<Int32>.size
+        let parts = buffer[bodyStart..<size].split(separator: 0, omittingEmptySubsequences: true)
+
+        // Skip: exec_path + argc argv strings = 1 + argc entries
+        let envStart = 1 + Int(argc)
+        guard parts.count > envStart else { return false }
+
+        let needle = "\(key)=\(value)"
+        let needleBytes = Array(needle.utf8)
+        for part in parts[envStart...] {
+            if Array(part) == needleBytes { return true }
+        }
+        return false
     }
 
-    /// BFS the process tree from a shell PID to find a "claude" descendant.
-    /// Returns the PID and start time of the first match.
-    nonisolated private static func findClaudeDescendant(of shellPid: pid_t) -> (pid: pid_t, startTime: Date)? {
+    /// Scan the process table for a "claude" process whose environment contains
+    /// CLAIDE_PID matching this Claide instance. Returns the PID and start time.
+    nonisolated static func findClaudeForClaide() -> (pid: pid_t, startTime: Date)? {
+        let myPid = "\(getpid())"
         let procs = snapshotProcessTable()
 
-        // Build parent→children map
-        var children: [pid_t: [pid_t]] = [:]
-        for p in procs {
-            children[p.ppid, default: []].append(p.pid)
-        }
-
-        // BFS from shellPid, look for a process named "claude"
-        var queue = children[shellPid] ?? []
-        while !queue.isEmpty {
-            let pid = queue.removeFirst()
-            if let info = procs.first(where: { $0.pid == pid }), info.name == "claude" {
-                return (pid: pid, startTime: info.startTime)
+        for proc in procs where proc.name == "claude" {
+            if processHasEnvVar(pid: proc.pid, key: "CLAIDE_PID", value: myPid) {
+                return (pid: proc.pid, startTime: proc.startTime)
             }
-            queue.append(contentsOf: children[pid] ?? [])
         }
         return nil
+    }
+
+    /// Find the transcript for the Claude process affiliated with this Claide instance.
+    nonisolated static func findTranscriptForClaide(in projectDir: String) -> String? {
+        guard let claude = findClaudeForClaide() else { return nil }
+        return findTranscriptByStartTime(claude.startTime, in: projectDir)
     }
 
     /// Snapshot the kernel process table via sysctl.
@@ -271,6 +293,26 @@ final class SessionStatusViewModel {
     /// Find the most recently created .jsonl transcript for a session.
     nonisolated static func findTranscript(sessionDirectory: String) -> String? {
         findNewestJsonl(in: projectDirectory(for: sessionDirectory))
+    }
+
+    /// Find the most recently modified .jsonl that was touched within the freshness window.
+    /// Returns nil if no transcript has been modified recently enough to be considered active.
+    nonisolated static func findFreshJsonl(in projectDir: String) -> String? {
+        let cutoff = Date().addingTimeInterval(-freshnessWindow)
+        let fm = FileManager.default
+        guard let contents = try? fm.contentsOfDirectory(atPath: projectDir) else { return nil }
+
+        return contents
+            .filter { $0.hasSuffix(".jsonl") }
+            .compactMap { name -> (String, Date)? in
+                let full = (projectDir as NSString).appendingPathComponent(name)
+                guard let attrs = try? fm.attributesOfItem(atPath: full),
+                      let modified = attrs[.modificationDate] as? Date,
+                      modified >= cutoff else { return nil }
+                return (full, modified)
+            }
+            .max(by: { $0.1 < $1.1 })?
+            .0
     }
 
     /// Find the most recently modified .jsonl in a project directory.

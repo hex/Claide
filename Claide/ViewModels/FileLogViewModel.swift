@@ -14,14 +14,12 @@ final class FileLogViewModel {
     private var retryTask: Task<Void, Never>?
     private var watchedPath: String?
     private var watchedSessionDir: String?
-    private var storedShellPid: pid_t = 0
-
     private var transcriptChanges: [FileChange] = []
     private var gitChanges: [FileChange] = []
 
     /// Start watching the transcript and working directory for file operations.
-    /// Uses the same process-based discovery as SessionStatusViewModel.
-    func startWatching(sessionDirectory: String, shellPid: pid_t = 0) {
+    /// Uses env-var-based discovery to find the Claude process affiliated with this Claide.
+    func startWatching(sessionDirectory: String) {
         let projectDir = SessionStatusViewModel.projectDirectory(for: sessionDirectory)
 
         // Start git watching for the working directory regardless of transcript
@@ -29,24 +27,17 @@ final class FileLogViewModel {
 
         let path: String
         var foundViaProcess = false
-        if shellPid > 0,
-           let processPath = SessionStatusViewModel.findTranscriptByProcess(
-               shellPid: shellPid, projectDir: projectDir
-           ) {
+        if let processPath = SessionStatusViewModel.findTranscriptForClaide(in: projectDir) {
             path = processPath
             foundViaProcess = true
         } else if let newestPath = SessionStatusViewModel.findNewestJsonl(in: projectDir) {
-            // Process lookup failed (or no shellPid) — use most recently modified transcript
             path = newestPath
         } else {
             // No transcripts found — poll until one appears
-            if shellPid > 0 {
-                stopTranscriptWatching()
-                watchedSessionDir = sessionDirectory
-                storedShellPid = shellPid
-                startRetryPolling()
-                watchDirectoryForNewFiles(projectDir)
-            }
+            stopTranscriptWatching()
+            watchedSessionDir = sessionDirectory
+            startRetryPolling()
+            watchDirectoryForNewFiles(projectDir)
             return
         }
 
@@ -57,7 +48,6 @@ final class FileLogViewModel {
         stopTranscriptWatching()
         watchedPath = path
         watchedSessionDir = sessionDirectory
-        storedShellPid = shellPid
 
         reloadTranscript(from: path)
 
@@ -73,7 +63,7 @@ final class FileLogViewModel {
 
         if foundViaProcess {
             stopRetryPolling()
-        } else if shellPid > 0 {
+        } else {
             startRetryPolling()
         }
     }
@@ -132,19 +122,15 @@ final class FileLogViewModel {
         let projectDir = SessionStatusViewModel.projectDirectory(for: dir)
 
         let newest: String?
-        if storedShellPid > 0,
-           let processPath = SessionStatusViewModel.findTranscriptByProcess(
-               shellPid: storedShellPid, projectDir: projectDir
-           ) {
+        if let processPath = SessionStatusViewModel.findTranscriptForClaide(in: projectDir) {
             newest = processPath
-            stopRetryPolling()
         } else {
             newest = SessionStatusViewModel.findNewestJsonl(in: projectDir)
             if newest == nil { return }
         }
 
         guard let newest, newest != watchedPath else { return }
-        startWatching(sessionDirectory: dir, shellPid: storedShellPid)
+        startWatching(sessionDirectory: dir)
     }
 
     // MARK: - Git Watching

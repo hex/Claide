@@ -494,6 +494,10 @@ final class TerminalTabManager {
         env.removeAll { $0.0 == "SHELL_SESSIONS_DISABLE" }
         env.append(("SHELL_SESSIONS_DISABLE", "1"))
 
+        // Tag shells so we can identify affiliated Claude processes
+        env.removeAll { $0.0 == "CLAIDE_PID" }
+        env.append(("CLAIDE_PID", "\(getpid())"))
+
         return env
     }
 }

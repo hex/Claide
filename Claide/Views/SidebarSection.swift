@@ -80,7 +80,6 @@ struct SidebarSection: View {
                     await vm.loadIssues(workingDirectory: dir)
                 }
             }
-            // TODO: Shell PID not exposed by Ghostty yet — pass 0 to use fallback discovery
             fileLogVM.startWatching(sessionDirectory: dir)
         }
         .onChange(of: tabManager.activeViewModel?.currentDirectory) { _, newDir in

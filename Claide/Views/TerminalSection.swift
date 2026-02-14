@@ -33,7 +33,6 @@ struct TerminalSection: View {
             if tabManager.tabs.isEmpty {
                 tabManager.addTab(initialDirectory: Self.initialDirectory, fontFamily: fontFamily)
             }
-            // TODO: Shell PID not exposed by Ghostty yet — pass 0 to use fallback discovery
             sessionStatusVM.startWatching(sessionDirectory: Self.initialDirectory)
         }
         .onChange(of: tabManager.activeViewModel?.currentDirectory) { _, newDir in

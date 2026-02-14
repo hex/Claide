@@ -112,6 +112,56 @@ struct SessionStatusTests {
         #expect(path == nil)
     }
 
+    // MARK: - Process Environment Detection
+
+    @Test("Finds HOME env var in own process")
+    func findsHomeEnvVar() {
+        let home = ProcessInfo.processInfo.environment["HOME"]!
+        let found = SessionStatusViewModel.processHasEnvVar(
+            pid: getpid(), key: "HOME", value: home
+        )
+        #expect(found == true)
+    }
+
+    @Test("Returns false for nonexistent env var")
+    func returnsFalseForMissingVar() {
+        let found = SessionStatusViewModel.processHasEnvVar(
+            pid: getpid(), key: "CLAIDE_NONEXISTENT_VAR_12345", value: "x"
+        )
+        #expect(found == false)
+    }
+
+    @Test("Returns false for invalid PID")
+    func returnsFalseForInvalidPid() {
+        let found = SessionStatusViewModel.processHasEnvVar(
+            pid: -1, key: "HOME", value: "/tmp"
+        )
+        #expect(found == false)
+    }
+
+    @Test("Returns false when value does not match")
+    func returnsFalseWhenValueMismatches() {
+        let found = SessionStatusViewModel.processHasEnvVar(
+            pid: getpid(), key: "HOME", value: "/nonexistent/wrong/path"
+        )
+        #expect(found == false)
+    }
+
+    @Test("findClaudeForClaide returns nil when no Claude is running")
+    func findClaudeReturnsNilWhenNoneRunning() {
+        // During tests, no Claude Code process with our CLAIDE_PID should exist
+        let result = SessionStatusViewModel.findClaudeForClaide()
+        #expect(result == nil)
+    }
+
+    @Test("buildEnvironment contains CLAIDE_PID with current PID")
+    @MainActor func buildEnvironmentContainsClaidePid() {
+        let env = TerminalTabManager.buildEnvironment()
+        let entry = env.first { $0.0 == "CLAIDE_PID" }
+        #expect(entry != nil)
+        #expect(entry?.1 == "\(getpid())")
+    }
+
     // MARK: - Partial tail handling
 
     @Test("Handles truncated first line in tail chunk")

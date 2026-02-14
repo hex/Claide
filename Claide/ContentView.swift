@@ -46,7 +46,6 @@ struct ContentView: View {
             Task { @MainActor in
                 await vm.loadIssues(workingDirectory: Self.initialDirectory)
             }
-            // TODO: Shell PID not exposed by Ghostty yet — pass 0 to use fallback discovery
             fileLogVM.startWatching(sessionDirectory: Self.initialDirectory)
             sessionStatusVM.startWatching(sessionDirectory: Self.initialDirectory)
         }
