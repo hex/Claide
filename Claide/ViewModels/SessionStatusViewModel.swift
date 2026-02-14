@@ -3,6 +3,9 @@
 
 import Foundation
 import Darwin
+import os.log
+
+private let statusLog = Logger(subsystem: "com.hexlab.Claide", category: "StatusBar")
 
 @MainActor @Observable
 final class SessionStatusViewModel {
@@ -110,9 +113,16 @@ final class SessionStatusViewModel {
     }
 
     private func reload(from path: String) {
-        guard let data = Self.readTail(path: path, bytes: Self.tailBytes) else { return }
+        guard let data = Self.readTail(path: path, bytes: Self.tailBytes) else {
+            statusLog.debug("reload: readTail returned nil for \((path as NSString).lastPathComponent)")
+            return
+        }
+        statusLog.debug("reload: read \(data.count) bytes from \((path as NSString).lastPathComponent)")
         if let parsed = SessionStatus.fromTranscriptTail(data) {
+            statusLog.debug("reload: parsed status model=\(parsed.modelId) input=\(parsed.totalInputTokens)")
             status = parsed
+        } else {
+            statusLog.debug("reload: fromTranscriptTail returned nil")
         }
     }
 
@@ -240,10 +250,21 @@ final class SessionStatusViewModel {
     /// Derives the project directory from Claude's actual working directory rather than
     /// the caller's session directory, since the shell may start in a different directory.
     nonisolated static func findTranscriptForClaide() -> String? {
-        guard let claude = findClaudeForClaide() else { return nil }
-        guard let cwd = processWorkingDirectory(pid: claude.pid) else { return nil }
+        guard let claude = findClaudeForClaide() else {
+            statusLog.debug("findTranscriptForClaide: no Claude process found")
+            return nil
+        }
+        statusLog.debug("findTranscriptForClaide: Claude pid=\(claude.pid) started=\(claude.startTime.description)")
+        guard let cwd = processWorkingDirectory(pid: claude.pid) else {
+            statusLog.debug("findTranscriptForClaide: no CWD for pid=\(claude.pid)")
+            return nil
+        }
+        statusLog.debug("findTranscriptForClaide: cwd=\(cwd)")
         let projectDir = projectDirectory(for: cwd)
-        return findTranscriptByStartTime(claude.startTime, in: projectDir)
+        statusLog.debug("findTranscriptForClaide: projectDir=\(projectDir)")
+        let result = findTranscriptByStartTime(claude.startTime, in: projectDir)
+        statusLog.debug("findTranscriptForClaide: result=\(result ?? "nil")")
+        return result
     }
 
     /// Snapshot the kernel process table via sysctl.
@@ -287,7 +308,10 @@ final class SessionStatusViewModel {
 
     nonisolated private static func findTranscriptByStartTime(_ startTime: Date, in projectDir: String) -> String? {
         let fm = FileManager.default
-        guard let contents = try? fm.contentsOfDirectory(atPath: projectDir) else { return nil }
+        guard let contents = try? fm.contentsOfDirectory(atPath: projectDir) else {
+            statusLog.debug("findTranscriptByStartTime: cannot list \(projectDir)")
+            return nil
+        }
 
         let files = contents
             .filter { $0.hasSuffix(".jsonl") }
@@ -300,26 +324,35 @@ final class SessionStatusViewModel {
                 return (full, created, modified, size)
             }
 
+        statusLog.debug("findTranscriptByStartTime: \(files.count) jsonl files, startTime=\(startTime.description)")
+        for f in files {
+            let name = (f.path as NSString).lastPathComponent
+            statusLog.debug("  \(name): size=\(f.size) created=\(f.created.description) modified=\(f.modified.description)")
+        }
+
         // New session: file created within 60s after process started.
         // Skip small files (file-history-snapshot stubs written at startup).
         let window: TimeInterval = 60
-        if let match = files
-            .filter({ $0.created >= startTime && $0.created.timeIntervalSince(startTime) <= window && $0.size >= minTranscriptSize })
-            .min(by: { $0.created.timeIntervalSince(startTime) < $1.created.timeIntervalSince(startTime) }) {
+        let pass1 = files.filter({ $0.created >= startTime && $0.created.timeIntervalSince(startTime) <= window && $0.size >= minTranscriptSize })
+        statusLog.debug("pass1 (new session, >=20KB): \(pass1.count) candidates")
+        if let match = pass1.min(by: { $0.created.timeIntervalSince(startTime) < $1.created.timeIntervalSince(startTime) }) {
+            statusLog.debug("pass1 matched: \((match.path as NSString).lastPathComponent)")
             return match.path
         }
 
         // Resumed session: file modified after process started (but created earlier)
-        if let match = files
-            .filter({ $0.modified >= startTime && $0.size >= minTranscriptSize })
-            .max(by: { $0.modified < $1.modified }) {
+        let pass2 = files.filter({ $0.modified >= startTime && $0.size >= minTranscriptSize })
+        statusLog.debug("pass2 (resumed, >=20KB): \(pass2.count) candidates")
+        if let match = pass2.max(by: { $0.modified < $1.modified }) {
+            statusLog.debug("pass2 matched: \((match.path as NSString).lastPathComponent)")
             return match.path
         }
 
         // Last resort: accept small files (session just started, no responses yet)
-        if let match = files
-            .filter({ $0.created >= startTime && $0.created.timeIntervalSince(startTime) <= window })
-            .min(by: { $0.created.timeIntervalSince(startTime) < $1.created.timeIntervalSince(startTime) }) {
+        let pass3 = files.filter({ $0.created >= startTime && $0.created.timeIntervalSince(startTime) <= window })
+        statusLog.debug("pass3 (small files): \(pass3.count) candidates")
+        if let match = pass3.min(by: { $0.created.timeIntervalSince(startTime) < $1.created.timeIntervalSince(startTime) }) {
+            statusLog.debug("pass3 matched: \((match.path as NSString).lastPathComponent)")
             return match.path
         }
 
