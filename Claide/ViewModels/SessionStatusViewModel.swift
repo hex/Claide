@@ -13,8 +13,20 @@ final class SessionStatusViewModel {
     private var pollTask: Task<Void, Never>?
     private var watchedPath: String?
     private var projectDir: String?
+    /// Shell PIDs belonging to this tab. Claude search is scoped to these subtrees.
+    private var shellPids: Set<pid_t> = []
     /// Tail read size — one assistant entry is typically a few KB
     nonisolated(unsafe) private static let tailBytes = 65_536
+
+    /// Register a shell PID for this tab's Claude process search scope.
+    func addShellPid(_ pid: pid_t) {
+        shellPids.insert(pid)
+    }
+
+    /// Unregister a shell PID when a pane is closed.
+    func removeShellPid(_ pid: pid_t) {
+        shellPids.remove(pid)
+    }
 
     /// Start polling for Claude Code session status.
     /// The project directory is derived from the Claude process's environment
@@ -54,7 +66,8 @@ final class SessionStatusViewModel {
     /// Derives the project directory from Claude's PWD env var (frozen at exec time via
     /// KERN_PROCARGS2), which is stable even when chdir() is called during tool execution.
     private func poll() {
-        guard let claudePid = Self.findClaudeForClaide() else {
+        guard !shellPids.isEmpty,
+              let claudePid = Self.findClaudeInSubtree(rootPids: shellPids) else {
             if status != nil { status = nil }
             unwatchFiles()
             watchedPath = nil
@@ -271,6 +284,39 @@ final class SessionStatusViewModel {
 
         guard let argv0 = String(bytes: parts[1], encoding: .utf8) else { return nil }
         return (argv0 as NSString).lastPathComponent
+    }
+
+    /// Search for a Claude Code process that is a descendant of any of the given
+    /// root PIDs. Scopes the status bar to the correct tab by only searching
+    /// descendants of that tab's shell processes.
+    nonisolated static func findClaudeInSubtree(rootPids: Set<pid_t>) -> pid_t? {
+        guard !rootPids.isEmpty else { return nil }
+        let claidePidStr = "\(getpid())"
+        let procs = snapshotProcessTable()
+
+        var childrenOf: [pid_t: [ProcessEntry]] = [:]
+        for proc in procs {
+            childrenOf[proc.ppid, default: []].append(proc)
+        }
+
+        var queue = Array(rootPids)
+        var visited = rootPids
+
+        while !queue.isEmpty {
+            let current = queue.removeFirst()
+            for child in childrenOf[current] ?? [] {
+                guard !visited.contains(child.pid) else { continue }
+                visited.insert(child.pid)
+                queue.append(child.pid)
+
+                guard processArgv0Basename(pid: child.pid) == "claude" else { continue }
+                if processHasEnvVar(pid: child.pid, key: "CLAIDE_PID", value: claidePidStr) {
+                    return child.pid
+                }
+            }
+        }
+
+        return nil
     }
 
     /// Scan the process table for a Claude Code process whose environment contains

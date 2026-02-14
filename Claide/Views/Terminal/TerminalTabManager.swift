@@ -84,12 +84,13 @@ final class TerminalTabManager {
         let initialID = controller.activePaneID
         guard let view = controller.paneView(for: initialID) as? GhosttyTerminalView else { return }
 
-        let vm = TerminalViewModel()
-        setupPane(paneID: initialID, controller: controller, view: view, viewModel: vm, directory: directory, environment: environment)
-
         let sessionStatusVM = SessionStatusViewModel()
         let graphVM = GraphViewModel()
         let fileLogVM = FileLogViewModel()
+
+        let vm = TerminalViewModel()
+        setupPane(paneID: initialID, controller: controller, view: view, viewModel: vm, directory: directory, environment: environment, sessionStatusVM: sessionStatusVM)
+
         sessionStatusVM.startWatching(sessionDirectory: directory)
         fileLogVM.startWatching(sessionDirectory: directory)
 
@@ -136,6 +137,10 @@ final class TerminalTabManager {
             self?.closePane(paneID)
         }
 
+        let sessionStatusVM = SessionStatusViewModel()
+        let graphVM = GraphViewModel()
+        let fileLogVM = FileLogViewModel()
+
         var viewModels: [PaneID: TerminalViewModel] = [:]
         for paneID in state.paneTree.allPaneIDs {
             guard let view = controller.paneView(for: paneID) as? GhosttyTerminalView else { continue }
@@ -144,15 +149,12 @@ final class TerminalTabManager {
 
             let dir = state.paneDirectories[paneID.uuidString] ?? NSHomeDirectory()
             let profile = state.paneProfiles?[paneID.uuidString] ?? .default
-            setupPane(paneID: paneID, controller: controller, view: view, viewModel: vm, directory: dir, environment: environment, profile: profile)
+            setupPane(paneID: paneID, controller: controller, view: view, viewModel: vm, directory: dir, environment: environment, profile: profile, sessionStatusVM: sessionStatusVM)
         }
 
         // Derive the directory for VM initialization from the active pane's saved directory.
         let activeDir = state.paneDirectories[state.activePaneID.uuidString] ?? NSHomeDirectory()
 
-        let sessionStatusVM = SessionStatusViewModel()
-        let graphVM = GraphViewModel()
-        let fileLogVM = FileLogViewModel()
         sessionStatusVM.startWatching(sessionDirectory: activeDir)
         fileLogVM.startWatching(sessionDirectory: activeDir)
 
@@ -274,7 +276,7 @@ final class TerminalTabManager {
 
         let vm = TerminalViewModel()
         tabs[index].paneViewModels[newID] = vm
-        setupPane(paneID: newID, controller: tabs[index].paneController, view: newView, viewModel: vm, directory: dir, environment: environment)
+        setupPane(paneID: newID, controller: tabs[index].paneController, view: newView, viewModel: vm, directory: dir, environment: environment, sessionStatusVM: tabs[index].sessionStatusVM)
 
         focusActiveTab()
     }
@@ -331,7 +333,8 @@ final class TerminalTabManager {
         viewModel: TerminalViewModel,
         directory: String,
         environment: [(String, String)],
-        profile: TerminalProfile = .default
+        profile: TerminalProfile = .default,
+        sessionStatusVM: SessionStatusViewModel? = nil
     ) {
         viewModel.profile = profile
         let shell = profile.resolvedShell
@@ -352,7 +355,7 @@ final class TerminalTabManager {
         // walk the child tree to find the process matching our target shell.
         // Once found, foreground tracking polls the shell's children to detect
         // when a command is actively running (shows spinner in the tab bar).
-        Task { @MainActor [weak viewModel] in
+        Task { @MainActor [weak viewModel, weak sessionStatusVM] in
             var directChild: pid_t?
             for _ in 0..<10 {
                 try? await Task.sleep(for: .milliseconds(100))
@@ -368,6 +371,7 @@ final class TerminalTabManager {
             try? await Task.sleep(for: .milliseconds(300))
             let shellPid = Self.resolveShellPid(from: directChild, shell: shell)
             viewModel?.startTrackingForeground(shellPid: shellPid)
+            sessionStatusVM?.addShellPid(shellPid)
         }
 
         view.onTitle = { [weak viewModel, weak controller] title in
