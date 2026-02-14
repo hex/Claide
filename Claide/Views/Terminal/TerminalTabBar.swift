@@ -165,6 +165,8 @@ struct TerminalTabBar: View {
                         startPoint: .leading,
                         endPoint: .trailing
                     )
+                    .padding(.top, 1)
+                    .padding(.bottom, 1)
                     .opacity(canScrollLeft ? 1 : 0)
                     .animation(.easeInOut(duration: 0.15), value: canScrollLeft)
                 }
@@ -174,6 +176,8 @@ struct TerminalTabBar: View {
                         startPoint: .trailing,
                         endPoint: .leading
                     )
+                    .padding(.top, 1)
+                    .padding(.bottom, 1)
                     .opacity(canScrollRight ? 1 : 0)
                     .animation(.easeInOut(duration: 0.15), value: canScrollRight)
                 }
