@@ -261,19 +261,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         menu.addItem(.separator())
 
-        let sidebar = NSMenuItem(title: "Toggle Right Panel", action: #selector(toggleSidebar), keyEquivalent: "b")
+        let sidebar = NSMenuItem(title: "Toggle Sidebar", action: #selector(toggleSidebar), keyEquivalent: "b")
         sidebar.target = self
         menu.addItem(sidebar)
-
-        let toggleTasks = NSMenuItem(title: "Toggle Tasks", action: #selector(toggleTasksPanel), keyEquivalent: "1")
-        toggleTasks.keyEquivalentModifierMask = [.command, .shift]
-        toggleTasks.target = self
-        menu.addItem(toggleTasks)
-
-        let toggleFiles = NSMenuItem(title: "Toggle Files", action: #selector(toggleFilesPanel), keyEquivalent: "2")
-        toggleFiles.keyEquivalentModifierMask = [.command, .shift]
-        toggleFiles.target = self
-        menu.addItem(toggleFiles)
 
         let palette = NSMenuItem(title: "Command Palette", action: #selector(showCommandPalette), keyEquivalent: "p")
         palette.target = self
@@ -380,16 +370,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     self.activeTabManager?.toggleZoom()
                     return nil
                 }
-                // Cmd+Shift+1: toggle Tasks panel
-                if event.keyCode == 18 {
-                    self.toggleTasksPanel()
-                    return nil
-                }
-                // Cmd+Shift+2: toggle Files panel
-                if event.keyCode == 19 {
-                    self.toggleFilesPanel()
-                    return nil
-                }
             }
 
             if flags == [.command, .shift], let chars = event.charactersIgnoringModifiers {
@@ -476,16 +456,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
            keyWindow === hotkeyWindowController?.window {
             hotkeyWindowController?.splitViewController?.toggleSidebarPanel()
         } else {
-            activeWindowController?.layout.toggleEdge(.right)
+            activeWindowController?.splitViewController.toggleSidebarPanel()
         }
-    }
-
-    @objc private func toggleTasksPanel() {
-        activeWindowController?.layout.toggleWindow(.tasks)
-    }
-
-    @objc private func toggleFilesPanel() {
-        activeWindowController?.layout.toggleWindow(.files)
     }
 
     @objc private func switchToTab(_ sender: NSMenuItem) {

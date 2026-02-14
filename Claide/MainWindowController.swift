@@ -8,8 +8,7 @@ import SwiftUI
 final class MainWindowController: NSWindowController, NSWindowDelegate {
 
     let tabManager: TerminalTabManager
-    let layout = ToolWindowLayout()
-    let paletteManager = CommandPaletteManager()
+    let splitViewController: MainSplitViewController
 
     init(tabManager: TerminalTabManager) {
         self.tabManager = tabManager
@@ -33,26 +32,11 @@ final class MainWindowController: NSWindowController, NSWindowDelegate {
         window.appearance = NSAppearance(named: initialBrightness > 128 ? .aqua : .darkAqua)
         window.minSize = NSSize(width: 900, height: 500)
 
+        let splitVC = MainSplitViewController(tabManager: tabManager)
+        self.splitViewController = splitVC
+        window.contentViewController = splitVC
+
         super.init(window: window)
-
-        paletteManager.tabManager = tabManager
-        paletteManager.layout = layout
-        paletteManager.toggleSidebar = { [weak self] in
-            self?.layout.toggleEdge(.right)
-        }
-
-        let commandKeyObserver = CommandKeyObserver()
-        let host = NSHostingController(
-            rootView: ToolWindowHost(
-                tabManager: tabManager,
-                paletteManager: paletteManager,
-                layout: layout,
-                commandKeyObserver: commandKeyObserver
-            )
-            .environment(commandKeyObserver)
-        )
-        host.sizingOptions = []
-        window.contentViewController = host
         window.delegate = self
 
         negateTitleBarSafeArea(window)
@@ -102,7 +86,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate {
     // MARK: - Command Palette
 
     func toggleCommandPalette() {
-        paletteManager.toggle()
+        splitViewController.paletteManager.toggle()
     }
 
     // MARK: - NSWindowDelegate
