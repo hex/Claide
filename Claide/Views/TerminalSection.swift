@@ -13,6 +13,7 @@ struct TerminalSection: View {
     @AppStorage("terminalColorScheme") private var schemeName: String = "hexed"
     @AppStorage("paneFocusIndicator") private var paneFocusIndicator = true
     @AppStorage("dimUnfocusedPanes") private var dimUnfocusedPanes = true
+    @AppStorage("statusBarStyle") private var statusBarStyle: String = "ambient"
 
     private static let initialDirectory: String = {
         ProcessInfo.processInfo.environment["CLAIDE_DIR"]
@@ -27,7 +28,7 @@ struct TerminalSection: View {
 
             TerminalPanel(tabManager: tabManager, fontFamily: fontFamily)
 
-            SessionStatusBar(status: sessionStatusVM.status)
+            statusBar(status: sessionStatusVM.status)
         }
         .onAppear {
             if tabManager.tabs.isEmpty {
@@ -53,6 +54,20 @@ struct TerminalSection: View {
             if let paletteManager, paletteManager.isPresented {
                 CommandPaletteOverlayView(manager: paletteManager)
             }
+        }
+    }
+
+    @ViewBuilder
+    private func statusBar(status: SessionStatus?) -> some View {
+        switch statusBarStyle {
+        case "mission-control":
+            StatusBarMissionControl(status: status)
+        case "contextual":
+            StatusBarContextual(status: status)
+        case "classic":
+            SessionStatusBar(status: status)
+        default:
+            StatusBarAmbient(status: status)
         }
     }
 }
