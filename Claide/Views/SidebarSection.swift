@@ -46,7 +46,7 @@ struct SidebarSection: View {
                         // Headers stay outside the resizable area so they
                         // are always visible regardless of split position.
                         let contentHeight = geometry.size.height - 36 - 24 - 7 - 24
-                        sectionHeader("Tasks", isExpanded: $tasksExpanded)
+                        sectionHeader(tasksTitle, isExpanded: $tasksExpanded)
                         tasksContent
                             .frame(height: max(0, contentHeight * splitRatio))
                             .clipped()
@@ -71,18 +71,17 @@ struct SidebarSection: View {
         .background(Theme.backgroundPrimary)
         .onAppear {
             splitRatio = storedSplitRatio
-            updateTaskContext(for: Self.initialDirectory)
+            let dir = tabManager.activeViewModel?.currentDirectory
+                .flatMap({ $0 }) ?? Self.initialDirectory
+            updateTaskContext(for: dir)
             if hasTaskContext {
-                if BeadsService.findBinary() == nil && ClaudeTaskService.isAvailable {
-                    graphVM.dataSource = .claudeCode
-                }
                 let vm = graphVM
                 Task { @MainActor in
-                    await vm.loadIssues(workingDirectory: Self.initialDirectory)
+                    await vm.loadIssues(workingDirectory: dir)
                 }
             }
             // TODO: Shell PID not exposed by Ghostty yet — pass 0 to use fallback discovery
-            fileLogVM.startWatching(sessionDirectory: Self.initialDirectory)
+            fileLogVM.startWatching(sessionDirectory: dir)
         }
         .onChange(of: tabManager.activeViewModel?.currentDirectory) { _, newDir in
             if let dir = newDir ?? nil {
@@ -100,9 +99,14 @@ struct SidebarSection: View {
 
     // MARK: - Tasks Section
 
+    private var tasksTitle: String {
+        let count = graphVM.uncompletedCount
+        return count > 0 ? "Tasks (\(count))" : "Tasks"
+    }
+
     private var tasksSection: some View {
         VStack(spacing: 0) {
-            sectionHeader("Tasks", isExpanded: $tasksExpanded)
+            sectionHeader(tasksTitle, isExpanded: $tasksExpanded)
             if tasksExpanded { tasksContent }
         }
         .frame(maxWidth: .infinity)
@@ -245,14 +249,6 @@ struct SidebarSection: View {
             .buttonStyle(.plain)
             .overlay(Tooltip("Refresh").allowsHitTesting(false))
 
-            if showDataSourceToggle {
-                Divider()
-                    .frame(height: 12)
-                    .padding(.horizontal, 2)
-
-                dataSourceIcon(.beads, systemName: "circle.hexagongrid")
-                dataSourceIcon(.claudeCode, systemName: "checklist")
-            }
         }
         .padding(3)
         .background(Theme.backgroundPanel.opacity(0.9))
@@ -264,32 +260,19 @@ struct SidebarSection: View {
         .padding(8)
     }
 
-    private var showDataSourceToggle: Bool { true }
-
-    private func dataSourceIcon(_ source: DataSource, systemName: String) -> some View {
-        Button {
-            graphVM.dataSource = source
-            let vm = graphVM
-            let dir = tabManager.activeViewModel?.currentDirectory
-            Task { @MainActor in await vm.loadIssues(workingDirectory: dir) }
-        } label: {
-            Image(systemName: systemName)
-                .font(.system(size: 10))
-                .foregroundStyle(graphVM.dataSource == source ? Theme.textPrimary : Theme.textMuted)
-                .frame(width: 20, height: 20)
-                .background(graphVM.dataSource == source ? Theme.backgroundHover : .clear)
-                .clipShape(RoundedRectangle(cornerRadius: 4))
-        }
-        .buttonStyle(.plain)
-        .overlay(Tooltip(source.rawValue).allowsHitTesting(false))
-    }
-
     // MARK: - Task Context Detection
 
     private func updateTaskContext(for directory: String) {
         let hasBeads = BeadsService.findBinary() != nil
             && FileManager.default.fileExists(atPath: (directory as NSString).appendingPathComponent(".beads"))
-        hasTaskContext = hasBeads || ClaudeTaskService.isAvailable
+        let hasClaude = ClaudeTaskService.isAvailable
+        hasTaskContext = hasBeads || hasClaude
+
+        if hasBeads {
+            graphVM.dataSource = .beads
+        } else if hasClaude {
+            graphVM.dataSource = .claudeCode
+        }
     }
 
     private func tabIcon(_ tab: SidebarTab, systemName: String) -> some View {

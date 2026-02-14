@@ -17,6 +17,11 @@ final class GraphViewModel {
     var layoutGeneration: Int = 0
     var dataSource: DataSource = .beads
 
+    /// Number of issues that are not yet closed
+    var uncompletedCount: Int {
+        issues.count { $0.status != "closed" }
+    }
+
     // Force layout constants
     private let repulsion: CGFloat = 8000
     private let attraction: CGFloat = 0.02
