@@ -13,7 +13,7 @@ struct SessionStatusBar: View {
         let _ = schemeName
         if let status {
             HStack {
-                Text(status.formattedUsage)
+                Text("\(SessionStatus.shortTokenCount(status.remainingTokens)) remaining")
                     .font(Theme.bodyFontSmall)
                     .foregroundStyle(usageColor(percentage: status.usedPercentage))
                 Spacer()

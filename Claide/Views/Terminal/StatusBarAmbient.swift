@@ -11,25 +11,22 @@ struct StatusBarAmbient: View {
         let _ = schemeName
         if let status {
             HStack(spacing: 0) {
-                // Left: percentage as the primary metric
-                Text("\(Int(status.usedPercentage))%")
+                // Left: remaining tokens as primary metric
+                Text(SessionStatus.shortTokenCount(status.remainingTokens))
                     .font(.system(size: 11, weight: .semibold, design: .monospaced))
                     .foregroundStyle(.white.opacity(0.9))
 
-                Text(" context")
+                Text(" remaining")
                     .font(.system(size: 10))
                     .foregroundStyle(.white.opacity(0.45))
 
                 Spacer()
 
-                // Right: compact token count
-                Text(shortTokenCount(status.totalInputTokens))
-                    .font(.system(size: 10, design: .monospaced))
-                    .foregroundStyle(.white.opacity(0.4))
-                Text(" / ")
-                    .font(.system(size: 10))
-                    .foregroundStyle(.white.opacity(0.25))
-                Text(shortTokenCount(status.contextWindowSize))
+                // Right: output tokens
+                Text("OUT ")
+                    .font(.system(size: 9, weight: .medium))
+                    .foregroundStyle(.white.opacity(0.3))
+                Text(SessionStatus.shortTokenCount(status.outputTokens))
                     .font(.system(size: 10, design: .monospaced))
                     .foregroundStyle(.white.opacity(0.4))
             }
@@ -118,10 +115,4 @@ struct StatusBarAmbient: View {
         }
     }
 
-    private func shortTokenCount(_ count: Int) -> String {
-        if count >= 1000 {
-            return "\(count / 1000)k"
-        }
-        return "\(count)"
-    }
 }

@@ -69,35 +69,21 @@ struct StatusBarMissionControl: View {
 
     @ViewBuilder
     private func centerZone(status: SessionStatus) -> some View {
-        HStack(spacing: 8) {
-            // Context percentage pill
-            HStack(spacing: 4) {
-                Text("CTX")
-                    .font(.system(size: 9, weight: .semibold))
-                    .foregroundStyle(usageColor(percentage: status.usedPercentage).opacity(0.8))
+        HStack(spacing: 6) {
+            // Remaining tokens as the primary metric
+            Text(SessionStatus.shortTokenCount(status.remainingTokens))
+                .font(.system(size: 10, weight: .bold, design: .monospaced))
+                .foregroundStyle(usageColor(percentage: status.usedPercentage))
 
-                Text("\(Int(status.usedPercentage))%")
-                    .font(.system(size: 10, weight: .bold, design: .monospaced))
-                    .foregroundStyle(usageColor(percentage: status.usedPercentage))
-            }
-            .padding(.horizontal, 6)
-            .padding(.vertical, 2)
-            .background(usageColor(percentage: status.usedPercentage).opacity(0.12))
-            .clipShape(RoundedRectangle(cornerRadius: 3))
-
-            // Remaining tokens
-            Text("\(shortTokenCount(status.contextWindowSize - status.totalInputTokens)) left")
-                .font(.system(size: 10, design: .monospaced))
+            Text("remaining")
+                .font(.system(size: 9, weight: .medium))
                 .foregroundStyle(Theme.textMuted)
         }
     }
 
     @ViewBuilder
     private func rightZone(status: SessionStatus) -> some View {
-        HStack(spacing: 10) {
-            tokenLabel(label: "IN", value: status.totalInputTokens)
-            tokenLabel(label: "OUT", value: status.outputTokens)
-        }
+        tokenLabel(label: "OUT", value: status.outputTokens)
     }
 
     @ViewBuilder
@@ -106,7 +92,7 @@ struct StatusBarMissionControl: View {
             Text(label)
                 .font(.system(size: 9, weight: .medium))
                 .foregroundStyle(Theme.textMuted)
-            Text(shortTokenCount(value))
+            Text(SessionStatus.shortTokenCount(value))
                 .font(.system(size: 10, design: .monospaced))
                 .foregroundStyle(Theme.textSecondary)
         }
@@ -132,10 +118,4 @@ struct StatusBarMissionControl: View {
         return Color(hue: hue, saturation: 0.75, brightness: 0.85)
     }
 
-    private func shortTokenCount(_ count: Int) -> String {
-        if count >= 1000 {
-            return "\(count / 1000)k"
-        }
-        return "\(count)"
-    }
 }

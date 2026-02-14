@@ -27,6 +27,10 @@ struct SessionStatus {
         return version.isEmpty ? name : "\(name) \(version)"
     }
 
+    var remainingTokens: Int {
+        max(contextWindowSize - totalInputTokens, 0)
+    }
+
     var usedPercentage: Double {
         guard contextWindowSize > 0 else { return 0 }
         return Double(totalInputTokens) / Double(contextWindowSize) * 100
@@ -41,6 +45,14 @@ struct SessionStatus {
         let total = fmt.string(from: contextWindowSize as NSNumber) ?? "\(contextWindowSize)"
         let pct = Int(usedPercentage)
         return "\(used) / \(total) (\(pct)%)"
+    }
+
+    /// e.g. 145_200 → "145k", 800 → "800"
+    static func shortTokenCount(_ count: Int) -> String {
+        if count >= 1000 {
+            return "\(count / 1000)k"
+        }
+        return "\(count)"
     }
 
     /// Parse the last assistant message from a JSONL transcript chunk.

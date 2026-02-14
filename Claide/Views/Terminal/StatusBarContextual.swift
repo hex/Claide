@@ -82,29 +82,34 @@ struct StatusBarContextual: View {
     private func primaryContent(status: SessionStatus, state: ContextState) -> some View {
         switch state {
         case .calm:
-            // Just percentage, very quiet
-            Text("\(Int(status.usedPercentage))%")
-                .font(.system(size: 10, weight: .medium, design: .monospaced))
-                .foregroundStyle(Theme.textMuted)
+            // Just remaining tokens, very quiet
+            HStack(spacing: 4) {
+                Text(SessionStatus.shortTokenCount(status.remainingTokens))
+                    .font(.system(size: 10, weight: .medium, design: .monospaced))
+                    .foregroundStyle(Theme.textMuted)
+                Text("remaining")
+                    .font(.system(size: 10))
+                    .foregroundStyle(Theme.textMuted.opacity(0.6))
+            }
 
         case .active:
-            // Percentage with label
+            // Remaining with label
             HStack(spacing: 4) {
-                Text("\(Int(status.usedPercentage))%")
+                Text(SessionStatus.shortTokenCount(status.remainingTokens))
                     .font(.system(size: 10, weight: .medium, design: .monospaced))
                     .foregroundStyle(Theme.textSecondary)
-                Text("context")
+                Text("remaining")
                     .font(.system(size: 10))
                     .foregroundStyle(Theme.textMuted)
             }
 
         case .warming:
-            // Warning state — show remaining
+            // Warning state — remaining in accent color
             HStack(spacing: 4) {
-                Text("\(Int(status.usedPercentage))%")
+                Text(SessionStatus.shortTokenCount(status.remainingTokens))
                     .font(.system(size: 10, weight: .semibold, design: .monospaced))
                     .foregroundStyle(stateAccentColor(state: state))
-                Text("~\(shortTokenCount(status.contextWindowSize - status.totalInputTokens)) remaining")
+                Text("remaining")
                     .font(.system(size: 10))
                     .foregroundStyle(stateAccentColor(state: state).opacity(0.7))
             }
@@ -112,7 +117,7 @@ struct StatusBarContextual: View {
         case .critical:
             // Alert state
             HStack(spacing: 4) {
-                Text("\(Int(status.usedPercentage))%")
+                Text(SessionStatus.shortTokenCount(status.remainingTokens))
                     .font(.system(size: 11, weight: .bold, design: .monospaced))
                     .foregroundStyle(stateAccentColor(state: state))
                 Text("compaction soon")
@@ -126,18 +131,15 @@ struct StatusBarContextual: View {
     private func secondaryContent(status: SessionStatus, state: ContextState) -> some View {
         HStack(spacing: 8) {
             HStack(spacing: 3) {
-                Text("IN")
+                Text(status.modelDisplayName)
                     .font(.system(size: 9, weight: .medium))
                     .foregroundStyle(Theme.textMuted)
-                Text(shortTokenCount(status.totalInputTokens))
-                    .font(.system(size: 10, design: .monospaced))
-                    .foregroundStyle(Theme.textSecondary)
             }
             HStack(spacing: 3) {
                 Text("OUT")
                     .font(.system(size: 9, weight: .medium))
                     .foregroundStyle(Theme.textMuted)
-                Text(shortTokenCount(status.outputTokens))
+                Text(SessionStatus.shortTokenCount(status.outputTokens))
                     .font(.system(size: 10, design: .monospaced))
                     .foregroundStyle(Theme.textSecondary)
             }
@@ -159,12 +161,4 @@ struct StatusBarContextual: View {
         Theme.backgroundSunken
     }
 
-    // MARK: - Helpers
-
-    private func shortTokenCount(_ count: Int) -> String {
-        if count >= 1000 {
-            return "\(count / 1000)k"
-        }
-        return "\(count)"
-    }
 }
