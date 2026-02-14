@@ -3,6 +3,9 @@
 
 import Foundation
 import Darwin
+import os.log
+
+private let statusLog = Logger(subsystem: "com.claide", category: "SessionStatus")
 
 @MainActor @Observable
 final class SessionStatusViewModel {
@@ -57,7 +60,7 @@ final class SessionStatusViewModel {
     /// changes or when the locked transcript has no parseable data yet.
     private func poll() {
         guard let claudePid = Self.findClaudeForClaide() else {
-            // No affiliated Claude process running
+            statusLog.debug("poll: no Claude process found")
             if status != nil { status = nil }
             unwatchFiles()
             watchedClaudePid = 0
@@ -67,7 +70,10 @@ final class SessionStatusViewModel {
         let pidChanged = claudePid != watchedClaudePid
         watchedClaudePid = claudePid
 
-        guard let projectDir = Self.projectDirectoryForClaide() else { return }
+        guard let projectDir = Self.projectDirectoryForClaide() else {
+            statusLog.debug("poll: no project directory")
+            return
+        }
 
         // Re-evaluate transcript selection only when:
         // 1. Claude process changed (new session started)
@@ -77,6 +83,7 @@ final class SessionStatusViewModel {
 
         if needsSearch {
             let transcript = Self.findActiveTranscript(in: projectDir)
+            statusLog.debug("poll: searching for transcript, found=\(transcript ?? "nil", privacy: .public)")
 
             if transcript != watchedPath {
                 unwatchFiles()
@@ -128,9 +135,16 @@ final class SessionStatusViewModel {
     // MARK: - Transcript Reading
 
     private func reload(from path: String) {
-        guard let data = Self.readTail(path: path, bytes: Self.tailBytes) else { return }
+        guard let data = Self.readTail(path: path, bytes: Self.tailBytes) else {
+            statusLog.debug("reload: readTail returned nil")
+            return
+        }
         if let parsed = SessionStatus.fromTranscriptTail(data) {
+            let changed = status?.totalInputTokens != parsed.totalInputTokens
+            statusLog.debug("reload: input=\(parsed.totalInputTokens) output=\(parsed.outputTokens) changed=\(changed)")
             status = parsed
+        } else {
+            statusLog.debug("reload: parse returned nil from \(data.count) bytes")
         }
     }
 
