@@ -1,13 +1,11 @@
 // ABOUTME: Right pane of the main split: collapsible board/graph and file log panels.
-// ABOUTME: Each panel has a disclosure header for independent expand/collapse.
+// ABOUTME: Reads per-tab view models from TerminalTabManager for sidebar content.
 
 import SwiftUI
 import AppKit
 
 struct SidebarSection: View {
     let tabManager: TerminalTabManager
-    @State private var graphVM = GraphViewModel()
-    @State private var fileLogVM = FileLogViewModel()
     @State private var sidebarTab: SidebarTab = .board
     @AppStorage("fontFamily") private var fontFamily: String = ""
     @AppStorage("terminalColorScheme") private var schemeName: String = "hexed"
@@ -30,6 +28,8 @@ struct SidebarSection: View {
 
     var body: some View {
         let _ = schemeName // Force SwiftUI to re-evaluate when the terminal scheme changes
+        let graphVM = tabManager.activeTab?.graphVM
+        let fileLogVM = tabManager.activeTab?.fileLogVM
         GeometryReader { geometry in
             VStack(spacing: 0) {
                 // Match TerminalTabBar height so the sidebar content aligns
@@ -41,27 +41,27 @@ struct SidebarSection: View {
                         Theme.border.frame(height: Theme.borderWidth)
                     }
 
-                if !graphVM.issues.isEmpty {
+                if let graphVM, !graphVM.issues.isEmpty {
                     if tasksExpanded && filesExpanded {
                         // Headers stay outside the resizable area so they
                         // are always visible regardless of split position.
                         let contentHeight = geometry.size.height - 36 - 24 - 7 - 24
-                        sectionHeader(tasksTitle, isExpanded: $tasksExpanded)
-                        tasksContent
+                        sectionHeader(tasksTitle(graphVM), isExpanded: $tasksExpanded)
+                        tasksContent(graphVM)
                             .frame(height: max(0, contentHeight * splitRatio))
                             .clipped()
                         sidebarDivider(totalHeight: max(1, contentHeight))
                         sectionHeader("Files", isExpanded: $filesExpanded)
-                        filesContent
+                        filesContent(fileLogVM)
                             .frame(height: max(0, contentHeight * (1 - splitRatio)))
                             .clipped()
                     } else {
-                        tasksSection
-                        filesSection
+                        tasksSection(graphVM)
+                        filesSection(fileLogVM)
                         Spacer(minLength: 0)
                     }
                 } else {
-                    filesSection
+                    filesSection(fileLogVM)
                     Spacer(minLength: 0)
                 }
             }
@@ -74,45 +74,42 @@ struct SidebarSection: View {
             let dir = tabManager.activeViewModel?.currentDirectory
                 .flatMap({ $0 }) ?? Self.initialDirectory
             updateTaskContext(for: dir)
-            if hasTaskContext {
-                let vm = graphVM
+            if hasTaskContext, let graphVM {
                 Task { @MainActor in
-                    await vm.loadIssues(workingDirectory: dir)
+                    await graphVM.loadIssues(workingDirectory: dir)
                 }
             }
-            fileLogVM.startWatching(sessionDirectory: dir)
         }
         .onChange(of: tabManager.activeViewModel?.currentDirectory) { _, newDir in
             if let dir = newDir ?? nil {
                 updateTaskContext(for: dir)
-                if hasTaskContext {
-                    let vm = graphVM
+                if hasTaskContext, let graphVM {
                     Task { @MainActor in
-                        await vm.loadIssues(workingDirectory: dir)
+                        await graphVM.loadIssues(workingDirectory: dir)
                     }
                 }
-                fileLogVM.startWatching(sessionDirectory: dir)
+                fileLogVM?.startWatching(sessionDirectory: dir)
             }
         }
     }
 
     // MARK: - Tasks Section
 
-    private var tasksTitle: String {
+    private func tasksTitle(_ graphVM: GraphViewModel) -> String {
         let count = graphVM.uncompletedCount
         return count > 0 ? "Tasks (\(count))" : "Tasks"
     }
 
-    private var tasksSection: some View {
+    private func tasksSection(_ graphVM: GraphViewModel) -> some View {
         VStack(spacing: 0) {
-            sectionHeader(tasksTitle, isExpanded: $tasksExpanded)
-            if tasksExpanded { tasksContent }
+            sectionHeader(tasksTitle(graphVM), isExpanded: $tasksExpanded)
+            if tasksExpanded { tasksContent(graphVM) }
         }
         .frame(maxWidth: .infinity)
         .frame(maxHeight: tasksExpanded ? .infinity : nil)
     }
 
-    private var tasksContent: some View {
+    private func tasksContent(_ graphVM: GraphViewModel) -> some View {
         Group {
             switch sidebarTab {
             case .board:
@@ -129,18 +126,21 @@ struct SidebarSection: View {
 
     // MARK: - Files Section
 
-    private var filesSection: some View {
+    private func filesSection(_ fileLogVM: FileLogViewModel?) -> some View {
         VStack(spacing: 0) {
             sectionHeader("Files", isExpanded: $filesExpanded)
-            if filesExpanded { filesContent }
+            if filesExpanded { filesContent(fileLogVM) }
         }
         .frame(maxWidth: .infinity)
         .frame(maxHeight: filesExpanded ? .infinity : nil)
     }
 
-    private var filesContent: some View {
-        FileLogPanel(viewModel: fileLogVM)
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+    @ViewBuilder
+    private func filesContent(_ fileLogVM: FileLogViewModel?) -> some View {
+        if let fileLogVM {
+            FileLogPanel(viewModel: fileLogVM)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
     }
 
     // MARK: - Draggable Divider
@@ -236,7 +236,7 @@ struct SidebarSection: View {
                 .padding(.horizontal, 2)
 
             Button {
-                let vm = graphVM
+                guard let vm = tabManager.activeTab?.graphVM else { return }
                 let dir = tabManager.activeViewModel?.currentDirectory
                 Task { @MainActor in await vm.loadIssues(workingDirectory: dir) }
             } label: {
@@ -267,6 +267,7 @@ struct SidebarSection: View {
         let hasClaude = ClaudeTaskService.isAvailable
         hasTaskContext = hasBeads || hasClaude
 
+        guard let graphVM = tabManager.activeTab?.graphVM else { return }
         if hasBeads {
             graphVM.dataSource = .beads
         } else if hasClaude {

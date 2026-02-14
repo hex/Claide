@@ -17,6 +17,9 @@ final class TerminalTabManager {
         let id: UUID
         let paneController: PaneTreeController
         var paneViewModels: [PaneID: TerminalViewModel]
+        let sessionStatusVM: SessionStatusViewModel
+        let graphVM: GraphViewModel
+        let fileLogVM: FileLogViewModel
 
         /// The active pane's view model (used for tab bar title, status, etc.)
         var viewModel: TerminalViewModel {
@@ -84,7 +87,13 @@ final class TerminalTabManager {
         let vm = TerminalViewModel()
         setupPane(paneID: initialID, controller: controller, view: view, viewModel: vm, directory: directory, environment: environment)
 
-        let tab = Tab(id: UUID(), paneController: controller, paneViewModels: [initialID: vm])
+        let sessionStatusVM = SessionStatusViewModel()
+        let graphVM = GraphViewModel()
+        let fileLogVM = FileLogViewModel()
+        sessionStatusVM.startWatching(sessionDirectory: directory)
+        fileLogVM.startWatching(sessionDirectory: directory)
+
+        let tab = Tab(id: UUID(), paneController: controller, paneViewModels: [initialID: vm], sessionStatusVM: sessionStatusVM, graphVM: graphVM, fileLogVM: fileLogVM)
         let position = UserDefaults.standard.string(forKey: "newTabPosition") ?? "end"
         if position == "afterCurrent",
            let activeID = activeTabID,
@@ -138,7 +147,16 @@ final class TerminalTabManager {
             setupPane(paneID: paneID, controller: controller, view: view, viewModel: vm, directory: dir, environment: environment, profile: profile)
         }
 
-        let tab = Tab(id: UUID(), paneController: controller, paneViewModels: viewModels)
+        // Derive the directory for VM initialization from the active pane's saved directory.
+        let activeDir = state.paneDirectories[state.activePaneID.uuidString] ?? NSHomeDirectory()
+
+        let sessionStatusVM = SessionStatusViewModel()
+        let graphVM = GraphViewModel()
+        let fileLogVM = FileLogViewModel()
+        sessionStatusVM.startWatching(sessionDirectory: activeDir)
+        fileLogVM.startWatching(sessionDirectory: activeDir)
+
+        let tab = Tab(id: UUID(), paneController: controller, paneViewModels: viewModels, sessionStatusVM: sessionStatusVM, graphVM: graphVM, fileLogVM: fileLogVM)
         tabs.append(tab)
         activeTabID = tab.id
         updateOcclusion()
@@ -162,6 +180,8 @@ final class TerminalTabManager {
         guard tabs.count > 1 else { return }
         guard let index = tabs.firstIndex(where: { $0.id == id }) else { return }
 
+        tabs[index].sessionStatusVM.stopWatching()
+        tabs[index].fileLogVM.stopWatching()
         for view in tabs[index].allTerminalViews {
             view.terminate()
         }
@@ -179,6 +199,8 @@ final class TerminalTabManager {
     func closeOthersKeeping(id: UUID) {
         guard tabs.contains(where: { $0.id == id }) else { return }
         for tab in tabs where tab.id != id {
+            tab.sessionStatusVM.stopWatching()
+            tab.fileLogVM.stopWatching()
             for view in tab.allTerminalViews {
                 view.terminate()
             }
@@ -193,6 +215,8 @@ final class TerminalTabManager {
         guard let index = tabs.firstIndex(where: { $0.id == afterId }) else { return }
         let toRemove = tabs.suffix(from: index + 1)
         for tab in toRemove {
+            tab.sessionStatusVM.stopWatching()
+            tab.fileLogVM.stopWatching()
             for view in tab.allTerminalViews {
                 view.terminate()
             }
@@ -208,6 +232,8 @@ final class TerminalTabManager {
 
     func closeAll() {
         for tab in tabs {
+            tab.sessionStatusVM.stopWatching()
+            tab.fileLogVM.stopWatching()
             for view in tab.allTerminalViews {
                 view.terminate()
             }

@@ -1,5 +1,5 @@
 // ABOUTME: Left pane of the main split: tab bar, terminal panel, and status bar.
-// ABOUTME: Owns session-scoped view models and wires terminal lifecycle events.
+// ABOUTME: Reads per-tab view models from TerminalTabManager for status display.
 
 import SwiftUI
 
@@ -7,7 +7,6 @@ struct TerminalSection: View {
     let tabManager: TerminalTabManager
     var paletteManager: CommandPaletteManager?
     var showDragArea: Bool = true
-    @State private var sessionStatusVM = SessionStatusViewModel()
     @AppStorage("fontFamily") private var fontFamily: String = ""
     // Cursor style is managed by Ghostty config (cursor-style, cursor-style-blink)
     @AppStorage("terminalColorScheme") private var schemeName: String = "hexed"
@@ -28,7 +27,7 @@ struct TerminalSection: View {
 
             TerminalPanel(tabManager: tabManager, fontFamily: fontFamily)
 
-            statusBar(status: sessionStatusVM.status)
+            statusBar(status: tabManager.activeTab?.sessionStatusVM.status)
                 .onTapGesture {
                     statusBarStyle = Self.nextStyle(after: statusBarStyle)
                 }
@@ -37,11 +36,10 @@ struct TerminalSection: View {
             if tabManager.tabs.isEmpty {
                 tabManager.addTab(initialDirectory: Self.initialDirectory, fontFamily: fontFamily)
             }
-            sessionStatusVM.startWatching(sessionDirectory: Self.initialDirectory)
         }
         .onChange(of: tabManager.activeViewModel?.currentDirectory) { _, newDir in
             if let dir = newDir ?? nil {
-                sessionStatusVM.startWatching(sessionDirectory: dir)
+                tabManager.activeTab?.sessionStatusVM.startWatching(sessionDirectory: dir)
             }
         }
         .onChange(of: schemeName) {
