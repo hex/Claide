@@ -17,6 +17,7 @@ final class CommandPaletteManager {
     private var allItems: [CommandPaletteItem] = []
 
     weak var tabManager: TerminalTabManager?
+    var layout: ToolWindowLayout?
     var toggleSidebar: (@MainActor () -> Void)?
 
     func toggle() {
@@ -58,7 +59,8 @@ final class CommandPaletteManager {
         guard let tabManager else { return }
         allItems = CommandPaletteRegistry.buildActions(
             tabManager: tabManager,
-            toggleSidebar: toggleSidebar
+            toggleSidebar: toggleSidebar,
+            layout: layout
         )
         applyFilter()
     }

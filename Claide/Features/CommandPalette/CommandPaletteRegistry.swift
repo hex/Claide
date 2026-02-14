@@ -1,5 +1,5 @@
 // ABOUTME: Builds the list of available command palette actions from the current tab manager state.
-// ABOUTME: Provides tab switching, pane splitting, and sidebar toggle commands.
+// ABOUTME: Provides tab switching, pane splitting, and tool window toggle commands.
 
 import Foundation
 
@@ -8,7 +8,8 @@ enum CommandPaletteRegistry {
 
     static func buildActions(
         tabManager: TerminalTabManager,
-        toggleSidebar: (@MainActor () -> Void)? = nil
+        toggleSidebar: (@MainActor () -> Void)? = nil,
+        layout: ToolWindowLayout? = nil
     ) -> [CommandPaletteItem] {
         var items: [CommandPaletteItem] = []
 
@@ -74,10 +75,37 @@ enum CommandPaletteRegistry {
         if let toggleSidebar {
             items.append(CommandPaletteItem(
                 id: "toggle-sidebar",
-                title: "Toggle Sidebar",
-                icon: "sidebar.left",
+                title: "Toggle Right Panel",
+                icon: "sidebar.right",
                 action: toggleSidebar
             ))
+        }
+
+        // Tool window commands
+        if let layout {
+            items.append(CommandPaletteItem(
+                id: "toggle-tasks",
+                title: "Toggle Tasks",
+                icon: "checklist",
+                action: { @MainActor in layout.toggleWindow(.tasks) }
+            ))
+
+            items.append(CommandPaletteItem(
+                id: "toggle-files",
+                title: "Toggle Files",
+                icon: "doc.text",
+                action: { @MainActor in layout.toggleWindow(.files) }
+            ))
+
+            for edge in ToolWindowEdge.allCases {
+                let title = "Toggle \(edge.rawValue.capitalized) Panel"
+                items.append(CommandPaletteItem(
+                    id: "toggle-\(edge.rawValue)-panel",
+                    title: title,
+                    icon: "sidebar.\(edge.rawValue)",
+                    action: { @MainActor in layout.toggleEdge(edge) }
+                ))
+            }
         }
 
         // Per-tab switch commands

@@ -36,6 +36,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate {
         super.init(window: window)
 
         paletteManager.tabManager = tabManager
+        paletteManager.layout = layout
         paletteManager.toggleSidebar = { [weak self] in
             self?.layout.toggleEdge(.right)
         }
