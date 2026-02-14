@@ -324,37 +324,47 @@ final class SessionStatusViewModel {
                 return (full, created, modified, size)
             }
 
-        statusLog.debug("findTranscriptByStartTime: \(files.count) jsonl files, startTime=\(startTime.description)")
+        // Write debug info to a temp file (os_log redacts dates as <private>)
+        let df = ISO8601DateFormatter()
+        var dbg = "startTime=\(df.string(from: startTime))\nfiles=\(files.count)\n"
         for f in files {
             let name = (f.path as NSString).lastPathComponent
-            statusLog.debug("  \(name): size=\(f.size) created=\(f.created.description) modified=\(f.modified.description)")
+            let cdiff = f.created.timeIntervalSince(startTime)
+            let mdiff = f.modified.timeIntervalSince(startTime)
+            dbg += "  \(name): size=\(f.size) created=\(df.string(from: f.created)) (cdiff=\(Int(cdiff))s) modified=\(df.string(from: f.modified)) (mdiff=\(Int(mdiff))s)\n"
         }
 
         // New session: file created within 60s after process started.
         // Skip small files (file-history-snapshot stubs written at startup).
         let window: TimeInterval = 60
         let pass1 = files.filter({ $0.created >= startTime && $0.created.timeIntervalSince(startTime) <= window && $0.size >= minTranscriptSize })
-        statusLog.debug("pass1 (new session, >=20KB): \(pass1.count) candidates")
+        dbg += "pass1 (new, >=20KB): \(pass1.count)\n"
         if let match = pass1.min(by: { $0.created.timeIntervalSince(startTime) < $1.created.timeIntervalSince(startTime) }) {
-            statusLog.debug("pass1 matched: \((match.path as NSString).lastPathComponent)")
+            dbg += "pass1 matched: \((match.path as NSString).lastPathComponent)\n"
+            try? dbg.write(toFile: "/tmp/claide-status-debug.txt", atomically: true, encoding: .utf8)
             return match.path
         }
 
         // Resumed session: file modified after process started (but created earlier)
         let pass2 = files.filter({ $0.modified >= startTime && $0.size >= minTranscriptSize })
-        statusLog.debug("pass2 (resumed, >=20KB): \(pass2.count) candidates")
+        dbg += "pass2 (resumed, >=20KB): \(pass2.count)\n"
         if let match = pass2.max(by: { $0.modified < $1.modified }) {
-            statusLog.debug("pass2 matched: \((match.path as NSString).lastPathComponent)")
+            dbg += "pass2 matched: \((match.path as NSString).lastPathComponent)\n"
+            try? dbg.write(toFile: "/tmp/claide-status-debug.txt", atomically: true, encoding: .utf8)
             return match.path
         }
 
         // Last resort: accept small files (session just started, no responses yet)
         let pass3 = files.filter({ $0.created >= startTime && $0.created.timeIntervalSince(startTime) <= window })
-        statusLog.debug("pass3 (small files): \(pass3.count) candidates")
+        dbg += "pass3 (small files): \(pass3.count)\n"
         if let match = pass3.min(by: { $0.created.timeIntervalSince(startTime) < $1.created.timeIntervalSince(startTime) }) {
-            statusLog.debug("pass3 matched: \((match.path as NSString).lastPathComponent)")
+            dbg += "pass3 matched: \((match.path as NSString).lastPathComponent)\n"
+            try? dbg.write(toFile: "/tmp/claide-status-debug.txt", atomically: true, encoding: .utf8)
             return match.path
         }
+
+        dbg += "NO MATCH\n"
+        try? dbg.write(toFile: "/tmp/claide-status-debug.txt", atomically: true, encoding: .utf8)
 
         return nil
     }
