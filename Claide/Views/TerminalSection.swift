@@ -69,15 +69,36 @@ struct TerminalSection: View {
 
     @ViewBuilder
     private func statusBar(status: SessionStatus?) -> some View {
-        switch statusBarStyle {
-        case "mission-control":
-            StatusBarMissionControl(status: status)
-        case "contextual":
-            StatusBarContextual(status: status)
-        case "classic":
-            SessionStatusBar(status: status)
-        default:
-            StatusBarAmbient(status: status)
+        if status != nil {
+            switch statusBarStyle {
+            case "mission-control":
+                StatusBarMissionControl(status: status)
+            case "contextual":
+                StatusBarContextual(status: status)
+            case "classic":
+                SessionStatusBar(status: status)
+            default:
+                StatusBarAmbient(status: status)
+            }
+        } else {
+            idleStatusBar
+        }
+    }
+
+    private var idleStatusBar: some View {
+        HStack {
+            Text("idle")
+                .font(.system(size: 10, weight: .medium, design: .monospaced))
+                .foregroundStyle(Theme.textMuted)
+            Spacer()
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 5)
+        .background(Theme.backgroundSunken)
+        .overlay(alignment: .top) {
+            Rectangle()
+                .fill(Theme.border)
+                .frame(height: Theme.borderWidth)
         }
     }
 }
