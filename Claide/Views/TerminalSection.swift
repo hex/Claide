@@ -29,6 +29,9 @@ struct TerminalSection: View {
             TerminalPanel(tabManager: tabManager, fontFamily: fontFamily)
 
             statusBar(status: sessionStatusVM.status)
+                .onTapGesture {
+                    statusBarStyle = Self.nextStyle(after: statusBarStyle)
+                }
         }
         .onAppear {
             if tabManager.tabs.isEmpty {
@@ -55,6 +58,13 @@ struct TerminalSection: View {
                 CommandPaletteOverlayView(manager: paletteManager)
             }
         }
+    }
+
+    private static let styles = ["ambient", "mission-control", "contextual", "classic"]
+
+    private static func nextStyle(after current: String) -> String {
+        guard let index = styles.firstIndex(of: current) else { return styles[0] }
+        return styles[(index + 1) % styles.count]
     }
 
     @ViewBuilder
