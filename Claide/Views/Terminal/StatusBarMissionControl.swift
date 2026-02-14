@@ -57,11 +57,11 @@ struct StatusBarMissionControl: View {
                 .fill(Palette.color(.uiGreen))
                 .frame(width: 6, height: 6)
 
-            Text("Claude")
+            Text(status.modelDisplayName)
                 .font(.system(size: 10, weight: .medium))
                 .foregroundStyle(Theme.textSecondary)
 
-            Text("200K")
+            Text("\(status.contextWindowSize / 1000)K")
                 .font(.system(size: 10, weight: .medium, design: .monospaced))
                 .foregroundStyle(Theme.textMuted)
         }

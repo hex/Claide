@@ -4,9 +4,28 @@
 import Foundation
 
 struct SessionStatus {
+    let modelId: String
     let totalInputTokens: Int
     let outputTokens: Int
     let contextWindowSize: Int
+
+    /// e.g. "claude-opus-4-6" → "Opus 4.6"
+    var modelDisplayName: String {
+        // Strip "claude-" prefix, then map known families
+        let base = modelId
+            .replacingOccurrences(of: "claude-", with: "")
+            .components(separatedBy: "-")
+
+        // base is e.g. ["opus", "4", "6"] or ["sonnet", "4", "5", "20250514"]
+        guard let family = base.first else { return modelId }
+        let version = base.dropFirst()
+            .prefix(2)  // at most major.minor
+            .filter { $0.count <= 2 }  // skip date suffixes like "20250514"
+            .joined(separator: ".")
+
+        let name = family.prefix(1).uppercased() + family.dropFirst()
+        return version.isEmpty ? name : "\(name) \(version)"
+    }
 
     var usedPercentage: Double {
         guard contextWindowSize > 0 else { return 0 }
@@ -60,6 +79,7 @@ struct SessionStatus {
                 + usage.cacheReadInputTokens
 
             return SessionStatus(
+                modelId: model,
                 totalInputTokens: totalInput,
                 outputTokens: usage.outputTokens,
                 contextWindowSize: contextWindowSize(for: model)
