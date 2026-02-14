@@ -16,29 +16,14 @@ final class SessionStatusViewModel {
     /// Tail read size — one assistant entry is typically a few KB
     private static let tailBytes = 65_536
 
-    /// Freshness window — transcripts modified within this many seconds are
-    /// considered "fresh" even when no Claude process is found yet (startup race).
-    nonisolated(unsafe) private static let freshnessWindow: TimeInterval = 30
-
     /// Start watching the transcript for the Claude Code session in the given directory.
     /// Scans for a Claude process affiliated with this Claide instance via CLAIDE_PID.
-    /// Falls back to the most recently modified transcript if it's fresh enough.
-    /// Clears status when no Claude process is running and no fresh transcript exists.
+    /// Clears status when no affiliated Claude process is running.
     func startWatching(sessionDirectory: String) {
         let projectDir = Self.projectDirectory(for: sessionDirectory)
 
-        // Try process-based lookup first (reliable with concurrent sessions)
-        let path: String
-        var foundViaProcess = false
-        if let processPath = Self.findTranscriptForClaide(in: projectDir) {
-            path = processPath
-            foundViaProcess = true
-        } else if let newestPath = Self.findFreshJsonl(in: projectDir) {
-            // No affiliated Claude process yet, but a recently-modified transcript exists
-            // (covers the startup race where Claude hasn't fully spawned)
-            path = newestPath
-        } else {
-            // No active Claude and no fresh transcript — clear stale status and poll
+        guard let path = Self.findTranscriptForClaide(in: projectDir) else {
+            // No affiliated Claude process — clear stale status and poll for one to appear
             status = nil
             stopWatching()
             watchedSessionDir = sessionDirectory
@@ -47,10 +32,7 @@ final class SessionStatusViewModel {
             return
         }
 
-        guard path != watchedPath else {
-            if foundViaProcess { stopRetryPolling() }
-            return
-        }
+        guard path != watchedPath else { return }
         stopWatching()
         watchedPath = path
         watchedSessionDir = sessionDirectory
@@ -66,12 +48,6 @@ final class SessionStatusViewModel {
         watcher?.start()
 
         watchDirectoryForNewFiles(projectDir)
-
-        if foundViaProcess {
-            stopRetryPolling()
-        } else {
-            startRetryPolling()
-        }
     }
 
     func stopWatching() {
@@ -125,18 +101,13 @@ final class SessionStatusViewModel {
         guard let dir = watchedSessionDir else { return }
         let projectDir = Self.projectDirectory(for: dir)
 
-        let newest: String?
-        if let processPath = Self.findTranscriptForClaide(in: projectDir) {
-            newest = processPath
-        } else if let freshPath = Self.findFreshJsonl(in: projectDir) {
-            newest = freshPath
-        } else {
-            // No Claude running and no fresh transcript — clear stale status
+        guard let newest = Self.findTranscriptForClaide(in: projectDir) else {
+            // No affiliated Claude process — clear stale status
             status = nil
             return
         }
 
-        guard let newest, newest != watchedPath else { return }
+        guard newest != watchedPath else { return }
         startWatching(sessionDirectory: dir)
     }
 
@@ -293,26 +264,6 @@ final class SessionStatusViewModel {
     /// Find the most recently created .jsonl transcript for a session.
     nonisolated static func findTranscript(sessionDirectory: String) -> String? {
         findNewestJsonl(in: projectDirectory(for: sessionDirectory))
-    }
-
-    /// Find the most recently modified .jsonl that was touched within the freshness window.
-    /// Returns nil if no transcript has been modified recently enough to be considered active.
-    nonisolated static func findFreshJsonl(in projectDir: String) -> String? {
-        let cutoff = Date().addingTimeInterval(-freshnessWindow)
-        let fm = FileManager.default
-        guard let contents = try? fm.contentsOfDirectory(atPath: projectDir) else { return nil }
-
-        return contents
-            .filter { $0.hasSuffix(".jsonl") }
-            .compactMap { name -> (String, Date)? in
-                let full = (projectDir as NSString).appendingPathComponent(name)
-                guard let attrs = try? fm.attributesOfItem(atPath: full),
-                      let modified = attrs[.modificationDate] as? Date,
-                      modified >= cutoff else { return nil }
-                return (full, modified)
-            }
-            .max(by: { $0.1 < $1.1 })?
-            .0
     }
 
     /// Find the most recently modified .jsonl in a project directory.
