@@ -5,25 +5,42 @@ import Foundation
 import Darwin
 import os.log
 
-private let statusLog = Logger(subsystem: "com.claide", category: "SessionStatus")
+private func statusLog(_ msg: String) {
+    let path = "/tmp/claide-status.log"
+    let line = "\(Date()) \(msg)\n"
+    if let data = line.data(using: .utf8) {
+        if let handle = FileHandle(forWritingAtPath: path) {
+            handle.seekToEndOfFile()
+            handle.write(data)
+            try? handle.close()
+        } else {
+            FileManager.default.createFile(atPath: path, contents: data)
+        }
+    }
+}
 
 @MainActor @Observable
 final class SessionStatusViewModel {
     var status: SessionStatus?
+    private var reloadCount = 0
 
     private var watcher: FileWatcher?
     private var directoryWatcher: FileWatcher?
     private var pollTask: Task<Void, Never>?
     private var watchedPath: String?
-    private var watchedProjectDir: String?
-    private var watchedClaudePid: pid_t = 0
+    private var projectDir: String?
     /// Tail read size — one assistant entry is typically a few KB
     nonisolated(unsafe) private static let tailBytes = 65_536
 
     /// Start watching the transcript for the Claude Code session in the given directory.
-    /// Scans for a Claude process affiliated with this Claide instance via CLAIDE_PID.
+    /// Uses the session directory (not the Claude process CWD) to find the right project.
     func startWatching(sessionDirectory: String) {
-        // Only start once — polling handles everything after initial call
+        let newProjectDir = Self.projectDirectory(for: sessionDirectory)
+        if newProjectDir != projectDir {
+            unwatchFiles()
+            watchedPath = nil
+            projectDir = newProjectDir
+        }
         guard pollTask == nil else { return }
         poll()
         startPolling()
@@ -37,8 +54,7 @@ final class SessionStatusViewModel {
         pollTask?.cancel()
         pollTask = nil
         watchedPath = nil
-        watchedProjectDir = nil
-        watchedClaudePid = 0
+        projectDir = nil
     }
 
     // MARK: - Polling
@@ -56,43 +72,33 @@ final class SessionStatusViewModel {
     }
 
     /// Core poll: find the Claude process, locate its active transcript, and update status.
-    /// Locks onto a transcript once found — only re-evaluates when the Claude process
-    /// changes or when the locked transcript has no parseable data yet.
+    /// Uses the project directory from startWatching (stable) rather than the Claude
+    /// process CWD (which changes during tool execution).
     private func poll() {
-        guard let claudePid = Self.findClaudeForClaide() else {
-            statusLog.debug("poll: no Claude process found")
+        guard Self.findClaudeForClaide() != nil else {
+            statusLog("poll: no Claude process found")
             if status != nil { status = nil }
             unwatchFiles()
-            watchedClaudePid = 0
+            watchedPath = nil
             return
         }
 
-        let pidChanged = claudePid != watchedClaudePid
-        watchedClaudePid = claudePid
-
-        guard let projectDir = Self.projectDirectoryForClaide() else {
-            statusLog.debug("poll: no project directory")
+        guard let projectDir else {
+            statusLog("poll: no project directory")
             return
         }
 
-        // Re-evaluate transcript selection only when:
-        // 1. Claude process changed (new session started)
-        // 2. No transcript locked yet
-        // 3. Locked transcript isn't producing data (e.g. stuck on a stub file)
-        let needsSearch = pidChanged || watchedPath == nil || status == nil
+        // Always re-check for the active transcript — new files may appear
+        // when sessions are resumed or compacted.
+        let transcript = Self.findActiveTranscript(in: projectDir)
 
-        if needsSearch {
-            let transcript = Self.findActiveTranscript(in: projectDir)
-            statusLog.debug("poll: searching for transcript, found=\(transcript ?? "nil", privacy: .public)")
-
-            if transcript != watchedPath {
-                unwatchFiles()
-                watchedPath = transcript
-                watchedProjectDir = projectDir
-                if let transcript {
-                    watchFile(transcript)
-                    watchDirectory(projectDir)
-                }
+        if transcript != watchedPath {
+            statusLog("poll: transcript changed to \(transcript.map { ($0 as NSString).lastPathComponent } ?? "nil")")
+            unwatchFiles()
+            watchedPath = transcript
+            if let transcript {
+                watchFile(transcript)
+                watchDirectory(projectDir)
             }
         }
 
@@ -106,8 +112,10 @@ final class SessionStatusViewModel {
     // MARK: - File & Directory Watching
 
     private func watchFile(_ path: String) {
+        statusLog("watchFile: watching \((path as NSString).lastPathComponent)")
         let callback: @Sendable () -> Void = { [weak self] in
             MainActor.assumeIsolated {
+                statusLog("fileWatcher: file changed, reloading")
                 self?.reload(from: path)
             }
         }
@@ -136,15 +144,16 @@ final class SessionStatusViewModel {
 
     private func reload(from path: String) {
         guard let data = Self.readTail(path: path, bytes: Self.tailBytes) else {
-            statusLog.debug("reload: readTail returned nil")
+            statusLog("reload: readTail returned nil")
             return
         }
         if let parsed = SessionStatus.fromTranscriptTail(data) {
+            reloadCount += 1
             let changed = status?.totalInputTokens != parsed.totalInputTokens
-            statusLog.debug("reload: input=\(parsed.totalInputTokens) output=\(parsed.outputTokens) changed=\(changed)")
+            statusLog("reload #\(reloadCount): input=\(parsed.totalInputTokens) output=\(parsed.outputTokens) remaining=\(parsed.remainingTokens) changed=\(changed)")
             status = parsed
         } else {
-            statusLog.debug("reload: parse returned nil from \(data.count) bytes")
+            statusLog("reload: parse returned nil from \(data.count) bytes")
         }
     }
 
