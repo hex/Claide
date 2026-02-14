@@ -13,6 +13,7 @@ final class SessionStatusViewModel {
     private var pollTask: Task<Void, Never>?
     private var watchedPath: String?
     private var watchedProjectDir: String?
+    private var watchedClaudePid: pid_t = 0
     /// Tail read size — one assistant entry is typically a few KB
     nonisolated(unsafe) private static let tailBytes = 65_536
 
@@ -34,6 +35,7 @@ final class SessionStatusViewModel {
         pollTask = nil
         watchedPath = nil
         watchedProjectDir = nil
+        watchedClaudePid = 0
     }
 
     // MARK: - Polling
@@ -51,28 +53,44 @@ final class SessionStatusViewModel {
     }
 
     /// Core poll: find the Claude process, locate its active transcript, and update status.
+    /// Locks onto a transcript once found — only re-evaluates when the Claude process
+    /// changes or when the locked transcript has no parseable data yet.
     private func poll() {
-        guard let projectDir = Self.projectDirectoryForClaide() else {
+        guard let claudePid = Self.findClaudeForClaide() else {
             // No affiliated Claude process running
             if status != nil { status = nil }
             unwatchFiles()
+            watchedClaudePid = 0
             return
         }
 
-        let transcript = Self.findActiveTranscript(in: projectDir)
+        let pidChanged = claudePid != watchedClaudePid
+        watchedClaudePid = claudePid
 
-        if transcript != watchedPath {
-            unwatchFiles()
-            watchedPath = transcript
-            watchedProjectDir = projectDir
-            if let transcript {
-                watchFile(transcript)
-                watchDirectory(projectDir)
+        guard let projectDir = Self.projectDirectoryForClaide() else { return }
+
+        // Re-evaluate transcript selection only when:
+        // 1. Claude process changed (new session started)
+        // 2. No transcript locked yet
+        // 3. Locked transcript isn't producing data (e.g. stuck on a stub file)
+        let needsSearch = pidChanged || watchedPath == nil || status == nil
+
+        if needsSearch {
+            let transcript = Self.findActiveTranscript(in: projectDir)
+
+            if transcript != watchedPath {
+                unwatchFiles()
+                watchedPath = transcript
+                watchedProjectDir = projectDir
+                if let transcript {
+                    watchFile(transcript)
+                    watchDirectory(projectDir)
+                }
             }
         }
 
-        if let transcript {
-            reload(from: transcript)
+        if let path = watchedPath {
+            reload(from: path)
         } else if status != nil {
             status = nil
         }
