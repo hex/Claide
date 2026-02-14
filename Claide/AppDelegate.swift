@@ -40,6 +40,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Ghostty shells inherit the process environment directly, so we must
+        // strip nesting-guard vars from the process itself (not just our env array).
+        unsetenv("CLAUDECODE")
+        unsetenv("CLAUDE_CODE_ENTRYPOINT")
+
         GhosttyApp.shared.start()
 
         if !restoreSession() {
