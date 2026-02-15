@@ -64,6 +64,10 @@ final class TerminalViewModel {
     var tabColor: TabColor?
     var isRunning: Bool = false
     var profile: TerminalProfile = .default
+
+    /// When true, foreground process tracking is suppressed.
+    /// Used for tmux panes where the local shell is a dummy process.
+    var isTmuxPane: Bool = false
     var progressState: UInt8? = nil
     var progressValue: Int32? = nil
     private var progressResetTask: Task<Void, Never>?

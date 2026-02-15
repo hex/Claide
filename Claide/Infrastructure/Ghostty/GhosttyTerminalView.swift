@@ -49,6 +49,10 @@ final class GhosttyTerminalView: NSView {
     var onFocused: (() -> Void)?
     var onProgressReport: ((UInt8, Int32) -> Void)?
 
+    /// When set, keyboard events are offered to this closure first.
+    /// Return `true` to consume the event (prevents Ghostty from seeing it).
+    var inputInterceptor: ((NSEvent) -> Bool)?
+
     /// Stored content size for backing property changes.
     private var contentSize: CGSize = .zero
 
@@ -159,6 +163,18 @@ final class GhosttyTerminalView: NSView {
             ghostty_surface_free(surface)
         }
         surface = nil
+    }
+
+    /// Feed raw terminal output data into the surface's VTE, bypassing the PTY.
+    ///
+    /// Used by tmux control mode: decoded `%output` data is injected directly.
+    /// The surface must already be started (via `startShell`).
+    func feedOutput(_ data: Data) {
+        guard let surface else { return }
+        data.withUnsafeBytes { buffer in
+            guard let ptr = buffer.baseAddress else { return }
+            ghostty_surface_feed_output(surface, ptr, UInt(buffer.count))
+        }
     }
 
     deinit {
@@ -367,6 +383,7 @@ final class GhosttyTerminalView: NSView {
     // MARK: - Keyboard Input
 
     override func keyDown(with event: NSEvent) {
+        if inputInterceptor?(event) == true { return }
         guard surface != nil else {
             interpretKeyEvents([event])
             return
@@ -402,11 +419,13 @@ final class GhosttyTerminalView: NSView {
     override func doCommand(by selector: Selector) {}
 
     override func keyUp(with event: NSEvent) {
+        if inputInterceptor?(event) == true { return }
         guard surface != nil else { return }
         _ = sendKeyEvent(GHOSTTY_ACTION_RELEASE, event: event)
     }
 
     override func flagsChanged(with event: NSEvent) {
+        if inputInterceptor?(event) == true { return }
         guard surface != nil else { return }
         if markedText.length > 0 { return }
 

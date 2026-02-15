@@ -1,0 +1,42 @@
+diff --git i/include/ghostty.h w/include/ghostty.h
+index 3f1e0c9d9..46e13a1a5 100644
+--- i/include/ghostty.h
++++ w/include/ghostty.h
+@@ -901,6 +901,7 @@ void ghostty_config_load_cli_args(ghostty_config_t);
+ void ghostty_config_load_default_files(ghostty_config_t);
+ void ghostty_config_load_recursive_files(ghostty_config_t);
+ void ghostty_config_finalize(ghostty_config_t);
++bool ghostty_config_set(ghostty_config_t, const char*, uintptr_t, const char*, uintptr_t);
+ bool ghostty_config_get(ghostty_config_t, void*, const char*, uintptr_t);
+ ghostty_input_trigger_s ghostty_config_trigger(ghostty_config_t,
+                                                const char*,
+@@ -975,6 +976,7 @@ void ghostty_surface_split_resize(ghostty_surface_t,
+                                   uint16_t);
+ void ghostty_surface_split_equalize(ghostty_surface_t);
+ bool ghostty_surface_binding_action(ghostty_surface_t, const char*, uintptr_t);
++void ghostty_surface_feed_output(ghostty_surface_t, const void*, uintptr_t);
+ void ghostty_surface_complete_clipboard_request(ghostty_surface_t,
+                                                 const char*,
+                                                 void*,
+diff --git i/src/apprt/embedded.zig w/src/apprt/embedded.zig
+index 08d8291ef..f980a578b 100644
+--- i/src/apprt/embedded.zig
++++ w/src/apprt/embedded.zig
+@@ -1915,6 +1915,17 @@ pub const CAPI = struct {
+         };
+     }
+ 
++    /// Feed raw terminal output data directly into the surface's terminal
++    /// emulator, bypassing the PTY. Used by tmux control mode to inject
++    /// decoded %output data into a display-only surface.
++    export fn ghostty_surface_feed_output(
++        ptr: *Surface,
++        data: [*]const u8,
++        len: usize,
++    ) void {
++        ptr.core_surface.io.processOutput(data[0..len]);
++    }
++
+     /// Complete a clipboard read request started via the read callback.
+     /// This can only be called once for a given request. Once it is called
+     /// with a request the request pointer will be invalidated.

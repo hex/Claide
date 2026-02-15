@@ -170,6 +170,63 @@ final class TerminalTabManager {
         }
     }
 
+    // MARK: - Tmux Tab Lifecycle
+
+    /// Create a tab backed by a tmux control mode pane.
+    ///
+    /// The shell runs a dummy command (`true`) — Ghostty keeps the surface alive
+    /// while TmuxSessionManager feeds decoded output and intercepts input.
+    func addTmuxTab(sessionManager: TmuxSessionManager, paneID: Int, title: String?) {
+        let environment = Self.buildEnvironment()
+
+        let controller = PaneTreeController { _ in
+            GhosttyTerminalView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
+        }
+        controller.onPaneCloseRequested = { [weak self] claidePaneID in
+            self?.closePane(claidePaneID)
+        }
+
+        let initialID = controller.activePaneID
+        guard let view = controller.paneView(for: initialID) as? GhosttyTerminalView else { return }
+
+        let sessionStatusVM = SessionStatusViewModel()
+        let graphVM = GraphViewModel()
+        let fileLogVM = FileLogViewModel()
+
+        let vm = TerminalViewModel()
+        vm.isTmuxPane = true
+        vm.title = title ?? "tmux"
+
+        setupTmuxPane(view: view, sessionManager: sessionManager, tmuxPaneID: paneID, environment: environment)
+
+        let tab = Tab(id: UUID(), paneController: controller, paneViewModels: [initialID: vm], sessionStatusVM: sessionStatusVM, graphVM: graphVM, fileLogVM: fileLogVM)
+        tabs.append(tab)
+        activeTabID = tab.id
+        updateOcclusion()
+
+        sessionManager.register(view: view, forPane: paneID)
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak view] in
+            guard let view else { return }
+            view.window?.makeFirstResponder(view)
+        }
+    }
+
+    /// Configure a terminal view as a tmux display pane.
+    private func setupTmuxPane(
+        view: GhosttyTerminalView,
+        sessionManager: TmuxSessionManager,
+        tmuxPaneID: Int,
+        environment: [(String, String)]
+    ) {
+        // Start a shell that exits immediately. Ghostty's wait_after_command
+        // keeps the surface alive so we can feed output into it.
+        view.startShell(environment: environment, directory: NSHomeDirectory())
+
+        // Install input interceptor: keystrokes go to tmux, not the local shell.
+        view.inputInterceptor = sessionManager.inputInterceptor(forPane: tmuxPaneID)
+    }
+
     func moveTab(from sourceIndex: Int, to destinationIndex: Int) {
         guard sourceIndex != destinationIndex,
               tabs.indices.contains(sourceIndex),
