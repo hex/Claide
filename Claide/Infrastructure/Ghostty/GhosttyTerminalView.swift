@@ -89,7 +89,7 @@ final class GhosttyTerminalView: NSView {
 
     // MARK: - Shell Lifecycle
 
-    /// Create a Ghostty surface and start a shell.
+    /// Create a Ghostty surface and start a shell (or custom command).
     ///
     /// Ghostty owns the PTY and shell process — there's no separate startShell step.
     /// Call this once after the view is laid out with a non-zero frame.
@@ -97,9 +97,16 @@ final class GhosttyTerminalView: NSView {
     /// Ghostty determines the shell from the SHELL environment variable (pass it
     /// in `environment`). On macOS it launches via `login(1)` for a proper login
     /// shell with hushlogin support.
+    ///
+    /// - Parameters:
+    ///   - command: Override the shell with a specific command. When nil, uses
+    ///     the SHELL env var. Set to e.g. "/usr/bin/true" for tmux display panes.
+    ///   - waitAfterCommand: Keep the surface alive after the command exits.
     func startShell(
         environment: [(String, String)],
-        directory: String
+        directory: String,
+        command: String? = nil,
+        waitAfterCommand: Bool = false
     ) {
         guard let app = GhosttyApp.shared.app else {
             logger.error("GhosttyApp not started")
@@ -124,6 +131,14 @@ final class GhosttyTerminalView: NSView {
             config.scale_factor = 2.0
         }
 
+        // Command override (e.g. "/usr/bin/true" for tmux display panes).
+        var commandStorage: UnsafeMutablePointer<CChar>?
+        if let command {
+            commandStorage = strdup(command)
+            config.command = UnsafePointer(commandStorage)
+        }
+        config.wait_after_command = waitAfterCommand
+
         // Convert environment to ghostty_env_var_s array
         var envVars: [ghostty_env_var_s] = []
         var envKeyStorage: [UnsafeMutablePointer<CChar>] = []
@@ -138,6 +153,7 @@ final class GhosttyTerminalView: NSView {
         }
 
         defer {
+            commandStorage.map { free($0) }
             envKeyStorage.forEach { free($0) }
             envValueStorage.forEach { free($0) }
         }

@@ -364,9 +364,14 @@ final class TerminalTabManager {
         tmuxPaneID: Int,
         environment: [(String, String)]
     ) {
-        // Start a shell that exits immediately. Ghostty's wait_after_command
-        // keeps the surface alive so we can feed output into it.
-        view.startShell(environment: environment, directory: NSHomeDirectory())
+        // Run a silent no-op. Ghostty's wait_after_command keeps the surface
+        // alive so feedOutput() can inject tmux pane data into the renderer.
+        view.startShell(
+            environment: environment,
+            directory: NSHomeDirectory(),
+            command: "/usr/bin/true",
+            waitAfterCommand: true
+        )
 
         // Install input interceptor: keystrokes go to tmux, not the local shell.
         view.inputInterceptor = sessionManager.inputInterceptor(forPane: tmuxPaneID)
