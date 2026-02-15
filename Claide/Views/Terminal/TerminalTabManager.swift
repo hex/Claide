@@ -333,16 +333,28 @@ final class TerminalTabManager {
     /// so the window doesn't end up empty.
     func closeAllTmuxTabs() {
         let tmuxTabIDs = Set(tmuxWindowTabs.values)
-        let hasNonTmuxTab = tabs.contains { !tmuxTabIDs.contains($0.id) }
 
-        if !hasNonTmuxTab && !tmuxTabIDs.isEmpty {
+        // Remove tmux tabs directly (bypassing closeTab's last-tab guard).
+        for tabID in tmuxTabIDs {
+            guard let index = tabs.firstIndex(where: { $0.id == tabID }) else { continue }
+            tabs[index].sessionStatusVM.stopWatching()
+            tabs[index].fileLogVM.stopWatching()
+            for view in tabs[index].allTerminalViews {
+                view.terminate()
+            }
+            tabs.remove(at: index)
+        }
+
+        tmuxWindowTabs.removeAll()
+        tmuxPaneMap.removeAll()
+
+        if tabs.isEmpty {
             addTab()
+        } else if !tabs.contains(where: { $0.id == activeTabID }) {
+            activeTabID = tabs[0].id
+            focusActiveTab()
         }
-
-        let windowIDs = Array(tmuxWindowTabs.keys)
-        for windowID in windowIDs {
-            closeTmuxTab(windowID: windowID)
-        }
+        updateOcclusion()
     }
 
     /// Configure a terminal view as a tmux display pane.

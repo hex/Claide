@@ -166,19 +166,29 @@ final class TmuxControlChannel: @unchecked Sendable {
         process.standardError = FileHandle.nullDevice
 
         process.terminationHandler = { [weak self] proc in
+            // Clear readability handler BEFORE closing fd to prevent
+            // availableData from throwing on a closed descriptor.
+            self?.masterHandle?.readabilityHandler = nil
             if let fd = self?.masterFD, fd >= 0 {
                 Darwin.close(fd)
                 self?.masterFD = -1
             }
-            self?.masterHandle?.readabilityHandler = nil
             self?.onDisconnect?(proc.terminationStatus)
         }
 
         let handle = FileHandle(fileDescriptor: master, closeOnDealloc: false)
         masterHandle = handle
         handle.readabilityHandler = { [weak self] fh in
-            self?.readQueue.async {
-                self?.handleReadableData(fh.availableData)
+            self?.readQueue.async { [weak self] in
+                guard let self, self.masterFD >= 0 else { return }
+                var buffer = [UInt8](repeating: 0, count: 8192)
+                let bytesRead = Darwin.read(self.masterFD, &buffer, buffer.count)
+                if bytesRead > 0 {
+                    self.handleReadableData(Data(buffer[..<bytesRead]))
+                } else {
+                    // EOF or error — treat as disconnect.
+                    self.handleReadableData(Data())
+                }
             }
         }
 
