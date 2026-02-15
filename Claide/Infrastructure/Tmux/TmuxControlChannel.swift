@@ -112,9 +112,17 @@ final class TmuxControlChannel: @unchecked Sendable {
     ///
     /// Commands are newline-terminated. Do not include a trailing newline.
     /// Example: `send(command: "send-keys -t %0 ls Enter")`
+    ///
+    /// Uses POSIX write() instead of NSFileHandle.write() because the latter
+    /// throws an Objective-C NSException on broken pipe, which Swift cannot catch.
     func send(command: String) {
+        guard process.isRunning else { return }
         let data = Data((command + "\n").utf8)
-        stdinPipe.fileHandleForWriting.write(data)
+        let fd = stdinPipe.fileHandleForWriting.fileDescriptor
+        data.withUnsafeBytes { buffer in
+            guard let ptr = buffer.baseAddress else { return }
+            _ = Darwin.write(fd, ptr, buffer.count)
+        }
     }
 
     /// Detach from the tmux session gracefully.
@@ -141,6 +149,7 @@ final class TmuxControlChannel: @unchecked Sendable {
         process.standardError = FileHandle.nullDevice
 
         process.terminationHandler = { [weak self] proc in
+            self?.stdinPipe.fileHandleForWriting.closeFile()
             self?.onDisconnect?(proc.terminationStatus)
         }
 

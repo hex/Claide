@@ -231,7 +231,8 @@ final class TerminalTabManager {
         }
 
         DispatchQueue.main.asyncAfter(deadline: .now() + enumerateDelay) { [weak session] in
-            session?.enumerateWindows()
+            guard let session, session.isConnected else { return }
+            session.enumerateWindows()
         }
     }
 
