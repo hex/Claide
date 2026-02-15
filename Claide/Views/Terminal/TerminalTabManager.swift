@@ -364,19 +364,15 @@ final class TerminalTabManager {
         tmuxPaneID: Int,
         environment: [(String, String)]
     ) {
-        // Run a silent no-op. Ghostty's wait_after_command keeps the surface
-        // alive so feedOutput() can inject tmux pane data into the renderer.
+        // Ghostty on macOS wraps ALL commands in login(1), which prints
+        // "Last login". We run /usr/bin/true (no-op) with wait_after_command
+        // to keep the surface alive for feedOutput injection.
         view.startShell(
             environment: environment,
             directory: NSHomeDirectory(),
             command: "/usr/bin/true",
             waitAfterCommand: true
         )
-
-        // Ghostty on macOS wraps all commands in login(1), which prints
-        // "Last login" before exec'ing the command. Clear the screen on
-        // the first feedOutput call so tmux output starts on a clean slate.
-        view.needsScreenClear = true
 
         // Install input interceptor: keystrokes go to tmux, not the local shell.
         view.inputInterceptor = sessionManager.inputInterceptor(forPane: tmuxPaneID)

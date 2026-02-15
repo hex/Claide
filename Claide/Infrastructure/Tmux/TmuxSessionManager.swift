@@ -63,15 +63,30 @@ final class TmuxSessionManager {
 
     // MARK: - Pane Registration
 
+    /// Erase display + cursor home.
+    private static let clearSequence = Data("\u{1b}[2J\u{1b}[H".utf8)
+
     /// Register a terminal view to receive output for a tmux pane.
     ///
     /// Replays any buffered `%output` data that arrived before the view
     /// was created (tmux sends initial pane content immediately on attach).
+    ///
+    /// The replay is delayed 300ms so login(1)'s "Last login" message
+    /// (which arrives on the PTY thread) has time to finish before we
+    /// clear it via feedOutput on the main thread.
     func register(view: GhosttyTerminalView, forPane paneID: Int) {
         paneViews[paneID] = view
-        if let buffered = pendingOutput.removeValue(forKey: paneID) {
-            for data in buffered {
-                view.feedOutput(data)
+        let buffered = pendingOutput.removeValue(forKey: paneID)
+
+        // Delay clear + replay so login(1)'s "Last login" message (on the
+        // PTY thread) finishes before we overwrite it via feedOutput.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak view] in
+            guard let view else { return }
+            view.feedOutput(Self.clearSequence)
+            if let buffered {
+                for data in buffered {
+                    view.feedOutput(data)
+                }
             }
         }
     }
