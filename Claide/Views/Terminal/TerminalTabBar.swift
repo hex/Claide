@@ -691,7 +691,7 @@ private struct TabButton: View {
                         path: executablePath,
                         colorOverride: !isActive ? inactiveColor : nil
                     )
-                    .opacity(showIndex && index <= 9 ? 0 : 1)
+                    .opacity(showIndex && index <= 9 ? 0 : (canClose && isHovered && !showIndex ? 0 : 1))
 
                     if index <= 9 {
                         Text("\(index)")
