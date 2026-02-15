@@ -43,6 +43,11 @@ final class TmuxSessionManager {
     /// Tracks known pane IDs per window for diffing on layout change.
     private var windowPanes: [Int: Set<Int>] = [:]
 
+    /// Last known grid dimensions per pane, updated by the resize handler.
+    /// Used to force a resize cycle on registration so the shell redraws
+    /// its prompt at the correct width.
+    private var paneGridSizes: [Int: (columns: Int, rows: Int)] = [:]
+
     /// Buffers %output data for panes whose views haven't been registered yet.
     /// Replayed in order when the view is registered via `register(view:forPane:)`.
     private var pendingOutput: [Int: [Data]] = [:]
@@ -96,17 +101,13 @@ final class TmuxSessionManager {
             // Now register for direct routing of future output.
             self.paneViews[paneID] = view
             // tmux control mode does not re-send existing screen content as
-            // %output on attach — only new data triggers notifications. For
-            // idle panes (shell waiting at prompt), we must actively capture
-            // the visible content and feed it to the terminal.
-            self.sendCommand("capture-pane -t %\(paneID) -p -e") { [weak self] result in
-                guard let self else { return }
-                if case .success(let content) = result,
-                   content.contains(where: { !$0.isWhitespace }),
-                   let view = self.paneViews[paneID] {
-                    var payload = Self.clearSequence
-                    payload.append(Data(content.utf8))
-                    view.feedOutput(payload)
+            // %output on attach — only new data triggers notifications. Force
+            // a resize cycle so the shell receives SIGWINCH, redraws its prompt
+            // at the correct width, and tmux sends the result as %output.
+            if let size = self.paneGridSizes[paneID] {
+                self.resizePane(paneID, columns: size.columns + 1, rows: size.rows)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
+                    self?.resizePane(paneID, columns: size.columns, rows: size.rows)
                 }
             }
         }
@@ -115,6 +116,7 @@ final class TmuxSessionManager {
     /// Remove a pane's view registration.
     func unregister(pane paneID: Int) {
         paneViews.removeValue(forKey: paneID)
+        paneGridSizes.removeValue(forKey: paneID)
     }
 
     // MARK: - Input Interceptor
@@ -374,6 +376,8 @@ final class TmuxSessionManager {
     func resizeHandler(forPane paneID: Int) -> (Int, Int) -> Void {
         var resizeTask: DispatchWorkItem?
         return { [weak self] columns, rows in
+            guard let self else { return }
+            self.paneGridSizes[paneID] = (columns, rows)
             resizeTask?.cancel()
             let work = DispatchWorkItem { [weak self] in
                 self?.resizePane(paneID, columns: columns, rows: rows)
