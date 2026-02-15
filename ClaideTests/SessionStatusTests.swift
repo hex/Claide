@@ -66,31 +66,31 @@ struct SessionStatusTests {
 
     @Test("Computes used percentage")
     func computesPercentage() {
-        let status = SessionStatus(totalInputTokens: 140_000, outputTokens: 100, contextWindowSize: 200_000)
+        let status = SessionStatus(modelId: "claude-opus-4-6", totalInputTokens: 140_000, outputTokens: 100, contextWindowSize: 200_000)
         #expect(status.usedPercentage == 70.0)
     }
 
     @Test("Percentage is zero when context window is zero")
     func percentageZeroDivision() {
-        let status = SessionStatus(totalInputTokens: 100, outputTokens: 10, contextWindowSize: 0)
+        let status = SessionStatus(modelId: "claude-opus-4-6", totalInputTokens: 100, outputTokens: 10, contextWindowSize: 0)
         #expect(status.usedPercentage == 0)
     }
 
     @Test("Formats usage string with grouping separators")
     func formatsUsage() {
-        let status = SessionStatus(totalInputTokens: 146_645, outputTokens: 100, contextWindowSize: 200_000)
+        let status = SessionStatus(modelId: "claude-opus-4-6", totalInputTokens: 146_645, outputTokens: 100, contextWindowSize: 200_000)
         #expect(status.formattedUsage == "146,645 / 200,000 (73%)")
     }
 
     @Test("Formats zero tokens")
     func formatsZeroTokens() {
-        let status = SessionStatus(totalInputTokens: 0, outputTokens: 0, contextWindowSize: 200_000)
+        let status = SessionStatus(modelId: "claude-opus-4-6", totalInputTokens: 0, outputTokens: 0, contextWindowSize: 200_000)
         #expect(status.formattedUsage == "0 / 200,000 (0%)")
     }
 
     @Test("Formats high usage near compaction")
     func formatsHighUsage() {
-        let status = SessionStatus(totalInputTokens: 180_000, outputTokens: 500, contextWindowSize: 200_000)
+        let status = SessionStatus(modelId: "claude-opus-4-6", totalInputTokens: 180_000, outputTokens: 500, contextWindowSize: 200_000)
         #expect(status.formattedUsage == "180,000 / 200,000 (90%)")
     }
 
