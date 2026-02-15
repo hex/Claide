@@ -290,9 +290,28 @@ final class TerminalTabManager {
     }
 
     /// Remove a tmux pane (from %layout-change diff).
+    ///
+    /// Closes the pane in its owning tab directly, rather than going through
+    /// `closePane` which only operates on the active tab.
     private func removeTmuxPane(paneID: Int) {
         guard let mapping = tmuxPaneMap.removeValue(forKey: paneID) else { return }
-        closePane(mapping.paneID)
+        guard let tabIndex = tabs.firstIndex(where: { $0.id == mapping.tabID }) else { return }
+
+        let claidePaneID = mapping.paneID
+
+        if tabs[tabIndex].paneController.paneTree.paneCount > 1 {
+            let closingView = tabs[tabIndex].paneController.paneView(for: claidePaneID) as? GhosttyTerminalView
+
+            if tabs[tabIndex].paneController.closePane(claidePaneID) {
+                closingView?.terminate()
+                tabs[tabIndex].paneViewModels.removeValue(forKey: claidePaneID)
+                if mapping.tabID == activeTabID {
+                    focusActiveTab()
+                }
+            }
+        } else {
+            closeTab(id: mapping.tabID)
+        }
     }
 
     // MARK: - Tmux Tab Lifecycle
