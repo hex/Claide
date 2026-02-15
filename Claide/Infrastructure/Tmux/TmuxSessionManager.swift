@@ -124,78 +124,25 @@ final class TmuxSessionManager {
         }
     }
 
+    // MARK: - Paste Handler
+
+    /// Returns a paste handler closure for a specific tmux pane.
+    ///
+    /// The closure sends pasted text as literal keys via `send-keys -l`.
+    func pasteHandler(forPane paneID: Int) -> (String) -> Void {
+        return { [weak self] text in
+            guard let self, !text.isEmpty else { return }
+            let escaped = text.replacingOccurrences(of: "'", with: "'\\''")
+            self.channel.send(command: "send-keys -t %\(paneID) -l '\(escaped)'")
+        }
+    }
+
     // MARK: - Key Encoding
 
     private func sendKey(event: NSEvent, toPane paneID: Int) -> Bool {
-        guard let keyNotation = tmuxKeyNotation(for: event) else { return false }
+        guard let keyNotation = TmuxKeyEncoder.encode(event) else { return false }
         channel.send(command: "send-keys -t %\(paneID) \(keyNotation)")
         return true
-    }
-
-    /// Convert an NSEvent to tmux key notation for send-keys.
-    private func tmuxKeyNotation(for event: NSEvent) -> String? {
-        // Special keys first
-        if let special = tmuxSpecialKey(keyCode: event.keyCode) {
-            return withModifierPrefix(event.modifierFlags, key: special)
-        }
-
-        // Printable characters
-        guard let chars = event.characters, !chars.isEmpty else { return nil }
-
-        // Control+letter combinations
-        if event.modifierFlags.contains(.control) {
-            if let scalar = chars.unicodeScalars.first, scalar.value < 0x20 {
-                let letter = Character(UnicodeScalar(scalar.value + 0x40)!)
-                return withModifierPrefix(
-                    event.modifierFlags.subtracting(.control),
-                    key: "C-\(letter)"
-                )
-            }
-        }
-
-        // Regular printable text — quote if it contains spaces or special chars
-        let escaped = chars.replacingOccurrences(of: "'", with: "'\\''")
-        return "'\(escaped)'"
-    }
-
-    private func tmuxSpecialKey(keyCode: UInt16) -> String? {
-        switch keyCode {
-        case 0x24: return "Enter"
-        case 0x30: return "Tab"
-        case 0x33: return "BSpace"
-        case 0x35: return "Escape"
-        case 0x7B: return "Left"
-        case 0x7C: return "Right"
-        case 0x7D: return "Down"
-        case 0x7E: return "Up"
-        case 0x73: return "Home"
-        case 0x77: return "End"
-        case 0x74: return "PageUp" // Page Up
-        case 0x79: return "PageDown" // Page Down
-        case 0x75: return "DC" // Forward Delete
-        case 0x7A: return "F1"
-        case 0x78: return "F2"
-        case 0x63: return "F3"
-        case 0x76: return "F4"
-        case 0x60: return "F5"
-        case 0x61: return "F6"
-        case 0x62: return "F7"
-        case 0x64: return "F8"
-        case 0x65: return "F9"
-        case 0x6D: return "F10"
-        case 0x67: return "F11"
-        case 0x6F: return "F12"
-        default: return nil
-        }
-    }
-
-    private func withModifierPrefix(_ flags: NSEvent.ModifierFlags, key: String) -> String {
-        var prefixes: [String] = []
-        if flags.contains(.shift)   { prefixes.append("S-") }
-        if flags.contains(.option)  { prefixes.append("M-") }
-        // Note: .control is handled inline for C-<letter> notation
-        if prefixes.isEmpty { return key }
-        return prefixes.joined() + key
     }
 }
 

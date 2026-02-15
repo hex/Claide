@@ -53,6 +53,10 @@ final class GhosttyTerminalView: NSView {
     /// Return `true` to consume the event (prevents Ghostty from seeing it).
     var inputInterceptor: ((NSEvent) -> Bool)?
 
+    /// When set, paste actions are handled by this closure instead of Ghostty.
+    /// The closure receives the pasteboard text. Used by tmux control mode.
+    var pasteHandler: ((String) -> Void)?
+
     /// Stored content size for backing property changes.
     private var contentSize: CGSize = .zero
 
@@ -298,6 +302,10 @@ final class GhosttyTerminalView: NSView {
     }
 
     @IBAction func paste(_ sender: Any?) {
+        if let pasteHandler, let text = NSPasteboard.general.string(forType: .string) {
+            pasteHandler(text)
+            return
+        }
         _ = bindingAction("paste_from_clipboard")
     }
 
@@ -531,6 +539,10 @@ final class GhosttyTerminalView: NSView {
 
     override func rightMouseDown(with event: NSEvent) {
         if UserDefaults.standard.bool(forKey: "pasteOnRightClick") {
+            if let pasteHandler, let text = NSPasteboard.general.string(forType: .string) {
+                pasteHandler(text)
+                return
+            }
             _ = bindingAction("paste_from_clipboard")
             return
         }

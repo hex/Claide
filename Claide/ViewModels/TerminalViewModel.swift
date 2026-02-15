@@ -137,6 +137,7 @@ final class TerminalViewModel {
 
     /// Begin polling the shell's child processes to keep `executablePath` current.
     func startTrackingForeground(shellPid: pid_t) {
+        guard !isTmuxPane else { return }
         self.shellPid = shellPid
         trackingTask?.cancel()
         trackingTask = Task { [weak self] in

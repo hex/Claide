@@ -225,6 +225,9 @@ final class TerminalTabManager {
 
         // Install input interceptor: keystrokes go to tmux, not the local shell.
         view.inputInterceptor = sessionManager.inputInterceptor(forPane: tmuxPaneID)
+
+        // Install paste handler: pasted text goes to tmux as literal keys.
+        view.pasteHandler = sessionManager.pasteHandler(forPane: tmuxPaneID)
     }
 
     func moveTab(from sourceIndex: Int, to destinationIndex: Int) {
