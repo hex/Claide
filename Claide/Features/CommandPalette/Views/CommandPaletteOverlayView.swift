@@ -5,7 +5,6 @@ import SwiftUI
 
 struct CommandPaletteOverlayView: View {
     @Bindable var manager: CommandPaletteManager
-    @FocusState private var isSearchFocused: Bool
 
     var body: some View {
         ZStack {
@@ -30,15 +29,6 @@ struct CommandPaletteOverlayView: View {
             .frame(maxHeight: .infinity, alignment: .top)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .onAppear {
-            // Resign AppKit first responder (e.g. GhosttyTerminalView) first,
-            // then request SwiftUI focus after a frame so the TextField is
-            // in the view hierarchy and ready to accept focus.
-            NSApp.keyWindow?.makeFirstResponder(nil)
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [self] in
-                isSearchFocused = true
-            }
-        }
     }
 
     // MARK: - Search Field
@@ -72,10 +62,11 @@ struct CommandPaletteOverlayView: View {
             HStack(spacing: 8) {
                 Image(systemName: "magnifyingglass")
                     .foregroundStyle(.secondary)
-                TextField("Type a command...", text: $manager.query)
-                    .textFieldStyle(.plain)
-                    .font(.system(size: 16))
-                    .focused($isSearchFocused)
+                PaletteTextField(
+                    text: $manager.query,
+                    placeholder: "Type a command..."
+                )
+                .frame(height: 22)
             }
             .padding(12)
         }
