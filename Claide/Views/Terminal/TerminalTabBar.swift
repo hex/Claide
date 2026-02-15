@@ -690,7 +690,7 @@ private struct TabButton: View {
                 // ZStack keeps the icon fixed while close button appears alongside.
                 ZStack {
                     ProcessIcon(
-                        path: isTmuxPane ? "tmux" : executablePath,
+                        path: executablePath,
                         colorOverride: !isActive ? inactiveColor : nil
                     )
                     .opacity(showIndex && index <= 9 ? 0 : (canClose && isHovered && !showIndex ? 0 : 1))
@@ -770,6 +770,18 @@ private struct TabButton: View {
                 }
 
                 Spacer()
+
+                if isTmuxPane {
+                    Text("tmux")
+                        .font(.system(size: 9, weight: .medium))
+                        .foregroundStyle(isActive ? Theme.textMuted : inactiveColor)
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 2)
+                        .background(
+                            RoundedRectangle(cornerRadius: 3)
+                                .fill(Theme.backgroundPanel)
+                        )
+                }
 
                 if isRunning && !isActive {
                     ProgressView()

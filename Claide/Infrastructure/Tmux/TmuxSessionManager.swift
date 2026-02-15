@@ -36,8 +36,9 @@ final class TmuxSessionManager {
 
     private let channel: TmuxControlChannel
     private var paneViews: [Int: GhosttyTerminalView] = [:]
-    private var nextCommandNumber = 0
-    private var commandHandlers: [Int: (Result<String, TmuxCommandError>) -> Void] = [:]
+    /// FIFO queue of response handlers. tmux command numbers are global server
+    /// counters that we can't predict, but responses arrive in send order.
+    private var pendingHandlers: [(Result<String, TmuxCommandError>) -> Void] = []
 
     /// Tracks known pane IDs per window for diffing on layout change.
     private var windowPanes: [Int: Set<Int>] = [:]
@@ -86,18 +87,16 @@ final class TmuxSessionManager {
 
     /// Send a tmux command. Fire-and-forget (no response handler).
     func sendCommand(_ command: String) {
-        nextCommandNumber += 1
         channel.send(command: command)
     }
 
     /// Send a tmux command and receive the `%begin/%end` response.
     ///
     /// The handler is called with the block response when the matching
-    /// `%end` or `%error` notification arrives.
+    /// `%end` or `%error` notification arrives. Handlers are dequeued in
+    /// FIFO order since tmux responses arrive in command send order.
     func sendCommand(_ command: String, handler: @escaping (Result<String, TmuxCommandError>) -> Void) {
-        let cmdNum = nextCommandNumber
-        nextCommandNumber += 1
-        commandHandlers[cmdNum] = handler
+        pendingHandlers.append(handler)
         channel.send(command: command)
     }
 
@@ -159,13 +158,15 @@ final class TmuxSessionManager {
         case .windowRenamed(let windowID, let name):
             onWindowRenamed?(windowID, name)
 
-        case .blockEnd(let cmdNum, let data):
-            if let handler = commandHandlers.removeValue(forKey: cmdNum) {
+        case .blockEnd(_, let data):
+            if !pendingHandlers.isEmpty {
+                let handler = pendingHandlers.removeFirst()
                 handler(.success(data))
             }
 
-        case .blockError(let cmdNum, let data):
-            if let handler = commandHandlers.removeValue(forKey: cmdNum) {
+        case .blockError(_, let data):
+            if !pendingHandlers.isEmpty {
+                let handler = pendingHandlers.removeFirst()
                 handler(.failure(TmuxCommandError(message: data)))
             }
 
