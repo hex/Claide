@@ -295,6 +295,13 @@ final class GhosttyTerminalView: NSView {
         return result
     }
 
+    /// Explicitly set the surface focus state (cursor blink/dim).
+    func setSurfaceFocused(_ focused: Bool) {
+        if let surface {
+            ghostty_surface_set_focus(surface, focused)
+        }
+    }
+
     // MARK: - Sizing
 
     override func setFrameSize(_ newSize: NSSize) {

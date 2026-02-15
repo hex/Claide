@@ -286,6 +286,11 @@ final class TerminalTabManager {
         tabs[tabIndex].paneViewModels[newClaidePaneID] = vm
 
         setupTmuxPane(view: view, sessionManager: sessionManager, tmuxPaneID: paneID, environment: environment)
+        view.setSurfaceFocused(false)
+        let controller = tab.paneController
+        view.onFocused = { [weak controller] in
+            controller?.focusPane(newClaidePaneID)
+        }
         sessionManager.register(view: view, forPane: paneID)
         tmuxPaneMap[paneID] = (tabID: tabID, paneID: newClaidePaneID)
     }
@@ -346,6 +351,9 @@ final class TerminalTabManager {
         vm.title = title ?? "tmux"
 
         setupTmuxPane(view: view, sessionManager: sessionManager, tmuxPaneID: paneID, environment: environment)
+        view.onFocused = { [weak controller] in
+            controller?.focusPane(initialID)
+        }
 
         let tab = Tab(id: UUID(), paneController: controller, paneViewModels: [initialID: vm], sessionStatusVM: sessionStatusVM, graphVM: graphVM, fileLogVM: fileLogVM)
         tabs.append(tab)
