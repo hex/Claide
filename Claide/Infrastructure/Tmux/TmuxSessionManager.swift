@@ -44,9 +44,11 @@ final class TmuxSessionManager {
     private var windowPanes: [Int: Set<Int>] = [:]
 
     /// Last known grid dimensions per pane, updated by the resize handler.
-    /// Used to force a resize cycle on registration so the shell redraws
-    /// its prompt at the correct width.
     private var paneGridSizes: [Int: (columns: Int, rows: Int)] = [:]
+
+    /// Panes awaiting initial content capture. Populated by `register()`,
+    /// consumed by the resize handler on the first grid size report.
+    private var pendingCapture: Set<Int> = []
 
     /// Buffers %output data for panes whose views haven't been registered yet.
     /// Replayed in order when the view is registered via `register(view:forPane:)`.
@@ -101,14 +103,15 @@ final class TmuxSessionManager {
             // Now register for direct routing of future output.
             self.paneViews[paneID] = view
             // tmux control mode does not re-send existing screen content as
-            // %output on attach — only new data triggers notifications. Force
-            // a resize cycle so the shell receives SIGWINCH, redraws its prompt
-            // at the correct width, and tmux sends the result as %output.
+            // %output on attach. Mark this pane for initial content capture,
+            // triggered by the resize handler once the grid size is known.
             if let size = self.paneGridSizes[paneID] {
-                self.resizePane(paneID, columns: size.columns + 1, rows: size.rows)
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
-                    self?.resizePane(paneID, columns: size.columns, rows: size.rows)
-                }
+                // Grid size already available — capture immediately.
+                self.syncAndCapture(paneID: paneID, columns: size.columns, rows: size.rows)
+            } else {
+                // Grid size not yet known — the resize handler will trigger
+                // capture when the Ghostty surface reports its dimensions.
+                self.pendingCapture.insert(paneID)
             }
         }
     }
@@ -117,6 +120,32 @@ final class TmuxSessionManager {
     func unregister(pane paneID: Int) {
         paneViews.removeValue(forKey: paneID)
         paneGridSizes.removeValue(forKey: paneID)
+        pendingCapture.remove(paneID)
+    }
+
+    /// Sync the tmux pane to the given dimensions, then capture its visible
+    /// content and feed it to the registered terminal view.
+    ///
+    /// tmux control mode does not push existing screen content as `%output`
+    /// on attach. This method explicitly resizes the pane (so line wrapping
+    /// matches the Ghostty surface) and uses `capture-pane -p -e` to fetch
+    /// the screen content with ANSI escape sequences.
+    private func syncAndCapture(paneID: Int, columns: Int, rows: Int) {
+        resizePane(paneID, columns: columns, rows: rows)
+        // Allow tmux to process the resize before capturing.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+            guard let self else { return }
+            self.sendCommand("capture-pane -t %\(paneID) -p -e") { [weak self] result in
+                guard let self else { return }
+                if case .success(let content) = result,
+                   content.contains(where: { !$0.isWhitespace }),
+                   let view = self.paneViews[paneID] {
+                    var payload = Self.clearSequence
+                    payload.append(Data(content.utf8))
+                    view.feedOutput(payload)
+                }
+            }
+        }
     }
 
     // MARK: - Input Interceptor
@@ -378,6 +407,14 @@ final class TmuxSessionManager {
         return { [weak self] columns, rows in
             guard let self else { return }
             self.paneGridSizes[paneID] = (columns, rows)
+
+            // First grid size report for a newly registered pane —
+            // sync tmux dimensions and capture initial screen content.
+            if self.pendingCapture.remove(paneID) != nil {
+                self.syncAndCapture(paneID: paneID, columns: columns, rows: rows)
+                return
+            }
+
             resizeTask?.cancel()
             let work = DispatchWorkItem { [weak self] in
                 self?.resizePane(paneID, columns: columns, rows: rows)
