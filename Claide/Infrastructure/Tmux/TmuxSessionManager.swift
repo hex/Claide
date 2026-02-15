@@ -290,7 +290,8 @@ final class TmuxSessionManager {
     /// List available tmux sessions by running `tmux list-sessions` synchronously.
     ///
     /// Returns an empty array if tmux is not installed or no sessions exist.
-    nonisolated static func listSessions(tmuxPath: String = "/usr/bin/tmux") -> [SessionInfo] {
+    nonisolated static func listSessions() -> [SessionInfo] {
+        guard let tmuxPath = findTmux() else { return [] }
         let process = Process()
         process.executableURL = URL(fileURLWithPath: tmuxPath)
         process.arguments = ["list-sessions"]

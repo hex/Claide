@@ -3,6 +3,45 @@
 
 import Foundation
 
+/// Locates the tmux binary using the user's login shell PATH.
+///
+/// Runs `command -v tmux` in a login shell to resolve the path regardless
+/// of how tmux was installed (Homebrew, MacPorts, nix, etc.). Falls back
+/// to common paths if the shell lookup fails.
+func findTmux() -> String? {
+    // Ask a login shell — picks up ~/.zprofile, ~/.bash_profile, etc.
+    // which set up PATH for Homebrew, nix, asdf, etc.
+    let process = Process()
+    process.executableURL = URL(fileURLWithPath: "/bin/sh")
+    process.arguments = ["-l", "-c", "command -v tmux"]
+    let pipe = Pipe()
+    process.standardOutput = pipe
+    process.standardError = FileHandle.nullDevice
+    do {
+        try process.run()
+        process.waitUntilExit()
+    } catch {
+        return findTmuxFallback()
+    }
+    guard process.terminationStatus == 0 else { return findTmuxFallback() }
+    let data = pipe.fileHandleForReading.readDataToEndOfFile()
+    let path = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    guard !path.isEmpty, FileManager.default.isExecutableFile(atPath: path) else {
+        return findTmuxFallback()
+    }
+    return path
+}
+
+private func findTmuxFallback() -> String? {
+    let candidates = [
+        "/opt/homebrew/bin/tmux",
+        "/usr/local/bin/tmux",
+        "/opt/local/bin/tmux",
+        "/usr/bin/tmux",
+    ]
+    return candidates.first { FileManager.default.isExecutableFile(atPath: $0) }
+}
+
 /// Manages the tmux control mode process and its I/O streams.
 ///
 /// Launches `tmux -CC` (or `ssh ... tmux -CC attach`) as a subprocess.
@@ -30,9 +69,13 @@ final class TmuxControlChannel: @unchecked Sendable {
     ///
     /// - Parameters:
     ///   - sessionName: Existing session to attach, or nil to create a new one.
-    ///   - tmuxPath: Path to the tmux binary. Defaults to `/usr/bin/tmux`.
-    func startLocal(sessionName: String? = nil, tmuxPath: String = "/usr/bin/tmux") {
-        process.executableURL = URL(fileURLWithPath: tmuxPath)
+    ///   - tmuxPath: Path to the tmux binary. Resolved via `findTmux()` if nil.
+    func startLocal(sessionName: String? = nil, tmuxPath: String? = nil) {
+        guard let path = tmuxPath ?? findTmux() else {
+            onDisconnect?(-1)
+            return
+        }
+        process.executableURL = URL(fileURLWithPath: path)
 
         var args = ["-CC"]
         if let name = sessionName {
