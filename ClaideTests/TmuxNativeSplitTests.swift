@@ -53,6 +53,26 @@ struct TmuxPaneIDLookupTests {
     }
 }
 
+@Suite("TerminalTabManager — duplicate tmux tab prevention")
+@MainActor
+struct TmuxDuplicateTabTests {
+
+    @Test("addTmuxTab ignores duplicate window IDs")
+    func duplicateWindowIDIgnored() {
+        let manager = TerminalTabManager()
+        let channel = TmuxControlChannel()
+        let session = TmuxSessionManager(channel: channel)
+
+        // First call creates the tab.
+        manager.addTmuxTab(sessionManager: session, windowID: 0, paneID: 0, title: "bash")
+        #expect(manager.tabs.count == 1)
+
+        // Second call with the same windowID should be ignored.
+        manager.addTmuxTab(sessionManager: session, windowID: 0, paneID: 1, title: "bash")
+        #expect(manager.tabs.count == 1)
+    }
+}
+
 @Suite("TerminalTabManager — tmux split command")
 struct TmuxSplitCommandTests {
 

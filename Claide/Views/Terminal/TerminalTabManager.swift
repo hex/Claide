@@ -321,6 +321,8 @@ final class TerminalTabManager {
     /// The shell runs a dummy command (`true`) — Ghostty keeps the surface alive
     /// while TmuxSessionManager feeds decoded output and intercepts input.
     func addTmuxTab(sessionManager: TmuxSessionManager, windowID: Int, paneID: Int, title: String?) {
+        guard tmuxWindowTabs[windowID] == nil else { return }
+
         let environment = Self.buildEnvironment()
 
         let controller = PaneTreeController { _ in
