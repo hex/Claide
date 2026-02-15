@@ -14,7 +14,8 @@ import Foundation
 final class TmuxSessionManager {
 
     /// Fired when a new tmux window should be created as a Claide tab.
-    var onWindowAdd: ((Int, String?) -> Void)?
+    /// Parameters: (windowID, paneID, name)
+    var onWindowAdd: ((Int, Int, String?) -> Void)?
 
     /// Fired when a tmux window is closed.
     var onWindowClose: ((Int) -> Void)?
@@ -25,12 +26,10 @@ final class TmuxSessionManager {
     /// Fired when the tmux session disconnects.
     var onDisconnect: (() -> Void)?
 
-    /// Fired when a command response block completes.
-    var onCommandResponse: ((Int, Result<String, TmuxCommandError>) -> Void)?
-
     private let channel: TmuxControlChannel
     private var paneViews: [Int: GhosttyTerminalView] = [:]
     private var nextCommandNumber = 0
+    private var commandHandlers: [Int: (Result<String, TmuxCommandError>) -> Void] = [:]
 
     init(channel: TmuxControlChannel) {
         self.channel = channel
@@ -74,8 +73,20 @@ final class TmuxSessionManager {
 
     // MARK: - Commands
 
-    /// Send a tmux command and get the response via onCommandResponse.
+    /// Send a tmux command. Fire-and-forget (no response handler).
     func sendCommand(_ command: String) {
+        nextCommandNumber += 1
+        channel.send(command: command)
+    }
+
+    /// Send a tmux command and receive the `%begin/%end` response.
+    ///
+    /// The handler is called with the block response when the matching
+    /// `%end` or `%error` notification arrives.
+    func sendCommand(_ command: String, handler: @escaping (Result<String, TmuxCommandError>) -> Void) {
+        let cmdNum = nextCommandNumber
+        nextCommandNumber += 1
+        commandHandlers[cmdNum] = handler
         channel.send(command: command)
     }
 
@@ -86,11 +97,30 @@ final class TmuxSessionManager {
 
     /// Resize a tmux pane to the given dimensions.
     func resizePane(_ paneID: Int, columns: Int, rows: Int) {
-        channel.send(command: "resize-pane -t %\(paneID) -x \(columns) -y \(rows)")
+        sendCommand("resize-pane -t %\(paneID) -x \(columns) -y \(rows)")
     }
 
     var isConnected: Bool {
         channel.isRunning
+    }
+
+    // MARK: - Window Enumeration
+
+    /// Query tmux for all existing windows and create tabs for each.
+    ///
+    /// Sends `list-panes -s` to enumerate all panes in the session.
+    /// Calls `onWindowAdd` for each window found.
+    func enumerateWindows() {
+        let format = "#{window_id}\t#{pane_id}\t#{window_name}"
+        sendCommand("list-panes -s -F '\(format)'") { [weak self] result in
+            guard let self else { return }
+            if case .success(let data) = result {
+                let windows = Self.parseWindowList(data)
+                for window in windows {
+                    self.onWindowAdd?(window.windowID, window.paneID, window.name)
+                }
+            }
+        }
     }
 
     // MARK: - Notification Handling
@@ -101,7 +131,7 @@ final class TmuxSessionManager {
             paneViews[paneID]?.feedOutput(data)
 
         case .windowAdd(let windowID):
-            onWindowAdd?(windowID, nil)
+            resolveWindowPane(windowID: windowID)
 
         case .windowClose(let windowID):
             onWindowClose?(windowID)
@@ -110,10 +140,14 @@ final class TmuxSessionManager {
             onWindowRenamed?(windowID, name)
 
         case .blockEnd(let cmdNum, let data):
-            onCommandResponse?(cmdNum, .success(data))
+            if let handler = commandHandlers.removeValue(forKey: cmdNum) {
+                handler(.success(data))
+            }
 
         case .blockError(let cmdNum, let data):
-            onCommandResponse?(cmdNum, .failure(TmuxCommandError(message: data)))
+            if let handler = commandHandlers.removeValue(forKey: cmdNum) {
+                handler(.failure(TmuxCommandError(message: data)))
+            }
 
         case .exit:
             onDisconnect?()
@@ -122,6 +156,55 @@ final class TmuxSessionManager {
              .sessionChanged, .sessionsChanged, .unrecognized:
             break
         }
+    }
+
+    /// Query tmux for the active pane in a newly added window.
+    private func resolveWindowPane(windowID: Int) {
+        sendCommand("list-panes -t @\(windowID) -F '#{pane_id} #{window_name}'") { [weak self] result in
+            guard let self else { return }
+            if case .success(let data) = result {
+                let trimmed = data.trimmingCharacters(in: .whitespacesAndNewlines)
+                let parts = trimmed.split(separator: " ", maxSplits: 1)
+                if let first = parts.first, first.hasPrefix("%"), let paneID = Int(first.dropFirst()) {
+                    let name = parts.count > 1 ? String(parts[1]) : nil
+                    self.onWindowAdd?(windowID, paneID, name)
+                }
+            }
+        }
+    }
+
+    // MARK: - Window List Parsing
+
+    /// Parsed tmux window information from `list-panes` output.
+    struct WindowInfo {
+        let windowID: Int
+        let paneID: Int
+        let name: String
+    }
+
+    /// Parse tab-separated `list-panes -s` output into window info structs.
+    ///
+    /// Expected format per line: `@<windowID>\t%<paneID>\t<name>`
+    /// Lines that don't match the expected format are skipped.
+    nonisolated static func parseWindowList(_ response: String) -> [WindowInfo] {
+        response.split(separator: "\n", omittingEmptySubsequences: true).compactMap { line in
+            let parts = line.split(separator: "\t", maxSplits: 2)
+            guard parts.count >= 2,
+                  parts[0].hasPrefix("@"), let windowID = Int(parts[0].dropFirst()),
+                  parts[1].hasPrefix("%"), let paneID = Int(parts[1].dropFirst())
+            else { return nil }
+            let name = parts.count > 2 ? String(parts[2]) : ""
+            return WindowInfo(windowID: windowID, paneID: paneID, name: name)
+        }
+    }
+
+    /// Parse a single pane ID from `list-panes -t @N` output.
+    ///
+    /// Expects a line like `%5` (possibly with trailing whitespace/newline).
+    nonisolated static func parsePaneID(_ response: String) -> Int? {
+        let trimmed = response.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.hasPrefix("%"), let id = Int(trimmed.dropFirst()) else { return nil }
+        return id
     }
 
     // MARK: - Paste Handler

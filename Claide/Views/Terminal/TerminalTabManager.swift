@@ -50,6 +50,9 @@ final class TerminalTabManager {
     private var lastDirectory: String?
     private var lastFontFamily: String = ""
 
+    /// Maps tmux window IDs to Claide tab UUIDs for lifecycle tracking.
+    private var tmuxWindowTabs: [Int: UUID] = [:]
+
     var activeTab: Tab? {
         guard let id = activeTabID else { return nil }
         return tabs.first { $0.id == id }
@@ -176,7 +179,7 @@ final class TerminalTabManager {
     ///
     /// The shell runs a dummy command (`true`) — Ghostty keeps the surface alive
     /// while TmuxSessionManager feeds decoded output and intercepts input.
-    func addTmuxTab(sessionManager: TmuxSessionManager, paneID: Int, title: String?) {
+    func addTmuxTab(sessionManager: TmuxSessionManager, windowID: Int, paneID: Int, title: String?) {
         let environment = Self.buildEnvironment()
 
         let controller = PaneTreeController { _ in
@@ -202,6 +205,7 @@ final class TerminalTabManager {
         let tab = Tab(id: UUID(), paneController: controller, paneViewModels: [initialID: vm], sessionStatusVM: sessionStatusVM, graphVM: graphVM, fileLogVM: fileLogVM)
         tabs.append(tab)
         activeTabID = tab.id
+        tmuxWindowTabs[windowID] = tab.id
         updateOcclusion()
 
         sessionManager.register(view: view, forPane: paneID)
@@ -209,6 +213,38 @@ final class TerminalTabManager {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak view] in
             guard let view else { return }
             view.window?.makeFirstResponder(view)
+        }
+    }
+
+    /// Close the tab associated with a tmux window.
+    func closeTmuxTab(windowID: Int) {
+        guard let tabID = tmuxWindowTabs.removeValue(forKey: windowID) else { return }
+        closeTab(id: tabID)
+    }
+
+    /// Update the title of the tab associated with a tmux window.
+    func updateTmuxTabTitle(windowID: Int, name: String) {
+        guard let tabID = tmuxWindowTabs[windowID],
+              let tabIndex = tabs.firstIndex(where: { $0.id == tabID }) else { return }
+        let paneID = tabs[tabIndex].paneController.activePaneID
+        tabs[tabIndex].paneViewModels[paneID]?.title = name
+    }
+
+    /// Close all tmux-backed tabs (e.g. on disconnect).
+    ///
+    /// If all tabs are tmux-backed, a fresh local terminal tab is created
+    /// so the window doesn't end up empty.
+    func closeAllTmuxTabs() {
+        let tmuxTabIDs = Set(tmuxWindowTabs.values)
+        let hasNonTmuxTab = tabs.contains { !tmuxTabIDs.contains($0.id) }
+
+        if !hasNonTmuxTab && !tmuxTabIDs.isEmpty {
+            addTab()
+        }
+
+        let windowIDs = Array(tmuxWindowTabs.keys)
+        for windowID in windowIDs {
+            closeTmuxTab(windowID: windowID)
         }
     }
 
