@@ -23,6 +23,14 @@ final class TmuxSessionManager {
     /// Fired when a tmux window is renamed.
     var onWindowRenamed: ((Int, String) -> Void)?
 
+    /// Fired when a new pane appears in an existing window (from split-window).
+    /// Parameters: (windowID, paneID)
+    var onPaneAdd: ((Int, Int) -> Void)?
+
+    /// Fired when a pane is removed from a window.
+    /// Parameters: (windowID, paneID)
+    var onPaneRemove: ((Int, Int) -> Void)?
+
     /// Fired when the tmux session disconnects.
     var onDisconnect: (() -> Void)?
 
@@ -30,6 +38,9 @@ final class TmuxSessionManager {
     private var paneViews: [Int: GhosttyTerminalView] = [:]
     private var nextCommandNumber = 0
     private var commandHandlers: [Int: (Result<String, TmuxCommandError>) -> Void] = [:]
+
+    /// Tracks known pane IDs per window for diffing on layout change.
+    private var windowPanes: [Int: Set<Int>] = [:]
 
     init(channel: TmuxControlChannel) {
         self.channel = channel
@@ -116,6 +127,14 @@ final class TmuxSessionManager {
             guard let self else { return }
             if case .success(let data) = result {
                 let windows = Self.parseWindowList(data)
+                // Group panes by window for initial tracking
+                var grouped: [Int: [WindowInfo]] = [:]
+                for window in windows {
+                    grouped[window.windowID, default: []].append(window)
+                }
+                for (windowID, panes) in grouped {
+                    self.windowPanes[windowID] = Set(panes.map(\.paneID))
+                }
                 for window in windows {
                     self.onWindowAdd?(window.windowID, window.paneID, window.name)
                 }
@@ -134,6 +153,7 @@ final class TmuxSessionManager {
             resolveWindowPane(windowID: windowID)
 
         case .windowClose(let windowID):
+            windowPanes.removeValue(forKey: windowID)
             onWindowClose?(windowID)
 
         case .windowRenamed(let windowID, let name):
@@ -152,9 +172,35 @@ final class TmuxSessionManager {
         case .exit:
             onDisconnect?()
 
-        case .layoutChange, .windowPaneChanged, .paneModeChanged,
+        case .layoutChange(let windowID, let layout):
+            handleLayoutChange(windowID: windowID, layout: layout)
+
+        case .windowPaneChanged, .paneModeChanged,
              .sessionChanged, .sessionsChanged, .unrecognized:
             break
+        }
+    }
+
+    /// Diff pane sets when a window's layout changes.
+    ///
+    /// Parses the tmux layout descriptor, compares against known panes,
+    /// and fires `onPaneAdd` / `onPaneRemove` for the differences.
+    private func handleLayoutChange(windowID: Int, layout: String) {
+        guard let node = TmuxLayoutParser.parse(layout) else { return }
+        let newPanes = Set(node.allPaneIDs)
+        let oldPanes = windowPanes[windowID] ?? []
+
+        let added = newPanes.subtracting(oldPanes)
+        let removed = oldPanes.subtracting(newPanes)
+
+        windowPanes[windowID] = newPanes
+
+        for paneID in added {
+            onPaneAdd?(windowID, paneID)
+        }
+        for paneID in removed {
+            paneViews.removeValue(forKey: paneID)
+            onPaneRemove?(windowID, paneID)
         }
     }
 
@@ -205,6 +251,23 @@ final class TmuxSessionManager {
         let trimmed = response.trimmingCharacters(in: .whitespacesAndNewlines)
         guard trimmed.hasPrefix("%"), let id = Int(trimmed.dropFirst()) else { return nil }
         return id
+    }
+
+    // MARK: - Resize Handler
+
+    /// Returns a resize handler closure for a specific tmux pane.
+    ///
+    /// The closure debounces resize events and sends `resize-pane` commands.
+    func resizeHandler(forPane paneID: Int) -> (Int, Int) -> Void {
+        var resizeTask: DispatchWorkItem?
+        return { [weak self] columns, rows in
+            resizeTask?.cancel()
+            let work = DispatchWorkItem { [weak self] in
+                self?.resizePane(paneID, columns: columns, rows: rows)
+            }
+            resizeTask = work
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1, execute: work)
+        }
     }
 
     // MARK: - Paste Handler

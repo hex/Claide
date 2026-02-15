@@ -57,8 +57,14 @@ final class GhosttyTerminalView: NSView {
     /// The closure receives the pasteboard text. Used by tmux control mode.
     var pasteHandler: ((String) -> Void)?
 
+    /// Fired when the terminal grid dimensions change (columns, rows).
+    /// Used by tmux control mode to send resize-pane commands.
+    var onGridResize: ((Int, Int) -> Void)?
+
     /// Stored content size for backing property changes.
     private var contentSize: CGSize = .zero
+    private var lastGridColumns: Int = 0
+    private var lastGridRows: Int = 0
 
     /// Drives layer redisplay for frames rendered by Ghostty's async path.
     /// In a layer-hosting view, setting layer.contents via dispatch_async
@@ -265,6 +271,7 @@ final class GhosttyTerminalView: NSView {
         contentSize = newSize
         let scaled = convertToBacking(newSize)
         ghostty_surface_set_size(surface, UInt32(scaled.width), UInt32(scaled.height))
+        checkGridResize()
     }
 
     override func viewDidChangeBackingProperties() {
@@ -280,6 +287,21 @@ final class GhosttyTerminalView: NSView {
 
         let scaled = convertToBacking(contentSize)
         ghostty_surface_set_size(surface, UInt32(scaled.width), UInt32(scaled.height))
+    }
+
+    /// Fire `onGridResize` when the terminal grid dimensions change.
+    private func checkGridResize() {
+        guard let surface, onGridResize != nil else { return }
+        let size = ghostty_surface_size(surface)
+        let cols = Int(size.columns)
+        let rows = Int(size.rows)
+        if cols != lastGridColumns || rows != lastGridRows {
+            lastGridColumns = cols
+            lastGridRows = rows
+            if cols > 0 && rows > 0 {
+                onGridResize?(cols, rows)
+            }
+        }
     }
 
     // MARK: - Occlusion

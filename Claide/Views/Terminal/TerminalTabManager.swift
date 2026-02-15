@@ -264,6 +264,9 @@ final class TerminalTabManager {
 
         // Install paste handler: pasted text goes to tmux as literal keys.
         view.pasteHandler = sessionManager.pasteHandler(forPane: tmuxPaneID)
+
+        // Install resize handler: pane size changes sync to tmux.
+        view.onGridResize = sessionManager.resizeHandler(forPane: tmuxPaneID)
     }
 
     func moveTab(from sourceIndex: Int, to destinationIndex: Int) {
