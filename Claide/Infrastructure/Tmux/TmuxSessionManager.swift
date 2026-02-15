@@ -24,8 +24,8 @@ final class TmuxSessionManager {
     var onWindowRenamed: ((Int, String) -> Void)?
 
     /// Fired when a new pane appears in an existing window (from split-window).
-    /// Parameters: (windowID, paneID)
-    var onPaneAdd: ((Int, Int) -> Void)?
+    /// Parameters: (windowID, paneID, axis)
+    var onPaneAdd: ((Int, Int, SplitAxis) -> Void)?
 
     /// Fired when a pane is removed from a window.
     /// Parameters: (windowID, paneID)
@@ -280,7 +280,8 @@ final class TmuxSessionManager {
         windowPanes[windowID] = newPanes
 
         for paneID in added {
-            onPaneAdd?(windowID, paneID)
+            let axis = node.parentAxis(of: paneID) ?? .horizontal
+            onPaneAdd?(windowID, paneID, axis)
         }
         for paneID in removed {
             paneViews.removeValue(forKey: paneID)

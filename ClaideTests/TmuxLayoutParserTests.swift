@@ -154,4 +154,45 @@ struct TmuxLayoutHelperTests {
         #expect(TmuxLayoutParser.parse("garbage") == nil)
         #expect(TmuxLayoutParser.parse("xxx") == nil)
     }
+
+    @Test("parentAxis returns horizontal for pane in horizontal split")
+    func parentAxisHorizontal() throws {
+        // {pane0, pane1} — horizontal split
+        let layout = "161x48,0,0{80x48,0,0,0,80x48,81,0,1}"
+        let node = try #require(TmuxLayoutParser.parse(layout))
+        #expect(node.parentAxis(of: 0) == .horizontal)
+        #expect(node.parentAxis(of: 1) == .horizontal)
+    }
+
+    @Test("parentAxis returns vertical for pane in vertical split")
+    func parentAxisVertical() throws {
+        // [pane0, pane1] — vertical split
+        let layout = "80x48,0,0[80x24,0,0,0,80x23,0,25,1]"
+        let node = try #require(TmuxLayoutParser.parse(layout))
+        #expect(node.parentAxis(of: 0) == .vertical)
+        #expect(node.parentAxis(of: 1) == .vertical)
+    }
+
+    @Test("parentAxis returns correct axis in nested layout")
+    func parentAxisNested() throws {
+        // {pane1, [pane2, pane3]} — pane1 is in horizontal, pane2/3 are in vertical
+        let layout = "80x24,0,0{40x24,0,0,1,39x24,41,0[39x12,41,0,2,39x11,41,13,3]}"
+        let node = try #require(TmuxLayoutParser.parse(layout))
+        #expect(node.parentAxis(of: 1) == .horizontal)
+        #expect(node.parentAxis(of: 2) == .vertical)
+        #expect(node.parentAxis(of: 3) == .vertical)
+    }
+
+    @Test("parentAxis returns nil for root single pane")
+    func parentAxisSinglePane() throws {
+        let node = try #require(TmuxLayoutParser.parse("159x48,0,0,5"))
+        #expect(node.parentAxis(of: 5) == nil)
+    }
+
+    @Test("parentAxis returns nil for unknown pane ID")
+    func parentAxisUnknown() throws {
+        let layout = "161x48,0,0{80x48,0,0,0,80x48,81,0,1}"
+        let node = try #require(TmuxLayoutParser.parse(layout))
+        #expect(node.parentAxis(of: 999) == nil)
+    }
 }

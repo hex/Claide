@@ -13,6 +13,35 @@ enum TmuxLayoutNode: Equatable {
     case horizontal(width: Int, height: Int, x: Int, y: Int, children: [TmuxLayoutNode])
     case vertical(width: Int, height: Int, x: Int, y: Int, children: [TmuxLayoutNode])
 
+    /// The split axis of the container that directly holds the given pane.
+    /// Returns nil if the pane is not found or is the root leaf.
+    func parentAxis(of paneID: Int) -> SplitAxis? {
+        switch self {
+        case .leaf:
+            return nil
+        case .horizontal(_, _, _, _, let children):
+            for child in children {
+                if case .leaf(_, _, _, _, let id) = child, id == paneID {
+                    return .horizontal
+                }
+                if let found = child.parentAxis(of: paneID) {
+                    return found
+                }
+            }
+            return nil
+        case .vertical(_, _, _, _, let children):
+            for child in children {
+                if case .leaf(_, _, _, _, let id) = child, id == paneID {
+                    return .vertical
+                }
+                if let found = child.parentAxis(of: paneID) {
+                    return found
+                }
+            }
+            return nil
+        }
+    }
+
     /// All pane IDs in this subtree.
     var allPaneIDs: [Int] {
         switch self {

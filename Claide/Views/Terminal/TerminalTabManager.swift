@@ -56,6 +56,33 @@ final class TerminalTabManager {
     /// Maps tmux pane IDs to (tabID, claidePaneID) for pane-level lifecycle.
     private var tmuxPaneMap: [Int: (tabID: UUID, paneID: PaneID)] = [:]
 
+    /// Reverse lookup: Claide PaneID → tmux pane ID.
+    /// Returns nil if the pane is not backed by a tmux pane.
+    func tmuxPaneID(for claidePaneID: PaneID) -> Int? {
+        tmuxPaneMap.first(where: { $0.value.paneID == claidePaneID })?.key
+    }
+
+    /// Register a mapping from a tmux pane to a Claide pane.
+    func registerTmuxPaneMapping(tmuxPaneID: Int, tabID: UUID, claidePaneID: PaneID) {
+        tmuxPaneMap[tmuxPaneID] = (tabID: tabID, paneID: claidePaneID)
+    }
+
+    /// Remove a tmux pane mapping.
+    func removeTmuxPaneMapping(tmuxPaneID: Int) {
+        tmuxPaneMap.removeValue(forKey: tmuxPaneID)
+    }
+
+    /// Build the tmux split-window command for a given axis and pane target.
+    nonisolated static func tmuxSplitCommand(axis: SplitAxis, tmuxPaneID: Int) -> String {
+        let flag = axis == .horizontal ? "-h" : "-v"
+        return "split-window \(flag) -t %\(tmuxPaneID)"
+    }
+
+    /// Build the tmux kill-pane command for a given pane target.
+    nonisolated static func tmuxKillPaneCommand(tmuxPaneID: Int) -> String {
+        "kill-pane -t %\(tmuxPaneID)"
+    }
+
     var activeTab: Tab? {
         guard let id = activeTabID else { return nil }
         return tabs.first { $0.id == id }
@@ -222,9 +249,9 @@ final class TerminalTabManager {
         session.onDisconnect = { [weak self] in
             self?.handleTmuxDisconnect()
         }
-        session.onPaneAdd = { [weak self] windowID, paneID in
+        session.onPaneAdd = { [weak self] windowID, paneID, axis in
             guard let self else { return }
-            self.addTmuxPaneToWindow(sessionManager: session, windowID: windowID, paneID: paneID)
+            self.addTmuxPaneToWindow(sessionManager: session, windowID: windowID, paneID: paneID, axis: axis)
         }
         session.onPaneRemove = { [weak self] _, paneID in
             self?.removeTmuxPane(paneID: paneID)
@@ -242,12 +269,12 @@ final class TerminalTabManager {
     }
 
     /// Add a new pane from a tmux split-window within an existing tab.
-    private func addTmuxPaneToWindow(sessionManager: TmuxSessionManager, windowID: Int, paneID: Int) {
+    private func addTmuxPaneToWindow(sessionManager: TmuxSessionManager, windowID: Int, paneID: Int, axis: SplitAxis) {
         guard let tabID = tmuxWindowTabs[windowID],
               let tabIndex = tabs.firstIndex(where: { $0.id == tabID }) else { return }
 
         let tab = tabs[tabIndex]
-        guard let newClaidePaneID = tab.paneController.splitActivePane(axis: .horizontal) else { return }
+        guard let newClaidePaneID = tab.paneController.splitActivePane(axis: axis) else { return }
         guard let view = tab.paneController.paneView(for: newClaidePaneID) as? GhosttyTerminalView else { return }
 
         let environment = Self.buildEnvironment()
@@ -477,11 +504,24 @@ final class TerminalTabManager {
 
     // MARK: - Pane Operations
 
-    /// Split the active pane along the given axis, spawning a new shell.
+    /// Split the active pane along the given axis.
+    ///
+    /// For tmux panes, sends `split-window` through the control channel and
+    /// lets the `%layout-change` notification drive the local tree update.
+    /// For local panes, creates a new shell process directly.
     func splitActivePane(axis: SplitAxis) {
         guard let index = tabs.firstIndex(where: { $0.id == activeTabID }) else { return }
 
-        // Read current directory before the split changes the active pane
+        let activePaneID = tabs[index].paneController.activePaneID
+
+        // Route through tmux if this pane is backed by a tmux session.
+        if let tmuxID = tmuxPaneID(for: activePaneID), let session = tmuxSession {
+            let cmd = Self.tmuxSplitCommand(axis: axis, tmuxPaneID: tmuxID)
+            session.sendCommand(cmd)
+            return
+        }
+
+        // Local split: create a new shell process.
         let dir = tabs[index].viewModel.currentDirectory ?? lastDirectory ?? NSHomeDirectory()
         let environment = Self.buildEnvironment()
 
@@ -495,10 +535,22 @@ final class TerminalTabManager {
         focusActiveTab()
     }
 
-    /// Close a specific pane by ID. If it's the last pane in the tab, close the tab instead.
+    /// Close a specific pane by ID.
+    ///
+    /// For tmux panes, sends `kill-pane` through the control channel and
+    /// lets the `%layout-change` notification drive the local tree update.
+    /// For local panes (or the last pane in a tab), closes directly.
     func closePane(_ paneID: PaneID) {
         guard let index = tabs.firstIndex(where: { $0.id == activeTabID }) else { return }
 
+        // Route through tmux if this pane is backed by a tmux session.
+        if let tmuxID = tmuxPaneID(for: paneID), let session = tmuxSession {
+            let cmd = Self.tmuxKillPaneCommand(tmuxPaneID: tmuxID)
+            session.sendCommand(cmd)
+            return
+        }
+
+        // Local close.
         if tabs[index].paneController.paneTree.paneCount > 1 {
             let closingView = tabs[index].paneController.paneView(for: paneID) as? GhosttyTerminalView
 
