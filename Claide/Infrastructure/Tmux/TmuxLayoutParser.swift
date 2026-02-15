@@ -42,6 +42,35 @@ enum TmuxLayoutNode: Equatable {
         }
     }
 
+    /// Convert this tmux layout tree into a Claide PaneNode tree.
+    ///
+    /// Returns the PaneNode tree and a mapping from tmux pane IDs (Int)
+    /// to the generated Claide PaneIDs (UUID). The tree structure is
+    /// preserved exactly: horizontal/vertical splits map 1:1 to SplitAxis,
+    /// and leaf nodes become terminal panes with fresh UUIDs.
+    func toPaneTree() -> (PaneNode, [Int: PaneID]) {
+        var mapping: [Int: PaneID] = [:]
+        let tree = convertNode(mapping: &mapping)
+        return (tree, mapping)
+    }
+
+    private func convertNode(mapping: inout [Int: PaneID]) -> PaneNode {
+        switch self {
+        case .leaf(_, _, _, _, let paneID):
+            let id = PaneID()
+            mapping[paneID] = id
+            return .terminal(id: id)
+
+        case .horizontal(_, _, _, _, let children):
+            let converted = children.map { $0.convertNode(mapping: &mapping) }
+            return .split(axis: .horizontal, children: converted)
+
+        case .vertical(_, _, _, _, let children):
+            let converted = children.map { $0.convertNode(mapping: &mapping) }
+            return .split(axis: .vertical, children: converted)
+        }
+    }
+
     /// All pane IDs in this subtree.
     var allPaneIDs: [Int] {
         switch self {

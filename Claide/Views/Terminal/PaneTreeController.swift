@@ -56,6 +56,23 @@ final class PaneTreeController {
 
     // MARK: - Operations
 
+    /// Replace the entire pane tree with a new tree.
+    ///
+    /// Removes all existing pane views, creates views for every pane in the
+    /// new tree via the view factory, and rebuilds the container. Callers
+    /// are responsible for terminating old views before calling this.
+    func replaceTree(_ newTree: PaneNode, activePaneID: PaneID) {
+        paneViews.removeAll()
+        paneTree = newTree
+        self.activePaneID = activePaneID
+
+        for id in newTree.allPaneIDs {
+            paneViews[id] = viewFactory(id)
+        }
+
+        rebuildContainer()
+    }
+
     /// Split the active pane along the given axis.
     /// Returns the new pane's ID, or nil if the split failed.
     @discardableResult

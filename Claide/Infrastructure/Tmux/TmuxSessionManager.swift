@@ -27,6 +27,10 @@ final class TmuxSessionManager {
     /// Parameters: (windowID, paneID, axis)
     var onPaneAdd: ((Int, Int, SplitAxis) -> Void)?
 
+    /// Fired during initial attach with the full layout tree for a window.
+    /// Parameters: (windowID, layoutNode)
+    var onWindowLayout: ((Int, TmuxLayoutNode) -> Void)?
+
     /// Fired when a pane is removed from a window.
     /// Parameters: (windowID, paneID)
     var onPaneRemove: ((Int, Int) -> Void)?
@@ -221,15 +225,24 @@ final class TmuxSessionManager {
         }
     }
 
-    /// Query tmux for the layout of each window and process through
-    /// `handleLayoutChange` to create panes not covered by `enumerateWindows`.
+    /// Query tmux for each window's layout and deliver full layout trees.
+    ///
+    /// For multi-pane windows, fires `onWindowLayout` with the parsed tree
+    /// so the tab manager can build the correct nested pane structure.
+    /// Single-pane windows are skipped (already created by `enumerateWindows`).
     private func enumerateLayouts() {
         sendCommand("list-windows -F '#{window_id}\t#{window_layout}'") { [weak self] result in
             guard let self else { return }
             if case .success(let data) = result {
                 let layouts = Self.parseWindowLayouts(data)
                 for wl in layouts {
-                    self.handleLayoutChange(windowID: wl.windowID, layout: wl.layout)
+                    guard let node = TmuxLayoutParser.parse(wl.layout) else { continue }
+                    let paneIDs = node.allPaneIDs
+                    // Update tracked pane set for runtime layout-change diffs.
+                    self.windowPanes[wl.windowID] = Set(paneIDs)
+                    // Single-pane windows are already fully set up.
+                    guard paneIDs.count > 1 else { continue }
+                    self.onWindowLayout?(wl.windowID, node)
                 }
             }
         }

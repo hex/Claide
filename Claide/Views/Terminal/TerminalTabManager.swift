@@ -256,6 +256,10 @@ final class TerminalTabManager {
         session.onPaneRemove = { [weak self] _, paneID in
             self?.removeTmuxPane(paneID: paneID)
         }
+        session.onWindowLayout = { [weak self] windowID, layoutNode in
+            guard let self else { return }
+            self.rebuildTmuxPaneTree(sessionManager: session, windowID: windowID, layoutNode: layoutNode)
+        }
 
         DispatchQueue.main.asyncAfter(deadline: .now() + enumerateDelay) { [weak session] in
             guard let session, session.isConnected else { return }
@@ -293,6 +297,68 @@ final class TerminalTabManager {
         }
         sessionManager.register(view: view, forPane: paneID)
         tmuxPaneMap[paneID] = (tabID: tabID, paneID: newClaidePaneID)
+    }
+
+    /// Rebuild a tmux tab's entire pane tree from a layout descriptor.
+    ///
+    /// Converts the TmuxLayoutNode to a PaneNode tree, replaces the tab's
+    /// pane controller tree, and sets up all pane views with tmux handlers.
+    /// Used during initial attach to reproduce complex nested layouts exactly.
+    private func rebuildTmuxPaneTree(sessionManager: TmuxSessionManager, windowID: Int, layoutNode: TmuxLayoutNode) {
+        guard let tabID = tmuxWindowTabs[windowID],
+              let tabIndex = tabs.firstIndex(where: { $0.id == tabID }) else { return }
+
+        let tab = tabs[tabIndex]
+        let controller = tab.paneController
+
+        // Terminate and unregister all existing views in this tab.
+        for paneID in controller.paneTree.allPaneIDs {
+            if let view = controller.paneView(for: paneID) as? GhosttyTerminalView {
+                view.terminate()
+            }
+            // Unregister from session manager.
+            if let tmuxID = tmuxPaneID(for: paneID) {
+                sessionManager.unregister(pane: tmuxID)
+                tmuxPaneMap.removeValue(forKey: tmuxID)
+            }
+        }
+        tabs[tabIndex].paneViewModels.removeAll()
+
+        // Convert tmux layout to PaneNode tree.
+        let (paneTree, mapping) = layoutNode.toPaneTree()
+
+        // Pick the first pane as active.
+        let firstTmuxPaneID = layoutNode.allPaneIDs.first!
+        let activePaneID = mapping[firstTmuxPaneID]!
+
+        // Replace the controller's tree (creates fresh views via viewFactory).
+        controller.replaceTree(paneTree, activePaneID: activePaneID)
+
+        // Set up each pane with tmux handlers.
+        let environment = Self.buildEnvironment()
+        for (tmuxPaneID, claidePaneID) in mapping {
+            guard let view = controller.paneView(for: claidePaneID) as? GhosttyTerminalView else { continue }
+
+            let vm = TerminalViewModel()
+            vm.isTmuxPane = true
+            vm.executablePath = ProcessInfo.processInfo.environment["SHELL"]
+            vm.title = "tmux"
+            tabs[tabIndex].paneViewModels[claidePaneID] = vm
+
+            setupTmuxPane(view: view, sessionManager: sessionManager, tmuxPaneID: tmuxPaneID, environment: environment)
+
+            // Only the active pane should have focus.
+            if claidePaneID != activePaneID {
+                view.setSurfaceFocused(false)
+            }
+
+            view.onFocused = { [weak controller] in
+                controller?.focusPane(claidePaneID)
+            }
+
+            sessionManager.register(view: view, forPane: tmuxPaneID)
+            tmuxPaneMap[tmuxPaneID] = (tabID: tabID, paneID: claidePaneID)
+        }
     }
 
     /// Remove a tmux pane (from %layout-change diff).

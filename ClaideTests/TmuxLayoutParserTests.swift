@@ -196,3 +196,98 @@ struct TmuxLayoutHelperTests {
         #expect(node.parentAxis(of: 999) == nil)
     }
 }
+
+@Suite("TmuxLayoutNode — toPaneTree conversion")
+struct TmuxLayoutToPaneTreeTests {
+
+    @Test("single leaf converts to terminal node")
+    func singleLeaf() throws {
+        let node = try #require(TmuxLayoutParser.parse("159x48,0,0,5"))
+        let (paneTree, mapping) = node.toPaneTree()
+
+        // Should be a single terminal
+        guard case .terminal(let id) = paneTree else {
+            Issue.record("Expected terminal node")
+            return
+        }
+        #expect(mapping.count == 1)
+        #expect(mapping[5] == id)
+    }
+
+    @Test("two horizontal panes preserve structure")
+    func twoHorizontal() throws {
+        let layout = "161x48,0,0{80x48,0,0,0,80x48,81,0,1}"
+        let node = try #require(TmuxLayoutParser.parse(layout))
+        let (paneTree, mapping) = node.toPaneTree()
+
+        guard case .split(let axis, let children) = paneTree else {
+            Issue.record("Expected split node")
+            return
+        }
+        #expect(axis == .horizontal)
+        #expect(children.count == 2)
+        #expect(mapping.count == 2)
+
+        // Both children should be terminals
+        guard case .terminal(let id0) = children[0],
+              case .terminal(let id1) = children[1] else {
+            Issue.record("Expected terminal children")
+            return
+        }
+        #expect(mapping[0] == id0)
+        #expect(mapping[1] == id1)
+    }
+
+    @Test("nested layout preserves full tree structure")
+    func nestedLayout() throws {
+        // {pane1, [pane2, pane3]} — horizontal split with nested vertical
+        let layout = "80x24,0,0{40x24,0,0,1,39x24,41,0[39x12,41,0,2,39x11,41,13,3]}"
+        let node = try #require(TmuxLayoutParser.parse(layout))
+        let (paneTree, mapping) = node.toPaneTree()
+
+        guard case .split(let axis, let children) = paneTree else {
+            Issue.record("Expected split node")
+            return
+        }
+        #expect(axis == .horizontal)
+        #expect(children.count == 2)
+
+        // Left child is a terminal
+        guard case .terminal(let id1) = children[0] else {
+            Issue.record("Expected terminal for left child")
+            return
+        }
+        #expect(mapping[1] == id1)
+
+        // Right child is a vertical split
+        guard case .split(let innerAxis, let innerChildren) = children[1] else {
+            Issue.record("Expected split for right child")
+            return
+        }
+        #expect(innerAxis == .vertical)
+        #expect(innerChildren.count == 2)
+
+        guard case .terminal(let id2) = innerChildren[0],
+              case .terminal(let id3) = innerChildren[1] else {
+            Issue.record("Expected terminal inner children")
+            return
+        }
+        #expect(mapping[2] == id2)
+        #expect(mapping[3] == id3)
+        #expect(mapping.count == 3)
+    }
+
+    @Test("all tree pane IDs match mapping values")
+    func treeIDsMatchMapping() throws {
+        let layout = "100x50,0,0{50x50,0,0[25x25,0,0{12x25,0,0,0,12x25,13,0,1},25x24,0,26,2],49x50,51,0,3}"
+        let node = try #require(TmuxLayoutParser.parse(layout))
+        let (paneTree, mapping) = node.toPaneTree()
+
+        let treeIDs = Set(paneTree.allPaneIDs)
+        let mappingIDs = Set(mapping.values)
+
+        #expect(treeIDs == mappingIDs)
+        #expect(mapping.count == 4)
+        #expect(Set(mapping.keys) == Set([0, 1, 2, 3]))
+    }
+}

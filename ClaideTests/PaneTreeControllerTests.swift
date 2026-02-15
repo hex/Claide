@@ -211,6 +211,48 @@ struct PaneTreeControllerTests {
 
     // MARK: - N-ary Splits
 
+    // MARK: - Replace Tree
+
+    @Test("replaceTree replaces the entire pane tree and creates views")
+    func replaceTreeCreatesViews() {
+        let (controller, _) = makeController()
+
+        let id1 = PaneID()
+        let id2 = PaneID()
+        let id3 = PaneID()
+        let newTree = PaneNode.split(axis: .horizontal, children: [
+            .terminal(id: id1),
+            .split(axis: .vertical, children: [
+                .terminal(id: id2),
+                .terminal(id: id3),
+            ]),
+        ])
+
+        controller.replaceTree(newTree, activePaneID: id1)
+
+        #expect(controller.paneTree.paneCount == 3)
+        #expect(controller.activePaneID == id1)
+        #expect(controller.paneView(for: id1) != nil)
+        #expect(controller.paneView(for: id2) != nil)
+        #expect(controller.paneView(for: id3) != nil)
+    }
+
+    @Test("replaceTree removes views for old panes")
+    func replaceTreeRemovesOldViews() {
+        let (controller, originalID) = makeController()
+        let splitID = controller.splitActivePane(axis: .horizontal)!
+
+        let newID = PaneID()
+        let newTree = PaneNode.terminal(id: newID)
+
+        controller.replaceTree(newTree, activePaneID: newID)
+
+        #expect(controller.paneView(for: originalID) == nil)
+        #expect(controller.paneView(for: splitID) == nil)
+        #expect(controller.paneView(for: newID) != nil)
+        #expect(controller.paneTree.paneCount == 1)
+    }
+
     @Test("same-axis splits through controller produce flat tree")
     func sameAxisSplitsProduceFlatTree() {
         let (controller, first) = makeController()
