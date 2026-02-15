@@ -53,6 +53,9 @@ final class TerminalTabManager {
     /// Maps tmux window IDs to Claide tab UUIDs for lifecycle tracking.
     private var tmuxWindowTabs: [Int: UUID] = [:]
 
+    /// Maps tmux pane IDs to (tabID, claidePaneID) for pane-level lifecycle.
+    private var tmuxPaneMap: [Int: (tabID: UUID, paneID: PaneID)] = [:]
+
     var activeTab: Tab? {
         guard let id = activeTabID else { return nil }
         return tabs.first { $0.id == id }
@@ -173,6 +176,96 @@ final class TerminalTabManager {
         }
     }
 
+    // MARK: - Tmux Session Attachment
+
+    /// The active tmux session manager, if connected.
+    private(set) var tmuxSession: TmuxSessionManager?
+
+    /// Attach to a local tmux session in control mode.
+    ///
+    /// Creates a control channel, session manager, wires all callbacks, and
+    /// enumerates existing windows to create tabs.
+    func attachTmux(sessionName: String? = nil) {
+        let channel = TmuxControlChannel()
+        channel.startLocal(sessionName: sessionName)
+        finishTmuxAttach(channel: channel, enumerateDelay: 0.5)
+    }
+
+    /// Attach to a remote tmux session over SSH.
+    func attachTmuxRemote(host: String, sessionName: String? = nil) {
+        let channel = TmuxControlChannel()
+        channel.startRemote(host: host, sessionName: sessionName)
+        finishTmuxAttach(channel: channel, enumerateDelay: 1.0)
+    }
+
+    /// Detach from the active tmux session.
+    func detachTmux() {
+        tmuxSession?.detach()
+    }
+
+    private func finishTmuxAttach(channel: TmuxControlChannel, enumerateDelay: TimeInterval) {
+        guard tmuxSession == nil else { return }
+
+        let session = TmuxSessionManager(channel: channel)
+        tmuxSession = session
+
+        session.onWindowAdd = { [weak self] windowID, paneID, name in
+            guard let self else { return }
+            self.addTmuxTab(sessionManager: session, windowID: windowID, paneID: paneID, title: name)
+        }
+        session.onWindowClose = { [weak self] windowID in
+            self?.closeTmuxTab(windowID: windowID)
+        }
+        session.onWindowRenamed = { [weak self] windowID, name in
+            self?.updateTmuxTabTitle(windowID: windowID, name: name)
+        }
+        session.onDisconnect = { [weak self] in
+            self?.handleTmuxDisconnect()
+        }
+        session.onPaneAdd = { [weak self] windowID, paneID in
+            guard let self else { return }
+            self.addTmuxPaneToWindow(sessionManager: session, windowID: windowID, paneID: paneID)
+        }
+        session.onPaneRemove = { [weak self] _, paneID in
+            self?.removeTmuxPane(paneID: paneID)
+        }
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + enumerateDelay) { [weak session] in
+            session?.enumerateWindows()
+        }
+    }
+
+    private func handleTmuxDisconnect() {
+        closeAllTmuxTabs()
+        tmuxSession = nil
+    }
+
+    /// Add a new pane from a tmux split-window within an existing tab.
+    private func addTmuxPaneToWindow(sessionManager: TmuxSessionManager, windowID: Int, paneID: Int) {
+        guard let tabID = tmuxWindowTabs[windowID],
+              let tabIndex = tabs.firstIndex(where: { $0.id == tabID }) else { return }
+
+        let tab = tabs[tabIndex]
+        guard let newClaidePaneID = tab.paneController.splitActivePane(axis: .horizontal) else { return }
+        guard let view = tab.paneController.paneView(for: newClaidePaneID) as? GhosttyTerminalView else { return }
+
+        let environment = Self.buildEnvironment()
+        let vm = TerminalViewModel()
+        vm.isTmuxPane = true
+        vm.title = "tmux"
+        tabs[tabIndex].paneViewModels[newClaidePaneID] = vm
+
+        setupTmuxPane(view: view, sessionManager: sessionManager, tmuxPaneID: paneID, environment: environment)
+        sessionManager.register(view: view, forPane: paneID)
+        tmuxPaneMap[paneID] = (tabID: tabID, paneID: newClaidePaneID)
+    }
+
+    /// Remove a tmux pane (from %layout-change diff).
+    private func removeTmuxPane(paneID: Int) {
+        guard let mapping = tmuxPaneMap.removeValue(forKey: paneID) else { return }
+        closePane(mapping.paneID)
+    }
+
     // MARK: - Tmux Tab Lifecycle
 
     /// Create a tab backed by a tmux control mode pane.
@@ -209,6 +302,7 @@ final class TerminalTabManager {
         updateOcclusion()
 
         sessionManager.register(view: view, forPane: paneID)
+        tmuxPaneMap[paneID] = (tabID: tab.id, paneID: initialID)
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak view] in
             guard let view else { return }

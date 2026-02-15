@@ -80,6 +80,23 @@ enum CommandPaletteRegistry {
             ))
         }
 
+        // tmux control mode
+        if tabManager.tmuxSession == nil {
+            items.append(CommandPaletteItem(
+                id: "attach-tmux",
+                title: "Attach tmux Session",
+                icon: "rectangle.connected.to.line.below",
+                action: { @MainActor in tabManager.attachTmux() }
+            ))
+        } else {
+            items.append(CommandPaletteItem(
+                id: "detach-tmux",
+                title: "Detach tmux",
+                icon: "rectangle.disconnect.from.line.below",
+                action: { @MainActor in tabManager.detachTmux() }
+            ))
+        }
+
         // Per-tab switch commands
         for tab in tabManager.tabs {
             let tabID = tab.id
