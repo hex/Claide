@@ -44,9 +44,12 @@ private func findTmuxFallback() -> String? {
 
 /// Manages the tmux control mode process and its I/O streams.
 ///
-/// Launches `tmux -CC` (or `ssh ... tmux -CC attach`) as a subprocess.
+/// Launches `tmux -CC` (or `ssh ... tmux -CC attach`) as a subprocess
+/// with a PTY (pseudo-terminal). tmux requires a TTY for `tcgetattr()`
+/// even in control mode — plain pipes cause it to fail immediately.
+///
 /// Stdout is read line-by-line on a background queue and parsed into
-/// `TmuxNotification` values. Commands are sent via stdin.
+/// `TmuxNotification` values. Commands are sent via the PTY master.
 final class TmuxControlChannel: @unchecked Sendable {
 
     /// Fired for each parsed notification from tmux stdout.
@@ -58,10 +61,14 @@ final class TmuxControlChannel: @unchecked Sendable {
     var onDisconnect: ((Int32) -> Void)?
 
     private let process = Process()
-    private let stdinPipe = Pipe()
-    private let stdoutPipe = Pipe()
     private let parser = TmuxProtocolParser()
     private let readQueue = DispatchQueue(label: "com.claide.tmux.read", qos: .userInitiated)
+
+    /// PTY master file descriptor — used for both reading and writing.
+    private var masterFD: Int32 = -1
+
+    /// FileHandle wrapping the master fd for readability monitoring.
+    private var masterHandle: FileHandle?
 
     private var lineBuffer = Data()
 
@@ -113,15 +120,14 @@ final class TmuxControlChannel: @unchecked Sendable {
     /// Commands are newline-terminated. Do not include a trailing newline.
     /// Example: `send(command: "send-keys -t %0 ls Enter")`
     ///
-    /// Uses POSIX write() instead of NSFileHandle.write() because the latter
-    /// throws an Objective-C NSException on broken pipe, which Swift cannot catch.
+    /// Uses POSIX write() on the PTY master fd. NSFileHandle.write() throws
+    /// an Objective-C NSException on broken pipe, which Swift cannot catch.
     func send(command: String) {
-        guard process.isRunning else { return }
+        guard process.isRunning, masterFD >= 0 else { return }
         let data = Data((command + "\n").utf8)
-        let fd = stdinPipe.fileHandleForWriting.fileDescriptor
         data.withUnsafeBytes { buffer in
             guard let ptr = buffer.baseAddress else { return }
-            _ = Darwin.write(fd, ptr, buffer.count)
+            _ = Darwin.write(masterFD, ptr, buffer.count)
         }
     }
 
@@ -144,16 +150,32 @@ final class TmuxControlChannel: @unchecked Sendable {
     // MARK: - Private
 
     private func startProcess() {
-        process.standardInput = stdinPipe
-        process.standardOutput = stdoutPipe
+        // Create a PTY pair. tmux calls tcgetattr() on stdin during init,
+        // which requires a real terminal device — plain pipes fail with ENOTTY.
+        var master: Int32 = 0
+        var slave: Int32 = 0
+        guard openpty(&master, &slave, nil, nil, nil) == 0 else {
+            onDisconnect?(-1)
+            return
+        }
+        masterFD = master
+
+        let slaveHandle = FileHandle(fileDescriptor: slave, closeOnDealloc: false)
+        process.standardInput = slaveHandle
+        process.standardOutput = slaveHandle
         process.standardError = FileHandle.nullDevice
 
         process.terminationHandler = { [weak self] proc in
-            self?.stdinPipe.fileHandleForWriting.closeFile()
+            if let fd = self?.masterFD, fd >= 0 {
+                Darwin.close(fd)
+                self?.masterFD = -1
+            }
+            self?.masterHandle?.readabilityHandler = nil
             self?.onDisconnect?(proc.terminationStatus)
         }
 
-        let handle = stdoutPipe.fileHandleForReading
+        let handle = FileHandle(fileDescriptor: master, closeOnDealloc: false)
+        masterHandle = handle
         handle.readabilityHandler = { [weak self] fh in
             self?.readQueue.async {
                 self?.handleReadableData(fh.availableData)
@@ -162,15 +184,20 @@ final class TmuxControlChannel: @unchecked Sendable {
 
         do {
             try process.run()
+            // Close slave in parent — only the child needs it.
+            Darwin.close(slave)
         } catch {
+            Darwin.close(master)
+            Darwin.close(slave)
+            masterFD = -1
             onDisconnect?(-1)
         }
     }
 
     private func handleReadableData(_ data: Data) {
         guard !data.isEmpty else {
-            // EOF — process has exited or pipe closed.
-            stdoutPipe.fileHandleForReading.readabilityHandler = nil
+            // EOF — process has exited or PTY closed.
+            masterHandle?.readabilityHandler = nil
             flushLineBuffer()
             return
         }
