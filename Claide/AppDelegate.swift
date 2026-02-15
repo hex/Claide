@@ -10,6 +10,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var windowControllers: [MainWindowController] = []
 
     private var keyMonitor: Any?
+    private var flagsMonitor: Any?
+    private var lastShiftReleaseTime: Date = .distantPast
 
     // MARK: - Hotkey Window
 
@@ -51,6 +53,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         DispatchQueue.main.async { self.installTerminalMenu() }
 
         installKeyMonitor()
+        installDoubleShiftMonitor()
         setupHotkeyWindow()
         observeHotkeySettings()
         requestNotificationPermission()
@@ -309,6 +312,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func installKeyMonitor() {
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard let self else { return event }
+            // Any keyDown resets double-shift detection to prevent false triggers
+            // when typing capital letters (Shift+key).
+            self.lastShiftReleaseTime = .distantPast
             let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
 
             if flags == .command, let chars = event.charactersIgnoringModifiers {
@@ -390,6 +396,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     return nil
                 default:
                     break
+                }
+            }
+
+            return event
+        }
+    }
+
+    /// Detects double-tap of Shift to open the command palette (JetBrains-style).
+    ///
+    /// Tracks Shift key release times. Two releases within 400ms triggers the palette,
+    /// as long as no other modifiers are held and it's a pure Shift tap (no key typed between).
+    private func installDoubleShiftMonitor() {
+        flagsMonitor = NSEvent.addLocalMonitorForEvents(matching: .flagsChanged) { [weak self] event in
+            guard let self else { return event }
+            let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+
+            // Shift was released (flags no longer contain .shift)
+            if !flags.contains(.shift) && (event.keyCode == 56 || event.keyCode == 60) {
+                let now = Date()
+                if now.timeIntervalSince(self.lastShiftReleaseTime) < 0.4 {
+                    self.lastShiftReleaseTime = .distantPast
+                    self.toggleCommandPalette()
+                } else {
+                    self.lastShiftReleaseTime = now
                 }
             }
 

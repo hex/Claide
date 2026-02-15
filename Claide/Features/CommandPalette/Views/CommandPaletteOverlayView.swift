@@ -30,7 +30,14 @@ struct CommandPaletteOverlayView: View {
             .frame(maxHeight: .infinity, alignment: .top)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .onAppear { isSearchFocused = true }
+        .onAppear {
+            // Resign AppKit first responder (e.g. GhosttyTerminalView) so
+            // SwiftUI's focus system can claim the search TextField.
+            DispatchQueue.main.async {
+                NSApp.keyWindow?.makeFirstResponder(nil)
+            }
+            isSearchFocused = true
+        }
     }
 
     // MARK: - Search Field
