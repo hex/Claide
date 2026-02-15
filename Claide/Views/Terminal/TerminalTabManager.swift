@@ -253,6 +253,7 @@ final class TerminalTabManager {
         let environment = Self.buildEnvironment()
         let vm = TerminalViewModel()
         vm.isTmuxPane = true
+        vm.executablePath = ProcessInfo.processInfo.environment["SHELL"]
         vm.title = "tmux"
         tabs[tabIndex].paneViewModels[newClaidePaneID] = vm
 
@@ -292,6 +293,7 @@ final class TerminalTabManager {
 
         let vm = TerminalViewModel()
         vm.isTmuxPane = true
+        vm.executablePath = ProcessInfo.processInfo.environment["SHELL"]
         vm.title = title ?? "tmux"
 
         setupTmuxPane(view: view, sessionManager: sessionManager, tmuxPaneID: paneID, environment: environment)
