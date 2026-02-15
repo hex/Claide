@@ -88,3 +88,55 @@ struct TmuxWindowListParsingTests {
         #expect(TmuxSessionManager.parsePaneID("garbage") == nil)
     }
 }
+
+@Suite("TmuxSessionManager — session list parsing")
+struct TmuxSessionListParsingTests {
+
+    @Test("single session")
+    func singleSession() {
+        let response = "main: 3 windows (created Sat Feb 15 10:00:00 2026)"
+        let sessions = TmuxSessionManager.parseSessionList(response)
+        #expect(sessions.count == 1)
+        #expect(sessions[0].name == "main")
+        #expect(sessions[0].windowCount == 3)
+        #expect(sessions[0].isAttached == false)
+    }
+
+    @Test("attached session")
+    func attachedSession() {
+        let response = "dev: 2 windows (created Sat Feb 15 10:00:00 2026) (attached)"
+        let sessions = TmuxSessionManager.parseSessionList(response)
+        #expect(sessions.count == 1)
+        #expect(sessions[0].name == "dev")
+        #expect(sessions[0].isAttached == true)
+    }
+
+    @Test("multiple sessions")
+    func multipleSessions() {
+        let response = """
+        main: 3 windows (created Sat Feb 15 10:00:00 2026) (attached)
+        work: 1 windows (created Sat Feb 15 09:00:00 2026)
+        test: 5 windows (created Fri Feb 14 20:00:00 2026)
+        """
+        let sessions = TmuxSessionManager.parseSessionList(response)
+        #expect(sessions.count == 3)
+        #expect(sessions[0].name == "main")
+        #expect(sessions[0].isAttached == true)
+        #expect(sessions[1].name == "work")
+        #expect(sessions[1].windowCount == 1)
+        #expect(sessions[2].name == "test")
+    }
+
+    @Test("empty response")
+    func emptyResponse() {
+        #expect(TmuxSessionManager.parseSessionList("").isEmpty)
+    }
+
+    @Test("session name with colon")
+    func sessionNameWithColon() {
+        let response = "my:session: 1 windows (created Sat Feb 15 10:00:00 2026)"
+        let sessions = TmuxSessionManager.parseSessionList(response)
+        #expect(sessions.count == 1)
+        #expect(sessions[0].name == "my:session")
+    }
+}

@@ -78,6 +78,7 @@ struct TerminalTabBar: View {
                                     title: tab.viewModel.displayTitle,
                                     isActive: isActive,
                                     isRunning: tab.viewModel.isRunning,
+                                    isTmuxPane: tab.viewModel.isTmuxPane,
                                     executablePath: tab.viewModel.executablePath,
                                     tabColor: tab.viewModel.tabColor,
                                     paneCount: tab.paneController.paneTree.paneCount,
@@ -646,6 +647,7 @@ private struct TabButton: View {
     let title: String
     let isActive: Bool
     let isRunning: Bool
+    let isTmuxPane: Bool
     let executablePath: String?
     let tabColor: TabColor?
     let paneCount: Int
@@ -688,7 +690,7 @@ private struct TabButton: View {
                 // ZStack keeps the icon fixed while close button appears alongside.
                 ZStack {
                     ProcessIcon(
-                        path: executablePath,
+                        path: isTmuxPane ? "tmux" : executablePath,
                         colorOverride: !isActive ? inactiveColor : nil
                     )
                     .opacity(showIndex && index <= 9 ? 0 : (canClose && isHovered && !showIndex ? 0 : 1))

@@ -82,17 +82,40 @@ enum CommandPaletteRegistry {
 
         // tmux control mode
         if tabManager.tmuxSession == nil {
-            items.append(CommandPaletteItem(
-                id: "attach-tmux",
-                title: "Attach tmux Session",
-                icon: "rectangle.connected.to.line.below",
-                action: { @MainActor in tabManager.attachTmux() }
-            ))
+            let sessions = TmuxSessionManager.listSessions()
+            if sessions.isEmpty {
+                // No existing sessions — offer to create a new one
+                items.append(CommandPaletteItem(
+                    id: "attach-tmux-new",
+                    title: "tmux: New Session",
+                    icon: "rectangle.split.3x1",
+                    action: { @MainActor in tabManager.attachTmux() }
+                ))
+            } else {
+                for session in sessions {
+                    let name = session.name
+                    let subtitle = "\(session.windowCount) window\(session.windowCount == 1 ? "" : "s")"
+                        + (session.isAttached ? " (attached)" : "")
+                    items.append(CommandPaletteItem(
+                        id: "attach-tmux-\(name)",
+                        title: "tmux: Attach \(name)",
+                        subtitle: subtitle,
+                        icon: "rectangle.split.3x1",
+                        action: { @MainActor in tabManager.attachTmux(sessionName: name) }
+                    ))
+                }
+                items.append(CommandPaletteItem(
+                    id: "attach-tmux-new",
+                    title: "tmux: New Session",
+                    icon: "rectangle.split.3x1",
+                    action: { @MainActor in tabManager.attachTmux() }
+                ))
+            }
         } else {
             items.append(CommandPaletteItem(
                 id: "detach-tmux",
-                title: "Detach tmux",
-                icon: "rectangle.disconnect.from.line.below",
+                title: "tmux: Detach",
+                icon: "rectangle.split.3x1",
                 action: { @MainActor in tabManager.detachTmux() }
             ))
         }

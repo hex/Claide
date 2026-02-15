@@ -253,6 +253,65 @@ final class TmuxSessionManager {
         return id
     }
 
+    // MARK: - Session List Parsing
+
+    /// Parsed tmux session information from `list-sessions` output.
+    struct SessionInfo {
+        let name: String
+        let windowCount: Int
+        let isAttached: Bool
+    }
+
+    /// Parse `tmux list-sessions` output into session info structs.
+    ///
+    /// Expected format per line: `<name>: N windows (created ...) [(attached)]`
+    /// The name may contain colons, so we match the `: N windows` pattern from the right.
+    nonisolated static func parseSessionList(_ response: String) -> [SessionInfo] {
+        response.split(separator: "\n", omittingEmptySubsequences: true).compactMap { line in
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            guard !trimmed.isEmpty else { return nil }
+
+            // Match ": N windows" to split name from the rest.
+            guard let range = trimmed.range(of: #": (\d+) windows?"#, options: .regularExpression) else {
+                return nil
+            }
+
+            let name = String(trimmed[trimmed.startIndex..<range.lowerBound])
+            let afterColon = trimmed[range]
+            // Extract window count from ": N windows"
+            let digits = afterColon.drop(while: { !$0.isNumber })
+            let windowCount = Int(digits.prefix(while: { $0.isNumber })) ?? 0
+            let isAttached = trimmed.hasSuffix("(attached)")
+
+            return SessionInfo(name: name, windowCount: windowCount, isAttached: isAttached)
+        }
+    }
+
+    /// List available tmux sessions by running `tmux list-sessions` synchronously.
+    ///
+    /// Returns an empty array if tmux is not installed or no sessions exist.
+    nonisolated static func listSessions(tmuxPath: String = "/usr/bin/tmux") -> [SessionInfo] {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: tmuxPath)
+        process.arguments = ["list-sessions"]
+
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = FileHandle.nullDevice
+
+        do {
+            try process.run()
+            process.waitUntilExit()
+        } catch {
+            return []
+        }
+
+        guard process.terminationStatus == 0 else { return [] }
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        guard let output = String(data: data, encoding: .utf8) else { return [] }
+        return parseSessionList(output)
+    }
+
     // MARK: - Resize Handler
 
     /// Returns a resize handler closure for a specific tmux pane.
