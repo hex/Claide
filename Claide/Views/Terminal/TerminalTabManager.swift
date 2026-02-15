@@ -373,6 +373,11 @@ final class TerminalTabManager {
             waitAfterCommand: true
         )
 
+        // Ghostty on macOS wraps all commands in login(1), which prints
+        // "Last login" before exec'ing the command. Clear the screen on
+        // the first feedOutput call so tmux output starts on a clean slate.
+        view.needsScreenClear = true
+
         // Install input interceptor: keystrokes go to tmux, not the local shell.
         view.inputInterceptor = sessionManager.inputInterceptor(forPane: tmuxPaneID)
 

@@ -191,12 +191,28 @@ final class GhosttyTerminalView: NSView {
         surface = nil
     }
 
+    /// Clears the screen on the next `feedOutput` call.
+    ///
+    /// Set by tmux pane setup to wipe login(1)'s "Last login" message
+    /// before the first tmux output arrives.
+    var needsScreenClear = false
+
+    /// Erase display + cursor home.
+    private static let clearSequence = Data("\u{1b}[2J\u{1b}[H".utf8)
+
     /// Feed raw terminal output data into the surface's VTE, bypassing the PTY.
     ///
     /// Used by tmux control mode: decoded `%output` data is injected directly.
     /// The surface must already be started (via `startShell`).
     func feedOutput(_ data: Data) {
         guard let surface else { return }
+        if needsScreenClear {
+            needsScreenClear = false
+            Self.clearSequence.withUnsafeBytes { buffer in
+                guard let ptr = buffer.baseAddress else { return }
+                ghostty_surface_feed_output(surface, ptr, UInt(buffer.count))
+            }
+        }
         data.withUnsafeBytes { buffer in
             guard let ptr = buffer.baseAddress else { return }
             ghostty_surface_feed_output(surface, ptr, UInt(buffer.count))
