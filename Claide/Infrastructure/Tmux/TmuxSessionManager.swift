@@ -43,6 +43,10 @@ final class TmuxSessionManager {
     /// Tracks known pane IDs per window for diffing on layout change.
     private var windowPanes: [Int: Set<Int>] = [:]
 
+    /// Buffers %output data for panes whose views haven't been registered yet.
+    /// Replayed in order when the view is registered via `register(view:forPane:)`.
+    private var pendingOutput: [Int: [Data]] = [:]
+
     init(channel: TmuxControlChannel) {
         self.channel = channel
         channel.onNotification = { [weak self] notification in
@@ -60,8 +64,16 @@ final class TmuxSessionManager {
     // MARK: - Pane Registration
 
     /// Register a terminal view to receive output for a tmux pane.
+    ///
+    /// Replays any buffered `%output` data that arrived before the view
+    /// was created (tmux sends initial pane content immediately on attach).
     func register(view: GhosttyTerminalView, forPane paneID: Int) {
         paneViews[paneID] = view
+        if let buffered = pendingOutput.removeValue(forKey: paneID) {
+            for data in buffered {
+                view.feedOutput(data)
+            }
+        }
     }
 
     /// Remove a pane's view registration.
@@ -146,7 +158,11 @@ final class TmuxSessionManager {
     private func handle(_ notification: TmuxNotification) {
         switch notification {
         case .output(let paneID, let data):
-            paneViews[paneID]?.feedOutput(data)
+            if let view = paneViews[paneID] {
+                view.feedOutput(data)
+            } else {
+                pendingOutput[paneID, default: []].append(data)
+            }
 
         case .windowAdd(let windowID):
             resolveWindowPane(windowID: windowID)
