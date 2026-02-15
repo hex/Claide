@@ -270,6 +270,7 @@ final class TerminalTabManager {
 
     /// Add a new pane from a tmux split-window within an existing tab.
     private func addTmuxPaneToWindow(sessionManager: TmuxSessionManager, windowID: Int, paneID: Int, axis: SplitAxis) {
+        guard tmuxPaneMap[paneID] == nil else { return }
         guard let tabID = tmuxWindowTabs[windowID],
               let tabIndex = tabs.firstIndex(where: { $0.id == tabID }) else { return }
 

@@ -89,6 +89,48 @@ struct TmuxWindowListParsingTests {
     }
 }
 
+@Suite("TmuxSessionManager — window layout parsing")
+struct TmuxWindowLayoutParsingTests {
+
+    @Test("single window with layout")
+    func singleWindowLayout() {
+        let response = "@0\t159x48,0,0,5"
+        let layouts = TmuxSessionManager.parseWindowLayouts(response)
+        #expect(layouts.count == 1)
+        #expect(layouts[0].windowID == 0)
+        #expect(layouts[0].layout == "159x48,0,0,5")
+    }
+
+    @Test("multiple windows with layouts")
+    func multipleWindowLayouts() {
+        let response = """
+        @0\t80x24,0,0{40x24,0,0,1,39x24,41,0,2}
+        @1\t80x24,0,0,3
+        """
+        let layouts = TmuxSessionManager.parseWindowLayouts(response)
+        #expect(layouts.count == 2)
+        #expect(layouts[0].windowID == 0)
+        #expect(layouts[0].layout.contains("{"))
+        #expect(layouts[1].windowID == 1)
+    }
+
+    @Test("malformed lines are skipped")
+    func malformedLinesSkipped() {
+        let response = """
+        @0\t159x48,0,0,5
+        garbage
+        @1\t80x24,0,0,3
+        """
+        let layouts = TmuxSessionManager.parseWindowLayouts(response)
+        #expect(layouts.count == 2)
+    }
+
+    @Test("empty response returns empty")
+    func emptyResponse() {
+        #expect(TmuxSessionManager.parseWindowLayouts("").isEmpty)
+    }
+}
+
 @Suite("TmuxSessionManager — session list parsing")
 struct TmuxSessionListParsingTests {
 

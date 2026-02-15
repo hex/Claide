@@ -198,23 +198,38 @@ final class TmuxSessionManager {
     /// Query tmux for all existing windows and create tabs for each.
     ///
     /// Sends `list-panes -s` to enumerate all panes in the session.
-    /// Calls `onWindowAdd` for each window found.
+    /// Calls `onWindowAdd` once per window (first pane only), then queries
+    /// layouts to discover additional panes via `handleLayoutChange`.
     func enumerateWindows() {
         let format = "#{window_id}\t#{pane_id}\t#{window_name}"
         sendCommand("list-panes -s -F '\(format)'") { [weak self] result in
             guard let self else { return }
             if case .success(let data) = result {
                 let windows = Self.parseWindowList(data)
-                // Group panes by window for initial tracking
-                var grouped: [Int: [WindowInfo]] = [:]
+                // Fire onWindowAdd once per window (first pane creates the tab).
+                // Track only the first pane so handleLayoutChange diffs correctly.
+                var seen = Set<Int>()
                 for window in windows {
-                    grouped[window.windowID, default: []].append(window)
+                    if seen.insert(window.windowID).inserted {
+                        self.windowPanes[window.windowID] = Set([window.paneID])
+                        self.onWindowAdd?(window.windowID, window.paneID, window.name)
+                    }
                 }
-                for (windowID, panes) in grouped {
-                    self.windowPanes[windowID] = Set(panes.map(\.paneID))
-                }
-                for window in windows {
-                    self.onWindowAdd?(window.windowID, window.paneID, window.name)
+                // Query layouts to add remaining panes in multi-pane windows.
+                self.enumerateLayouts()
+            }
+        }
+    }
+
+    /// Query tmux for the layout of each window and process through
+    /// `handleLayoutChange` to create panes not covered by `enumerateWindows`.
+    private func enumerateLayouts() {
+        sendCommand("list-windows -F '#{window_id}\t#{window_layout}'") { [weak self] result in
+            guard let self else { return }
+            if case .success(let data) = result {
+                let layouts = Self.parseWindowLayouts(data)
+                for wl in layouts {
+                    self.handleLayoutChange(windowID: wl.windowID, layout: wl.layout)
                 }
             }
         }
@@ -298,6 +313,7 @@ final class TmuxSessionManager {
                 let parts = trimmed.split(separator: " ", maxSplits: 1)
                 if let first = parts.first, first.hasPrefix("%"), let paneID = Int(first.dropFirst()) {
                     let name = parts.count > 1 ? String(parts[1]) : nil
+                    self.windowPanes[windowID, default: []].insert(paneID)
                     self.onWindowAdd?(windowID, paneID, name)
                 }
             }
@@ -336,6 +352,30 @@ final class TmuxSessionManager {
         let trimmed = response.trimmingCharacters(in: .whitespacesAndNewlines)
         guard trimmed.hasPrefix("%"), let id = Int(trimmed.dropFirst()) else { return nil }
         return id
+    }
+
+    // MARK: - Window Layout Parsing
+
+    /// Parsed tmux window layout from `list-windows` output.
+    struct WindowLayout {
+        let windowID: Int
+        let layout: String
+    }
+
+    /// Parse tab-separated `list-windows` output into window layout structs.
+    ///
+    /// Expected format per line: `@<windowID>\t<layout_descriptor>`
+    /// Lines that don't match the expected format are skipped.
+    nonisolated static func parseWindowLayouts(_ response: String) -> [WindowLayout] {
+        response.split(separator: "\n", omittingEmptySubsequences: true).compactMap { line in
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            let parts = trimmed.split(separator: "\t", maxSplits: 1)
+            guard parts.count == 2,
+                  parts[0].hasPrefix("@"),
+                  let windowID = Int(parts[0].dropFirst())
+            else { return nil }
+            return WindowLayout(windowID: windowID, layout: String(parts[1]))
+        }
     }
 
     // MARK: - Session List Parsing
