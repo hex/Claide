@@ -75,17 +75,38 @@ final class TmuxSessionManager {
     /// (which arrives on the PTY thread) has time to finish before we
     /// clear it via feedOutput on the main thread.
     func register(view: GhosttyTerminalView, forPane paneID: Int) {
-        paneViews[paneID] = view
-        let buffered = pendingOutput.removeValue(forKey: paneID)
+        // Don't set paneViews yet — keep buffering %output during the delay
+        // so nothing renders while login(1) is still writing to the PTY.
+        let preBuffer = pendingOutput.removeValue(forKey: paneID) ?? []
 
-        // Delay clear + replay so login(1)'s "Last login" message (on the
-        // PTY thread) finishes before we overwrite it via feedOutput.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak view] in
-            guard let view else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self, weak view] in
+            guard let self, let view else { return }
+            // Clear login(1)'s "Last login" output.
             view.feedOutput(Self.clearSequence)
-            if let buffered {
-                for data in buffered {
+            // Replay output that arrived before registration.
+            for data in preBuffer {
+                view.feedOutput(data)
+            }
+            // Replay output that arrived during the 300ms delay.
+            if let delayed = self.pendingOutput.removeValue(forKey: paneID) {
+                for data in delayed {
                     view.feedOutput(data)
+                }
+            }
+            // Now register for direct routing of future output.
+            self.paneViews[paneID] = view
+            // tmux control mode does not re-send existing screen content as
+            // %output on attach — only new data triggers notifications. For
+            // idle panes (shell waiting at prompt), we must actively capture
+            // the visible content and feed it to the terminal.
+            self.sendCommand("capture-pane -t %\(paneID) -p -e") { [weak self] result in
+                guard let self else { return }
+                if case .success(let content) = result,
+                   content.contains(where: { !$0.isWhitespace }),
+                   let view = self.paneViews[paneID] {
+                    var payload = Self.clearSequence
+                    payload.append(Data(content.utf8))
+                    view.feedOutput(payload)
                 }
             }
         }
