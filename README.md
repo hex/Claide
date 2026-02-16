@@ -8,7 +8,7 @@
 
 A GPU-accelerated macOS terminal emulator built with Swift and [GhosttyKit](https://github.com/ghostty-org/ghostty). Ghostty provides VTE emulation, PTY management, and Metal rendering. Includes a project visualization sidebar for [Claude Code](https://docs.anthropic.com/en/docs/claude-code) sessions.
 
-Version 2026.2.1 | macOS 14.0+ | Swift 6.0 | MIT License
+Version 2026.2.2 | macOS 14.0+ | Swift 6.0 | MIT License
 
 <p align="center">
   <img src="docs/screenshot.png" width="720" alt="Claide screenshot">
@@ -34,6 +34,7 @@ Or download the latest DMG from [GitHub Releases](https://github.com/hex/Claide/
 - **IME**: Full `NSTextInputClient` implementation (marked text, candidate window)
 - **Process icons**: Recognizes 40+ executables in the tab bar
 - **Claude Code integration**: Context usage tracking via process tree walk + JSONL transcript parsing
+- **tmux control mode**: Attach to tmux sessions via `-CC`. Native tab/pane mapping, nested split reconstruction, input routing, and paste interception. Session picker with existing session detection.
 - **Hotkey window**: Quake-style dropdown terminal toggled by a global hotkey. Slides in from any screen edge, works over fullscreen apps. Configurable size, position, animation, and behavior.
 
 ### Sidebar
@@ -129,6 +130,13 @@ Claide/
     Ghostty/
       GhosttyApp.swift           # Singleton owning ghostty_app_t, config, callbacks
       GhosttyTerminalView.swift  # NSView hosting ghostty_surface_t with Metal rendering
+    Tmux/
+      TmuxControlChannel.swift   # PTY-backed tmux -CC process management
+      TmuxProtocolParser.swift   # Streaming parser for tmux control mode protocol
+      TmuxNotification.swift     # Typed tmux notification model (%output, %layout-change, etc.)
+      TmuxSessionManager.swift   # Maps tmux panes/windows to Claide views, routes I/O
+      TmuxLayoutParser.swift     # Recursive descent parser for tmux layout descriptors
+      TmuxKeyEncoder.swift       # NSEvent to tmux send-keys notation conversion
   HotkeyWindow/
     GlobalHotkey.swift           # Carbon RegisterEventHotKey wrapper
     HotkeyWindowController.swift # Dropdown window positioning, animation, fullscreen overlay
@@ -213,21 +221,11 @@ In-app update checking via [Sparkle](https://sparkle-project.org/). The "Check f
 xcodebuild -scheme Claide -destination 'platform=macOS' test
 ```
 
-Tests cover issue parsing, force layout convergence, node/edge visuals, kanban columns, font selection, file change parsing, Claude Code task parsing, color schemes, pane node tree operations, pane tree controller lifecycle, pane container view layout, palette resolution, foreground process detection, main window controller, terminal view model, terminal tab manager, session status, and zoom-adaptive metrics.
+Tests cover issue parsing, force layout convergence, node/edge visuals, kanban columns, font selection, file change parsing, Claude Code task parsing, color schemes, pane node tree operations, pane tree controller lifecycle, pane container view layout, palette resolution, foreground process detection, main window controller, terminal view model, terminal tab manager, session status, zoom-adaptive metrics, tmux protocol parsing, tmux layout parsing, tmux window lifecycle, tmux pane mapping, and tmux split routing.
 
-## Vision
+## Status
 
-Claide is a personal dashboard for working alongside Claude Code. The terminal is the primary workspace; everything else exists to provide context without switching windows.
-
-Near-term:
-- Issue creation and status updates directly from the sidebar
-- Drag-and-drop between kanban columns (dispatches `bd update` under the hood)
-- Graph edge labels and filtering by dependency type
-- Session history: switch between multiple `cs` sessions
-
-Longer-term:
-- Watch `bd` output for real-time issue updates (same pattern as FileWatcher)
-- Searchable file change log with path filtering
+Claide is feature-complete for its original scope: a GPU-accelerated terminal with Claude Code monitoring, tmux control mode, and a project visualization sidebar. Development is paused.
 
 ## License
 
